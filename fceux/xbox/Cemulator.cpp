@@ -793,17 +793,34 @@ HRESULT Cemulator::Run()
 		{
 			if(RenderEmulation == true)
 			{
-				FCEUI_Emulate(&bitmap, &snd, &sndsize, 0);
-				for(int i = 0;i<(256*240);i++)
-				{
-					//Make an ARGB bitmap
-					nesBitmap[i] = ( (pcpalette[bitmap[i]].r) << 16) | ( (pcpalette[bitmap[i]].g) << 8 ) | ( pcpalette[bitmap[i]].b ) | ( 0xFF << 24 );
-				}
-				
-				gfx_filter.UpdateFilter(nesBitmap);
-
-				UpdateAudio(snd, sndsize);
+				// Update input first so each frame uses current input state
 				UpdateInput();
+				
+				// Check for fast forward (RT trigger) - Gamepads array is already updated by UpdateInput()
+				bool fastForward = false;
+				if(Gamepads[0].bRightTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD)
+					fastForward = true;
+				
+				// Fast forward multiplier (fixed at 2x speed)
+				int framesToRun = fastForward ? 2 : 1;
+				
+				for(int frame = 0; frame < framesToRun; frame++)
+				{
+					FCEUI_Emulate(&bitmap, &snd, &sndsize, 0);
+					
+					// Only process bitmap/audio for the last frame to maintain smooth playback
+					if(frame == framesToRun - 1)
+					{
+						for(int i = 0;i<(256*240);i++)
+						{
+							//Make an ARGB bitmap
+							nesBitmap[i] = ( (pcpalette[bitmap[i]].r) << 16) | ( (pcpalette[bitmap[i]].g) << 8 ) | ( pcpalette[bitmap[i]].b ) | ( 0xFF << 24 );
+						}
+						
+						gfx_filter.UpdateFilter(nesBitmap);
+						UpdateAudio(snd, sndsize);
+					}
+				}
 			}
 			UpdateVideo();
 			Render();
