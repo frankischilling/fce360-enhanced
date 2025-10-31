@@ -5,11 +5,17 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.3.0** — *in-game OSD (pause menu), save states/slots, quick reset, + prior scrolling upgrades*
+* Current release: **v0.3.1** — *fast forward (RT trigger), in-game OSD (pause menu), save states/slots, quick reset, + prior scrolling upgrades*
 
 ---
 
-## What’s new (v0.3.0)
+## What's new (v0.3.1)
+
+* **Fast Forward:** Press and hold **RT (Right Trigger)** during gameplay to speed up emulation at 2x speed. Release to return to normal speed. No configuration needed.
+
+---
+
+## What's new (v0.3.0)
 
 * **In-game OSD & auto-pause:** Press **START + BACK** during gameplay to open the OSD. Emulation **pauses on entry** and **resumes on exit**.
 * **Save states with slots:** Save/Load using a slot selector (0–9) from the OSD.
@@ -79,13 +85,19 @@ Steps
 
 ## Controls (front-end & OSD)
 
+### ROM Browser
+
 * **Right Stick (hold up/down):** *Time-based acceleration* of selection.
 * **LB / RB (hold):** Page up / page down at a steady cadence.
 * **D-pad / Left Stick:** Single-step precision (native XUI behavior).
 * **A:** Load game & start emulation.
 * **B:** Back.
-* **START + BACK (in-game):** Open **OSD** (auto-pause).
-* **OSD actions:** Save/Load State (with slots), Reset Game, GFX options (experimental). Exiting OSD resumes gameplay; “Load Game” returns to ROM browser.
+
+### In-Game
+
+* **RT (Right Trigger):** **Fast Forward** — Hold to speed up emulation at 2x speed. Release to return to normal speed.
+* **START + BACK:** Open **OSD** (auto-pause).
+* **OSD actions:** Save/Load State (with slots), Reset Game, GFX options (experimental). Exiting OSD resumes gameplay; "Load Game" returns to ROM browser.
 
 ---
 
@@ -136,6 +148,12 @@ FCEUX360-<version>-xex.zip
 
 ## Changelog
 
+* **v0.3.1**
+
+  * feat(emulation): Fast forward via RT trigger at fixed 2x speed multiplier.
+  * tech: Added fast forward detection in main emulation loop; runs multiple frames per render cycle when active.
+  * tech: Optimized audio/video processing to only occur on final frame during fast forward.
+  * fix(ui): Removed C++11 in-class initialization in `mainui.cpp` for compatibility with build configuration.
 * **v0.3.0**
 
   * feat(osd): in-game OSD via **START + BACK**, auto-pause on entry, resume on exit.
