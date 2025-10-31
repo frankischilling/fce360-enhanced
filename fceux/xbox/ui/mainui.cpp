@@ -86,11 +86,16 @@ protected:
 	}
 };
 
+// forward
+class XuiRunner;
+static XuiRunner* g_EmuSceneInstance = NULL;
+
 class XuiRunner:public CXuiEmulationScene{
 /*
 	Display (nothing) when emulation is running
 */
 	CXuiControl XuiNext;
+	bool m_comboLatch;  // prevents re-trigger while still held
 	
 public:
 	XUI_IMPLEMENT_CLASS( XuiRunner, L"XuiRunner", XUI_CLASS_SCENE );
@@ -101,6 +106,31 @@ public:
 		XUI_ON_XM_LEAVE_TAB ( OnLeaveTab )
 		XUI_ON_XM_ENTER_TAB ( OnEnterTab )
     XUI_END_MSG_MAP()
+
+    // Called once per frame from RenderXui()
+    void UpdatePerFrame()
+    {
+        // Only act while we're actually "in game"
+        if (!emul.RenderEmulation) return;
+
+        Input::GetInput(NULL);
+        GAMEPAD* pad = Input::GetMergedInput(0, NULL);
+        if (!pad) return;
+
+        const bool both =
+            (pad->wButtons & XINPUT_GAMEPAD_START) &&
+            (pad->wButtons & XINPUT_GAMEPAD_BACK); // "select" on 360
+
+        if (both && !m_comboLatch) {
+            m_comboLatch = true;
+            // In your tab order, XuiRunner -> OSD is "next"
+            GoToNext();                 // opens the OSD tab
+            // OSD::OnEnterTab() pauses emulation already
+        }
+        if (!both) {
+            m_comboLatch = false;       // reset latch when released
+        }
+    }
 	
 	HRESULT OnEnterTab( BOOL &bHandled){
 		emul.RenderEmulation = true;//run emulation
@@ -119,6 +149,8 @@ public:
     HRESULT OnInit( XUIMessageInit* pInitData, BOOL& bHandled )
     {
 		EnableTab(false);
+		m_comboLatch = false;  // initialize latch
+		g_EmuSceneInstance = this;              // expose instance
 
 		HRESULT hr = GetChildById( L"XuiNext", &XuiNext );
         if( FAILED( hr ) ){	return hr;	}
@@ -778,6 +810,10 @@ HRESULT RenderXui(IDirect3DDevice9* pDevice)
 	if( g_LoadGameInstance )
 	{
 		g_LoadGameInstance->UpdatePerFrame();
+	}
+	if( g_EmuSceneInstance )
+	{
+		g_EmuSceneInstance->UpdatePerFrame();
 	}
 
 	XuiTimersRun();
