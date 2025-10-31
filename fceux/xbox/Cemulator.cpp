@@ -135,6 +135,7 @@ Cemulator::Cemulator(void)
 	m_Settings.SelectedVertexFilter = FullScreen;
 	snd_written = 0;
 	ftime = 0.0f;
+	m_screenshotLatch = false;
 }
 
 HRESULT Cemulator::InitVideo(){
@@ -601,6 +602,14 @@ HRESULT Cemulator::LoadGame(std::string name, bool restart)
 // Set some setting
 //-------------------------------------------------------------------------------------
 	FCEUI_SetBaseDirectory("game:");
+	
+	// Set snapshot directory and ensure it exists
+	static char snapDir[] = "game:\\snaps";
+	FCEUI_SetDirOverride(FCEUIOD_SNAPS, snapDir);
+	
+	// Create snaps directory if it doesn't exist
+	CreateDirectoryA("game:\\snaps", NULL);
+	
 	FCEUI_SetVidSystem(0);
 
 	//Apply settings
@@ -619,6 +628,45 @@ HRESULT Cemulator::LoadGame(std::string name, bool restart)
 //-------------------------------------------------------------------------------------	
 	if(FCEUI_LoadGame(name.c_str() ,0)!=NULL)
 	{
+		// Ensure FileBase is set correctly from the ROM filename for proper snapshot naming
+		extern char FileBase[];
+		
+		// Manually extract the filename from the path
+		std::string romPath = name;
+		std::string romFilename;
+		
+		// Handle zip archive format: "path.zip|internal.nes"
+		size_t pipePos = romPath.find('|');
+		if(pipePos != std::string::npos)
+		{
+			romFilename = romPath.substr(pipePos + 1);
+		}
+		else
+		{
+			romFilename = romPath;
+		}
+		
+		// Extract just the filename without path
+		size_t lastSlash = romFilename.find_last_of("\\/");
+		if(lastSlash != std::string::npos)
+		{
+			romFilename = romFilename.substr(lastSlash + 1);
+		}
+		
+		// Remove extension (.nes, .zip, etc.)
+		size_t lastDot = romFilename.find_last_of(".");
+		if(lastDot != std::string::npos)
+		{
+			romFilename = romFilename.substr(0, lastDot);
+		}
+		
+		// Set FileBase to the extracted filename (without extension)
+		if(romFilename.length() > 0)
+		{
+			strncpy(FileBase, romFilename.c_str(), 2047);
+			FileBase[2047] = '\0';
+		}
+		
 		FCEUI_SetInput(0, SI_GAMEPAD, (void*)&powerpadbuf, 0);
 		FCEUI_SetInput(1, SI_GAMEPAD, (void*)&powerpadbuf, 0);
 
@@ -795,6 +843,21 @@ HRESULT Cemulator::Run()
 			{
 				// Update input first so each frame uses current input state
 				UpdateInput();
+				
+				// Check for screenshot (LEFT_THUMB button + LT trigger)
+				bool screenshotCombo = 
+					(Gamepads[0].wButtons & XINPUT_GAMEPAD_LEFT_THUMB) &&
+					(Gamepads[0].bLeftTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
+				
+				if(screenshotCombo && !m_screenshotLatch)
+				{
+					m_screenshotLatch = true;
+					FCEUI_SaveSnapshot();
+				}
+				else if(!screenshotCombo)
+				{
+					m_screenshotLatch = false;
+				}
 				
 				// Check for fast forward (RT trigger) - Gamepads array is already updated by UpdateInput()
 				bool fastForward = false;

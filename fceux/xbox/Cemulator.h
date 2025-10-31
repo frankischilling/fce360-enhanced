@@ -73,6 +73,7 @@ private:
 	};
 
 	bool end;
+	bool m_screenshotLatch;  // prevents multiple screenshots per button press
 
 	void SendExitSignal()
 	{
@@ -214,7 +215,7 @@ private:
 		unsigned int * data;
 		DWORD pitch;
 
-		// filtre utilisé en cours
+		// filtre utilisï¿½ en cours
 		DWORD32 selFilter;
 
 		HRESULT CreateTexture()
