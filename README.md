@@ -1,4 +1,4 @@
-# fce360-enhanced (FCEUX-360 UI tweaks)
+# fce360-enhanced (FCEUX-360 tweaks)
 
 Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsiveness. Core emulation code remains intact; improvements are limited to the Xbox UI layer (XUI scenes, input cadence, list scrolling).
 
