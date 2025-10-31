@@ -129,7 +129,7 @@ FCEUX360-<version>-xex.zip
 * **GFX settings revert or don’t apply:** Known issue; sometimes UI state and renderer can desync on scene changes. Work is in progress to harden state propagation and persistence.
 * **“Holding longer doesn’t speed up”:** Acceleration is on **Right Stick**; D-pad/Left Stick remain single-step. Check the RS deadzone and stick calibration.
 * **Black UI or missing text:** Verify `media\ui.xzp` and `media\xarialuni.ttf` are present.
-* **Empty ROM list:** Place `.nes` files under `roms\`.
+* **Empty ROM list:** Place `.nes`/`.zip` files under `roms\`.
 * **Post-build copy error:** Expected without Neighborhood; deploy via FTP manually.
 
 ---
