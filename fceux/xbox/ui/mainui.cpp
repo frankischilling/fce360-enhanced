@@ -94,7 +94,6 @@ class XuiRunner:public CXuiEmulationScene{
 /*
 	Display (nothing) when emulation is running
 */
-	CXuiControl XuiNext;
 	bool m_comboLatch;  // prevents re-trigger while still held
 	
 public:
@@ -102,7 +101,6 @@ public:
 
     XUI_BEGIN_MSG_MAP()
         XUI_ON_XM_INIT( OnInit )
-		XUI_ON_XM_NOTIFY_PRESS( OnNotifyPress )
 		XUI_ON_XM_LEAVE_TAB ( OnLeaveTab )
 		XUI_ON_XM_ENTER_TAB ( OnEnterTab )
     XUI_END_MSG_MAP()
@@ -151,22 +149,9 @@ public:
 		EnableTab(false);
 		m_comboLatch = false;  // initialize latch
 		g_EmuSceneInstance = this;              // expose instance
-
-		HRESULT hr = GetChildById( L"XuiNext", &XuiNext );
-        if( FAILED( hr ) ){	return hr;	}
 		
         return S_OK;
     }
-
-	HRESULT OnNotifyPress( HXUIOBJ hObjPressed, BOOL& bHandled )
-	{
-		HRESULT hr = S_OK;
-		if( hObjPressed == XuiNext )
-		{
-			GoToNext();
-		}
-		return S_OK;
-	}
 };
 
 typedef struct _LIST_ITEM_INFO {
