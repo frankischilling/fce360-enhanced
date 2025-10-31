@@ -1,0 +1,27 @@
+<XuiCanvas version="000c">
+<Properties>
+<Width>1280.000000</Width>
+<Height>720.000000</Height>
+</Properties>
+<XuiScene>
+<Properties>
+<Id>Xuir</Id>
+<Width>1280.000000</Width>
+<Height>720.000000</Height>
+<ClassOverride>XuiRunner</ClassOverride>
+<Visual>XuiSceneBlank</Visual>
+</Properties>
+<XuiNavButton>
+<Properties>
+<Id>XuiNavButton1</Id>
+<Width>215.000000</Width>
+<Height>38.000000</Height>
+<Position>880.000000,616.000000,0.000000</Position>
+<Visual>Y_Button</Visual>
+<UnfocusedInput>true</UnfocusedInput>
+<Text>Osd ...</Text>
+<PressPath>OSD.xur</PressPath>
+</Properties>
+</XuiNavButton>
+</XuiScene>
+</XuiCanvas>
