@@ -5,7 +5,13 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.3.1** — *fast forward (RT trigger), in-game OSD (pause menu), save states/slots, quick reset, + prior scrolling upgrades*
+* Current release: **v0.4.0** — *screenshot capture, fast forward (RT trigger), in-game OSD (pause menu), save states/slots, quick reset, + prior scrolling upgrades*
+
+---
+
+## What's new (v0.4.0)
+
+* **Screenshot capture:** Press **LEFT_THUMB (left stick click) + LT trigger** simultaneously during gameplay to capture screenshots. Screenshots are saved to `game:\snaps\` as PNG files using the ROM filename (e.g., `SuperMario-0.png`). Latch mechanism prevents multiple screenshots per button press.
 
 ---
 
@@ -96,6 +102,7 @@ Steps
 ### In-Game
 
 * **RT (Right Trigger):** **Fast Forward** — Hold to speed up emulation at 2x speed. Release to return to normal speed.
+* **LEFT_THUMB + LT:** **Screenshot** — Press simultaneously to capture a screenshot. Saved to `game:\snaps\` using ROM filename (e.g., `SuperMario-0.png`).
 * **START + BACK:** Open **OSD** (auto-pause).
 * **OSD actions:** Save/Load State (with slots), Reset Game, GFX options (experimental). Exiting OSD resumes gameplay; "Load Game" returns to ROM browser.
 
@@ -142,12 +149,22 @@ FCEUX360-<version>-xex.zip
 * **“Holding longer doesn’t speed up”:** Acceleration is on **Right Stick**; D-pad/Left Stick remain single-step. Check the RS deadzone and stick calibration.
 * **Black UI or missing text:** Verify `media\ui.xzp` and `media\xarialuni.ttf` are present.
 * **Empty ROM list:** Place `.nes`/`.zip` files under `roms\`.
+* **Screenshots not saving:** Ensure you're pressing LEFT_THUMB (stick click, not movement) + LT trigger simultaneously. Verify `game:\snaps\` directory exists and has write permissions.
 * **Post-build copy error:** Expected without Neighborhood; deploy via FTP manually.
 
 ---
 
 ## Changelog
 
+* **v0.4.0**
+
+  * feat(screenshot): Screenshot capture via LEFT_THUMB button + LT trigger during gameplay.
+  * feat(screenshot): Screenshots saved to `game:\snaps\` with automatic directory creation.
+  * feat(screenshot): Screenshots use actual ROM filename instead of generic "game" naming (e.g., `SuperMario-0.png`).
+  * tech: Manually extracts filename from ROM path and sets FileBase for proper snapshot naming.
+  * tech: Supports ROMs from .nes files and .zip archives.
+  * fix(screenshot): Fixed button detection to use current frame state (wButtons) instead of previous frame.
+  * fix(screenshot): Made snapshot directory string static to ensure pointer validity.
 * **v0.3.1**
 
   * feat(emulation): Fast forward via RT trigger at fixed 2x speed multiplier.
