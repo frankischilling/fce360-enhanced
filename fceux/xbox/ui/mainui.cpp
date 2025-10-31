@@ -9,6 +9,8 @@
 #include <vector>
 #include <stdio.h>
 #include <tchar.h>
+#include <math.h>
+#include <algorithm>
 #include "..\Cemulator.h"
 #include "..\config_reader.h"
 #include "..\input.h"
@@ -384,13 +386,27 @@ private:
 	//list des roms
 	std::vector<rom_item> m_rom_list;
 
-    // Accelerated scroll state
+    // Scroll state
     DWORD m_lastMoveTick;
     DWORD m_holdStartTick;
     int   m_lastDir; // -1, 0, +1
-    int   m_initialDelayMs;
-    int   m_repeatIntervalMs;
-    int   m_maxStep;
+    
+    // Tuning
+    int   m_initialDelayMs;    // delay before first repeat when held
+    int   m_repeatIntervalMs;  // cadence while held
+    int   m_minDwellMs;        // hard minimum time between row changes
+    float m_deadzone;          // analog deadzone
+    int   m_pageSize;          // for LB/RB paging
+    
+    // RS time-based acceleration state
+    int   m_rsHoldDir;        // -1, 0, +1
+    DWORD m_rsHoldStartTick;  // when the current RS hold began
+    DWORD m_rsLastInjectTick; // last time we injected a ScrollBy() from RS
+    
+    // LS/DPAD (left stick or dpad) time-based acceleration
+    int   m_navHoldDir;        // -1, 0, +1
+    DWORD m_navHoldStartTick;  // when current LS/DPAD hold began
+    DWORD m_navLastInjectTick; // last injected ScrollBy() from LS/DPAD
 
 public:
 	XUI_IMPLEMENT_CLASS( LoadGame, L"RomChoose", XUI_CLASS_SCENE );
@@ -447,13 +463,27 @@ public:
 			}
 		}
 
-        // init accelerated scroll config/state
+        // init scroll config/state
         m_lastMoveTick = 0;
         m_holdStartTick = 0;
         m_lastDir = 0;
-        m_initialDelayMs = 120;   // faster initial repeat delay
-        m_repeatIntervalMs = 45;  // faster repeat cadence
-        m_maxStep = 6;            // cap step size
+
+        // Tuned for "fast but precise"
+        m_initialDelayMs = 180;   // was 220 — faster initial response
+        m_repeatIntervalMs = 70;  // was 85 — quicker repeat cadence
+        m_minDwellMs = 50;        // was 70 — faster but safe minimum
+        m_deadzone = 0.25f;      // was ~0.15 — tiny deflections won't repeat
+        m_pageSize = 12;          // was 8 — bigger page steps
+        
+        // Initialize RS time-based acceleration state
+        m_rsHoldDir        = 0;
+        m_rsHoldStartTick  = 0;
+        m_rsLastInjectTick = 0;
+        
+        // Initialize LS/DPAD time-based acceleration state
+        m_navHoldDir        = 0;
+        m_navHoldStartTick  = 0;
+        m_navLastInjectTick = 0;
 
         // expose instance for per-frame updates from RenderXui
         g_LoadGameInstance = this;
@@ -461,74 +491,155 @@ public:
         return S_OK;
     }
     
+    void Page(int dir /* +1 = up page, -1 = down page */)
+    {
+        int count = XuiRomList.GetItemCount();
+        if (count <= 0) return;
+
+        int cur = XuiRomList.GetCurSel();
+        int next = cur + (dir > 0 ? -m_pageSize : +m_pageSize);
+        if (next < 0) next = 0;
+        if (next >= count) next = count - 1;
+
+        if (next != cur)
+        {
+            XuiRomList.SetCurSel(next);
+
+            // keep selection roughly centered
+            int visible = 10;
+            int top = next - (visible / 2);
+            if (top < 0) top = 0;
+            int maxTop = (count > visible) ? (count - visible) : 0;
+            if (top > maxTop) top = maxTop;
+            XuiRomList.SetTopItem(top);
+        }
+    }
+
     void UpdatePerFrame()
     {
-        // Poll merged input and implement accelerated scrolling for the ROM list
-        Input::GetInput( NULL );
-        GAMEPAD* pad = Input::GetMergedInput( 0, NULL );
-        if( !pad )
-            return;
-
-        // Determine intended vertical direction from D-pad or left stick
-        int dir = 0;
-        if( pad->wButtons & XINPUT_GAMEPAD_DPAD_UP )
-            dir = +1;
-        else if( pad->wButtons & XINPUT_GAMEPAD_DPAD_DOWN )
-            dir = -1;
-        else
-        {
-            // Use analog deflection with small deadzone beyond XINPUT default normalization
-            if( pad->fY1 > 0.15f ) dir = +1;
-            else if( pad->fY1 < -0.15f ) dir = -1;
-        }
+        Input::GetInput(NULL);
+        GAMEPAD* pad = Input::GetMergedInput(0, NULL);
+        if (!pad) return;
 
         DWORD now = GetTickCount();
 
-        if( dir == 0 )
+        // 1) PAGING (LB/RB) — repeats while held
+        static DWORD lastPageTick = 0;
+        const DWORD pageRepeatMs  = 100;
+        if (pad->wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER)
         {
-            // Reset hold when released/neutral
-            m_lastDir = 0;
-            m_holdStartTick = 0;
-            m_lastMoveTick = 0;
+            if (now - lastPageTick >= pageRepeatMs) { Page(+1); lastPageTick = now; }
+            return;
+        }
+        if (pad->wButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER)
+        {
+            if (now - lastPageTick >= pageRepeatMs) { Page(-1); lastPageTick = now; }
             return;
         }
 
-        // If direction changed or starting a new hold, move immediately and start timing
-        if( dir != m_lastDir || m_holdStartTick == 0 )
-        {
-            m_lastDir = dir;
-            m_holdStartTick = now;
-            m_lastMoveTick = now;
+        // ---- RIGHT STICK acceleration (selection) ----
+        const float RS_DEADZONE = 0.28f;
+        float rsY = pad->fY2;              // up = +, down = -
+        int   rsDir = 0;
+        if      (rsY >  RS_DEADZONE) rsDir = +1;
+        else if (rsY < -RS_DEADZONE) rsDir = -1;
 
-            ScrollBy(dir, 1);
+        if (rsDir == 0)
+        {
+            // Reset RS state if neutral
+            m_rsHoldDir        = 0;
+            m_rsHoldStartTick  = 0;
+            m_rsLastInjectTick = 0;
+        }
+        else
+        {
+            if (m_rsHoldDir != rsDir || m_rsHoldStartTick == 0)
+            {
+                m_rsHoldDir        = rsDir;
+                m_rsHoldStartTick  = now;
+                m_rsLastInjectTick = 0; // allow immediate inject
+            }
+
+            DWORD heldMs = now - m_rsHoldStartTick;
+
+            DWORD intervalMs;
+            int steps;
+
+            // Time → speed tiers (friendly → fast, with hard cap)
+            if      (heldMs < 200)  { intervalMs = 150; steps = 1; }
+            else if (heldMs < 450)  { intervalMs = 115; steps = 1; }
+            else if (heldMs < 800)  { intervalMs =  85; steps = 1; }
+            else if (heldMs < 1200) { intervalMs =  65; steps = 2; }
+            else if (heldMs < 1800) { intervalMs =  50; steps = 2; }
+            else if (heldMs < 2600) { intervalMs =  40; steps = 3; }
+            else                    { intervalMs =  35; steps = 3; } // cap
+
+            // Fine control by deflection magnitude
+            float mag = fabsf(rsY);
+            if      (mag < 0.55f) steps = 1;
+            else if (mag < 0.80f) steps = (steps > 1 ? 2 : 1);
+            // >= 0.80f keeps computed steps
+
+            if (m_rsLastInjectTick == 0 || (now - m_rsLastInjectTick) >= intervalMs)
+            {
+                ScrollBy(rsDir, steps);
+                m_rsLastInjectTick = now;
+            }
+
+            // RS path owns movement this frame (prevents double-ramp when both sticks used)
             return;
         }
 
-        // Compute how many ms since hold and last move
-        DWORD heldMs = now - m_holdStartTick;
-        DWORD sinceMove = now - m_lastMoveTick;
+        // ---- LS/DPAD acceleration (adds speed on top of XUI's own repeat) ----
+        const float LS_DEADZONE = 0.28f;
+        bool upHeld   = (pad->wButtons & XINPUT_GAMEPAD_DPAD_UP)   || (pad->fY1 >  LS_DEADZONE);
+        bool downHeld = (pad->wButtons & XINPUT_GAMEPAD_DPAD_DOWN) || (pad->fY1 < -LS_DEADZONE);
+        int  navDir   = upHeld ? +1 : (downHeld ? -1 : 0);
 
-        // Decide interval: shorter after initial delay
-        DWORD interval = (heldMs < (DWORD)m_initialDelayMs) ? (DWORD)m_initialDelayMs : (DWORD)m_repeatIntervalMs;
-
-        if( sinceMove >= interval )
+        if (navDir == 0)
         {
-            // Determine step size by hold time and analog deflection
-            int step = 1;
-            float deflect = pad->fY1 * (float)dir; // positive when matching dir
+            m_navHoldDir        = 0;
+            m_navHoldStartTick  = 0;
+            m_navLastInjectTick = 0;
+            return;
+        }
 
-            if( deflect > 0.85f )      step = 5;
-            else if( deflect > 0.60f ) step = 3;
-            else if( deflect > 0.35f ) step = 2;
+        if (m_navHoldDir != navDir || m_navHoldStartTick == 0)
+        {
+            m_navHoldDir        = navDir;
+            m_navHoldStartTick  = now;
+            m_navLastInjectTick = 0;
+            // Let XUI do the first few repeats before we start piling on.
+            return;
+        }
 
-            // Acceleration ramp over time
-            if( heldMs > 1200 ) step += 2;
-            else if( heldMs > 700 ) step += 1;
+        DWORD heldMs = now - m_navHoldStartTick;
 
-            if( step > m_maxStep ) step = m_maxStep;
+        // Wait a short moment so the first moves are precise,
+        // then start injecting extra steps to "go faster the longer you hold".
+        const DWORD accelStartMs = 280; // start adding extra after ~0.28s
+        if (heldMs < accelStartMs) return;
 
-            ScrollBy(dir, step);
-            m_lastMoveTick = now;
+        // Time → speed tiers for LS/DPAD (slightly gentler than RS)
+        DWORD intervalMs;
+        int steps;
+        if      (heldMs < 700)   { intervalMs = 120; steps = 1; }
+        else if (heldMs < 1200)  { intervalMs =  90; steps = 2; }
+        else if (heldMs < 2000)  { intervalMs =  65; steps = 2; }
+        else if (heldMs < 3000)  { intervalMs =  50; steps = 3; }
+        else                     { intervalMs =  45; steps = 3; } // cap
+
+        // Scale a bit by LS magnitude for analog feel
+        float lsMag = fabsf(pad->fY1);
+        if      (lsMag < 0.55f) steps = 1;
+        else if (lsMag < 0.80f) steps = (steps > 1 ? 2 : 1);
+
+        // Minimum dwell to avoid micro-jitter double steps
+        const DWORD minDwell = 40;
+        if (m_navLastInjectTick == 0 || (now - m_navLastInjectTick) >= (std::max)(minDwell, intervalMs))
+        {
+            ScrollBy(navDir, steps);   // extra steps on top of XUI's own repeats
+            m_navLastInjectTick = now;
         }
     }
 
