@@ -2,10 +2,18 @@
 
 Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsiveness. Core emulation code remains intact; improvements are limited to the Xbox UI layer (XUI scenes, input cadence, list scrolling).
 
+> **Note:** Code hasn't been touched since around 2016, so I'm giving it some love with UI improvements and modern features while preserving the original emulation core.
+
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.5.0** — *ROM search with Xbox keyboard UI, screenshot capture, fast forward (RT trigger), in-game OSD (pause menu), save states/slots, quick reset, + prior scrolling upgrades*
+* Current release: **v0.5.1** — *Recent games list, ROM search with Xbox keyboard UI, screenshot capture, fast forward (RT trigger), in-game OSD (pause menu), save states/slots, quick reset, + prior scrolling upgrades*
+
+---
+
+## What's new (v0.5.1)
+
+* **Recent Games List:** Automatically tracks the last 15 played ROMs and displays them at the top of the ROM browser with a `[Recent]` prefix. Recent games persist across sessions and are saved to `fceui.ini`. A visual separator (`---`) distinguishes recent games from the full ROM list. Recent games are included in search results and the list automatically refreshes when returning to the ROM browser.
 
 ---
 
@@ -99,6 +107,7 @@ Steps
 
 ### ROM Browser
 
+* **Recent Games:** Last 15 played ROMs appear at the top with `[Recent]` prefix and separator line. Automatically updated when games are loaded.
 * **Y:** **Search** — Open Xbox keyboard to search ROMs by name. Filters list in real-time with case-insensitive partial matching.
 * **Right Stick (hold up/down):** *Time-based acceleration* of selection.
 * **LB / RB (hold):** Page up / page down at a steady cadence.
@@ -163,6 +172,18 @@ FCEUX360-<version>-xex.zip
 
 ## Changelog
 
+* **v0.5.1**
+
+  * feat(recent): Recent games list tracks last 15 played ROMs automatically.
+  * feat(recent): Recent games displayed at top of ROM browser with `[Recent]` prefix.
+  * feat(recent): Visual separator (`---`) between recent and full ROM list.
+  * feat(recent): Recent games persist across sessions via `fceui.ini` config file.
+  * feat(recent): Auto-cleans deleted ROMs from recent list on load.
+  * feat(recent): Recent games included in search results.
+  * feat(recent): List refreshes automatically when returning to ROM browser.
+  * tech: Recent games stored in `[recent]` section of config as `game0`, `game1`, etc.
+  * tech: Added `OnEnterTab` handler to reload recent games when scene becomes active.
+  * tech: File existence validation removes stale entries from recent list.
 * **v0.5.0**
 
   * feat(search): ROM search functionality with Xbox 360 on-screen keyboard (Y button).
