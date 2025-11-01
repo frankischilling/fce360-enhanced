@@ -13,6 +13,8 @@
 #include "xconfig.h"
 #include "config_reader.h"
 #include "net360.h"
+#include "fceux/emufile.h"
+#include "zlib.h"
 
 //-----------------------------------------------------------------------------
 // Global variables
@@ -136,6 +138,7 @@ Cemulator::Cemulator(void)
 	snd_written = 0;
 	ftime = 0.0f;
 	m_screenshotLatch = false;
+	InitRewindBuffer();
 }
 
 HRESULT Cemulator::InitVideo(){
@@ -514,7 +517,8 @@ void Cemulator::UpdateInput()
 			if(Gamepads[dwUser].wLastButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER)
 				pad[dwUser] |= m_Settings.gamepad_right_shoulder;
 				
-			if(Gamepads[dwUser].bLeftTrigger>XINPUT_GAMEPAD_TRIGGER_THRESHOLD)
+			// When LT is serving rewind, don't pass it through to the NES pad
+			if(!m_isRewinding && Gamepads[dwUser].bLeftTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD)
 				pad[dwUser] |= m_Settings.gamepad_left_trigger;
 				
 			if(Gamepads[dwUser].bRightTrigger>XINPUT_GAMEPAD_TRIGGER_THRESHOLD)
@@ -628,6 +632,9 @@ HRESULT Cemulator::LoadGame(std::string name, bool restart)
 //-------------------------------------------------------------------------------------	
 	if(FCEUI_LoadGame(name.c_str() ,0)!=NULL)
 	{
+		// Clear rewind buffer when loading a new game
+		ClearRewindBuffer();
+		
 		// Ensure FileBase is set correctly from the ROM filename for proper snapshot naming
 		extern char FileBase[];
 		
@@ -859,30 +866,105 @@ HRESULT Cemulator::Run()
 					m_screenshotLatch = false;
 				}
 				
-				// Check for fast forward (RT trigger) - Gamepads array is already updated by UpdateInput()
-				bool fastForward = false;
-				if(Gamepads[0].bRightTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD)
-					fastForward = true;
-				
-				// Fast forward multiplier (fixed at 2x speed)
-				int framesToRun = fastForward ? 2 : 1;
-				
-				for(int frame = 0; frame < framesToRun; frame++)
+				// Check for rewind (LT held) - only if not screenshot combo
+				const bool rewindPressed =
+					(Gamepads[0].bLeftTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD) && !screenshotCombo;
+				// Track hold duration to ramp speed
+				m_rewindHeldFrames = rewindPressed ? (m_rewindHeldFrames + 1) : 0;
+
+				if(rewindPressed)
 				{
-					FCEUI_Emulate(&bitmap, &snd, &sndsize, 0);
-					
-					// Only process bitmap/audio for the last frame to maintain smooth playback
-					if(frame == framesToRun - 1)
+					if(!m_isRewinding)
 					{
-						for(int i = 0;i<(256*240);i++)
+						// Start rewinding if we have states
+						if(m_rewindCount > 0)
 						{
-							//Make an ARGB bitmap
-							nesBitmap[i] = ( (pcpalette[bitmap[i]].r) << 16) | ( (pcpalette[bitmap[i]].g) << 8 ) | ( pcpalette[bitmap[i]].b ) | ( 0xFF << 24 );
+							SaveRewindState();
+							m_isRewinding = true;
+							m_rewindFrameSkip = 0;
+							m_rewindStartPos = m_rewindWritePos;
 						}
-						
-						gfx_filter.UpdateFilter(nesBitmap);
-						UpdateAudio(snd, sndsize);
 					}
+ 
+					// Rewind: load previous states continuously (ramping faster as you hold)
+					if(m_isRewinding)
+					{
+						// Ramp: 0.25s hold → 2x, 0.75s → 4x, 1.5s → 8x
+						int steps = 1;
+						if (m_rewindHeldFrames >= 90) steps = 8;
+						else if (m_rewindHeldFrames >= 45) steps = 4;
+						else if (m_rewindHeldFrames >= 15) steps = 2;
+
+						for (int s = 0; s < steps; ++s)
+						{
+							if (!LoadRewindState()) {
+								// Hit oldest state—stop cleanly
+								m_isRewinding = false;
+								m_rewindFrameSkip = 0;
+								m_frameCounter = 0;
+								break;
+							}
+						}
+
+						// Refresh display once after loading
+						extern uint8 *XBuf;
+						if (m_isRewinding && XBuf)
+						{
+							bitmap = XBuf;
+							FCEU_PutImage();
+							for (int i = 0; i < (256*240); ++i)
+								nesBitmap[i] =
+									((pcpalette[bitmap[i]].r) << 16) |
+									((pcpalette[bitmap[i]].g) << 8)  |
+									( pcpalette[bitmap[i]].b )       |
+									(0xFF << 24);
+							gfx_filter.UpdateFilter(nesBitmap);
+						}
+						// Skip audio during rewind
+					}
+				}
+				// Normal emulation mode - only run if NOT rewinding
+				if(!m_isRewinding)
+				{
+					// Save state to rewind buffer periodically
+					m_frameCounter++;
+					if(m_frameCounter >= REWIND_SAVE_INTERVAL)
+					{
+						m_frameCounter = 0;
+						SaveRewindState();
+					}
+					
+					// Check for fast forward (RT trigger) - Gamepads array is already updated by UpdateInput()
+					bool fastForward = false;
+					if(Gamepads[0].bRightTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD)
+						fastForward = true;
+					
+					// Fast forward multiplier (fixed at 2x speed)
+					int framesToRun = fastForward ? 2 : 1;
+					
+					for(int frame = 0; frame < framesToRun; frame++)
+					{
+						FCEUI_Emulate(&bitmap, &snd, &sndsize, 0);
+						
+						// Only process bitmap/audio for the last frame to maintain smooth playback
+						if(frame == framesToRun - 1)
+						{
+							for(int i = 0;i<(256*240);i++)
+							{
+								//Make an ARGB bitmap
+								nesBitmap[i] = ( (pcpalette[bitmap[i]].r) << 16) | ( (pcpalette[bitmap[i]].g) << 8 ) | ( pcpalette[bitmap[i]].b ) | ( 0xFF << 24 );
+							}
+							
+							gfx_filter.UpdateFilter(nesBitmap);
+							UpdateAudio(snd, sndsize);
+						}
+					}
+				}
+				else if (!rewindPressed) // ← only stop when LT is actually released
+				{
+					m_isRewinding = false;
+					m_rewindFrameSkip = 0;
+					m_frameCounter = 0;
 				}
 			}
 			UpdateVideo();
@@ -923,6 +1005,125 @@ HRESULT Cemulator::CloseInput()
 
 HRESULT Cemulator::CloseSystem()
 {
+	ClearRewindBuffer();
 	return S_OK;	
 };
+
+//-------------------------------------------------------------------------------------
+// Rewind System Implementation
+//-------------------------------------------------------------------------------------
+void Cemulator::InitRewindBuffer()
+{
+	m_rewindWritePos = 0;
+	m_rewindCount = 0;
+	m_frameCounter = 0;
+	m_isRewinding = false;
+	m_rewindFrameSkip = 0;
+	m_rewindStartPos = 0;
+	m_rewindHeldFrames = 0;
+	
+	for(int i = 0; i < REWIND_BUFFER_SIZE; i++)
+	{
+		m_rewindBuffer[i].isValid = false;
+		m_rewindBuffer[i].stateData.clear();
+	}
+}
+
+void Cemulator::ClearRewindBuffer()
+{
+	for(int i = 0; i < REWIND_BUFFER_SIZE; i++)
+	{
+		m_rewindBuffer[i].isValid = false;
+		m_rewindBuffer[i].stateData.clear();
+	}
+	m_rewindWritePos = 0;
+	m_rewindCount = 0;
+	m_frameCounter = 0;
+	m_isRewinding = false;
+	m_rewindStartPos = 0;
+	m_rewindHeldFrames = 0;
+}
+
+void Cemulator::SaveRewindState()
+{
+	extern FCEUGI *GameInfo;
+	if(!GameInfo || FCEUI_EmulationPaused())
+		return;
+	
+	// Don't save states while rewinding - we're going backwards through saved states
+	if(m_isRewinding)
+		return;
+	
+	// Create a memory stream to save the state
+	EMUFILE_MEMORY ms;
+	if(!FCEUSS_SaveMS(&ms, Z_NO_COMPRESSION))
+		return;
+	
+	// Copy the state data to the buffer
+	RewindState& state = m_rewindBuffer[m_rewindWritePos];
+	state.stateData.assign((uint8*)ms.buf(), (uint8*)ms.buf() + ms.size());
+	state.isValid = true;
+	
+	// Update buffer position (circular)
+	m_rewindWritePos = (m_rewindWritePos + 1) % REWIND_BUFFER_SIZE;
+	
+	// Update count (don't exceed buffer size)
+	if(m_rewindCount < REWIND_BUFFER_SIZE)
+		m_rewindCount++;
+	// If buffer is full, it wraps around automatically
+}
+
+bool Cemulator::LoadRewindState()
+{
+	if(!m_isRewinding)
+		return false;
+	
+	// Calculate position of the previous state (one step back)
+	int readPos = (m_rewindWritePos - 1 + REWIND_BUFFER_SIZE) % REWIND_BUFFER_SIZE;
+	
+	// Make sure we have a valid state to read
+	if(!m_rewindBuffer[readPos].isValid)
+		return false;
+	
+	// Calculate how many states we've rewound from the start
+	// When we started, m_rewindStartPos was the position AFTER saving current state
+	// So the state we're currently at (before rewinding this step) is at m_rewindWritePos
+	// We want to check if we can go back one more
+	int stepsBack;
+	if(readPos <= m_rewindStartPos)
+	{
+		// No wrap - simple subtraction
+		stepsBack = m_rewindStartPos - readPos;
+	}
+	else
+	{
+		// Wrapped around - readPos is near start of buffer, m_rewindStartPos is later
+		stepsBack = (REWIND_BUFFER_SIZE - readPos) + m_rewindStartPos;
+	}
+	
+	// We can rewind up to m_rewindCount states (the number we had before saving at start)
+	// But we saved one state at the start, so we subtract 1
+	if(stepsBack >= m_rewindCount)
+	{
+		// Can't rewind further - we've reached the oldest saved state
+		return false;
+	}
+	
+	// Create a memory stream from the saved state
+	std::vector<uint8>& stateData = m_rewindBuffer[readPos].stateData;
+	EMUFILE_MEMORY ms(&stateData);
+	
+	// Reset the memory stream to the beginning
+	ms.fseek(0, SEEK_SET);
+	
+	// Load the state
+	if(!FCEUSS_LoadFP(&ms, SSLOADPARAM_NOBACKUP))
+		return false;
+	
+	// Update write position to the state we just loaded
+	// This way the next rewind will go back one more step
+	m_rewindWritePos = readPos;
+	
+	return true;
+}
 

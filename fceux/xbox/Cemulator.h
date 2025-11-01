@@ -2,6 +2,7 @@
 
 #include <Xaudio2.h>
 #include "filter/vfilter.h"
+#include "fceux/types.h"
 #ifdef _XBOX
 HRESULT InitUi(IDirect3DDevice9* pDevice, D3DPRESENT_PARAMETERS d3dpp);
 HRESULT RenderXui(IDirect3DDevice9* pDevice);
@@ -74,11 +75,35 @@ private:
 
 	bool end;
 	bool m_screenshotLatch;  // prevents multiple screenshots per button press
+	
+	// Rewind system
+	static const int REWIND_BUFFER_SIZE = 300;  // Store up to 300 states (~5 seconds at 60fps with 1 state per frame)
+	static const int REWIND_SAVE_INTERVAL = 1;  // Save state every N frames (1 = every frame for smooth rewind)
+	
+	struct RewindState {
+		std::vector<uint8> stateData;
+		bool isValid;
+	};
+	
+	RewindState m_rewindBuffer[REWIND_BUFFER_SIZE];
+	int m_rewindWritePos;      // Current write position in circular buffer
+	int m_rewindCount;         // Number of valid states in buffer
+	int m_frameCounter;        // Frame counter for periodic saves
+	bool m_isRewinding;        // Whether we're currently rewinding
+	int m_rewindFrameSkip;     // Counter to skip frames during rewind for performance
+	int m_rewindStartPos;      // Position where we started rewinding from
+	int m_rewindHeldFrames;    // Counter for how long LT has been held (for speed ramping)
 
 	void SendExitSignal()
 	{
 		end=true;
 	}
+	
+	void InitRewindBuffer();
+	void ClearRewindBuffer();
+	void SaveRewindState();
+	bool LoadRewindState();
+	void BlitARGBToTexture(const uint32_t* pixels);
 public:
 //-------------------------------------------------------------------------------------
 // 	Store Settings here
