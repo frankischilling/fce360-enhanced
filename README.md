@@ -4,6 +4,20 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 > **Note:** Code hasn't been touched since around 2016, so I'm giving it some love with UI improvements and modern features while preserving the original emulation core.
 
+## Features Showcase
+
+### Recent Games List (v0.5.1)
+![Recent Games List](img/recentGames.jpeg)
+
+### ROM Search (v0.5.0)
+![ROM Search](img/searchRoms.jpeg)
+
+### Fast Scrolling (v0.2)
+
+https://user-images.githubusercontent.com/your-video-id/fastScrolling.mp4
+
+*Note: For best viewing, download the video from [img/fastScrolling.mp4](img/fastScrolling.mp4)*
+
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
@@ -15,11 +29,15 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 * **Recent Games List:** Automatically tracks the last 15 played ROMs and displays them at the top of the ROM browser with a `[Recent]` prefix. Recent games persist across sessions and are saved to `fceui.ini`. A visual separator (`---`) distinguishes recent games from the full ROM list. Recent games are included in search results and the list automatically refreshes when returning to the ROM browser.
 
+![Recent Games List](img/recentGames.jpeg)
+
 ---
 
 ## What's new (v0.5.0)
 
 * **ROM Search:** Press **Y button** in the ROM browser to open the Xbox 360 on-screen keyboard. Enter a game name to filter the ROM list in real-time with case-insensitive partial matching. Empty search shows all ROMs.
+
+![ROM Search](img/searchRoms.jpeg)
 
 ---
 
@@ -45,12 +63,16 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 ---
 
-## What’s new (v0.2)
+## What's new (v0.2)
 
 * **Time-based acceleration on Right Stick (RS):** Start precise, then ramp speed the longer you hold in one direction. Deflection magnitude also scales step size; hard caps prevent runaway scroll on huge libraries.
 * **Held paging (LB/RB):** Hold a shoulder button to page up/down at a steady cadence.
-* **Sane UX guards:** Minimum dwell to prevent double-steps, direction/neutral resets, and a deadzone so tiny bumps don’t spam moves.
-* **Precision preserved:** D-pad / Left Stick keep XUI’s native single-step behavior for fine selection.
+* **Sane UX guards:** Minimum dwell to prevent double-steps, direction/neutral resets, and a deadzone so tiny bumps don't spam moves.
+* **Precision preserved:** D-pad / Left Stick keep XUI's native single-step behavior for fine selection.
+
+https://github.com/user/repo/assets/your-video-id/fastScrolling.mp4
+
+*Fast scrolling demonstration*
 
 ---
 
