@@ -7,7 +7,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.5.2** — *Frame-perfect rewind with speed ramping, recent games list, ROM search with Xbox keyboard UI, screenshot capture, fast forward (RT trigger), in-game OSD (pause menu), save states/slots, quick reset, + prior scrolling upgrades*
+* Current release: **v0.6.0** — *Lua scripting support for custom overlays and automation, favorite games list, frame-perfect rewind with speed ramping, recent games list, ROM search with Xbox keyboard UI, screenshot capture, fast forward (RT trigger), in-game OSD (pause menu), save states/slots, quick reset, + prior scrolling upgrades*
 
 ## Features Showcase
 
@@ -25,6 +25,23 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 ---
 
+## What's new (v0.6.0)
+
+* **Lua Scripting Support:** Full Lua 5.1 scripting engine for custom overlays and automation! Create your own HUDs, FPS counters, timers, and more.
+  * **Automatic Script Loading:** Place `.lua` scripts in `lua\` folder - they auto-load when games start
+  * **Rich API:** `drawtext()` for custom overlays, `getfps()` for frame rate monitoring, `joypad()` callback for input manipulation
+  * **Double-Buffered Overlays:** Smooth 60Hz rendering with 30Hz Lua updates prevents flicker
+  * **Multiple Scripts:** Load multiple scripts simultaneously - organize your overlays however you want
+  * **Error Handling:** Script errors won't crash the emulator - safe and robust
+  * See the **[Lua Scripting API](#lua-scripting-api)** section below for complete documentation and examples!
+
+---
+
+## What's new (v0.5.3)
+
+* **Favorite Games List:** Press **X button** in the ROM browser to add or remove games from your favorites. Favorite games appear below recent games with a `[Favorite]` prefix and separator line. Favorites persist across sessions and are saved to `fceui.ini`. Favorite games are included in search results and the list automatically refreshes when toggling favorites.
+
+---
 ## What's new (v0.5.2)
 
 * **Rewind System:** Hold **LT (Left Trigger)** during gameplay to rewind through recent frames. Speed automatically ramps up the longer you hold: starts at 1x (frame-by-frame), then 2x after 0.25s, 4x after 0.75s, and 8x after 1.5s. The system stores up to 300 frames (~5 seconds at 60fps) in a circular buffer. Rewind stops when you release LT or reach the oldest saved state. Screenshot combo (LEFT_THUMB + LT) takes precedence over rewind.
@@ -136,6 +153,8 @@ Steps
 ### ROM Browser
 
 * **Recent Games:** Last 15 played ROMs appear at the top with `[Recent]` prefix and separator line. Automatically updated when games are loaded.
+* **Favorite Games:** User-selected favorite games appear below recent games with `[Favorite]` prefix and separator line. Persist across sessions.
+* **X:** **Toggle Favorite** — Add or remove the selected game from favorites (only in ROM browser, not during gameplay).
 * **Y:** **Search** — Open Xbox keyboard to search ROMs by name. Filters list in real-time with case-insensitive partial matching.
 * **Right Stick (hold up/down):** *Time-based acceleration* of selection.
 * **LB / RB (hold):** Page up / page down at a steady cadence.
@@ -150,6 +169,192 @@ Steps
 * **LEFT_THUMB + LT:** **Screenshot** — Press simultaneously to capture a screenshot. Saved to `game:\snaps\` using ROM filename (e.g., `SuperMario-0.png`). *Note: Screenshot combo takes precedence over rewind.*
 * **START + BACK:** Open **OSD** (auto-pause).
 * **OSD actions:** Save/Load State (with slots), Reset Game, GFX options (experimental). Exiting OSD resumes gameplay; "Load Game" returns to ROM browser.
+
+---
+
+## Lua Scripting API
+
+FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, automation, and game enhancements.
+
+### Setup
+
+1. **Create the Lua directory** in your game folder (same location as `fceux.xex`):
+   ```
+   FCEUX360\
+   ├── lua\          # Create this folder for Lua scripts
+   ├── media\
+   ├── roms\
+   └── fceux.xex
+   ```
+
+2. **Place your scripts** in the `lua\` folder as `.lua` files.
+
+3. **Scripts auto-load** when a game starts - no manual loading required!
+
+**Search Paths** (in priority order):
+- `hdd1:\fce360-enhanced\lua\` (recommended - user-writable)
+- `game:\lua\` (game folder - may be read-only in packages)
+- `usb0:\lua\` (USB storage)
+
+### API Functions
+
+#### `drawtext(x, y, text [, color])`
+Draws text on the screen overlay.
+
+**Parameters:**
+- `x, y` (integer): Screen coordinates (0-255, 0-239). NES resolution is 256×240.
+- `text` (string): Text to display.
+- `color` (integer, optional): Palette color index (default: `0x20`). Use 0x00-0xFF for different colors.
+
+**Example:**
+```lua
+drawtext(4, 4, "Hello World!", 0x20)  -- Draw at top-left
+drawtext(100, 120, "Score: 1000", 0x2E)  -- Draw centered
+```
+
+#### `getfps()`
+Returns the current frame rate as a number (updated once per second).
+
+**Returns:** `number` - Current FPS (typically 60.0 for normal speed)
+
+**Example:**
+```lua
+local fps = getfps()
+drawtext(4, 4, string.format("FPS: %.1f", fps), 0x2E)
+```
+
+### Callbacks
+
+Your script **must** define a `gui()` function that will be called every frame (~30Hz).
+
+#### `gui()`
+Called every frame to draw overlay content. This is your main drawing function.
+
+**Example:**
+```lua
+function gui()
+    -- Draw FPS counter
+    local fps = getfps()
+    drawtext(4, 4, string.format("FPS: %.1f", fps), 0x2E)
+    
+    -- Draw a status message
+    drawtext(4, 12, "Lua Active", 0x20)
+end
+```
+
+#### `joypad(player, buttons)` *(Optional)*
+Called when reading joypad input. Can intercept/modify controller input.
+
+**Parameters:**
+- `player` (integer): Player number (0-based)
+- `buttons` (integer): Current button state
+
+**Returns:** Modified button state (integer)
+
+**Example:**
+```lua
+function joypad(player, buttons)
+    -- Auto-fire for player 1's A button
+    if player == 0 then
+        return buttons | 0x80  -- Set A button (bit 7)
+    end
+    return buttons
+end
+```
+
+### Complete Examples
+
+#### FPS Display
+```lua
+function gui()
+    local fps = getfps()
+    drawtext(2, 2, string.format("FPS: %.1f", fps), 0x2E)
+end
+```
+
+#### On-Screen Timer
+```lua
+local startTime = 0
+local running = false
+
+function gui()
+    if running then
+        local elapsed = getfps() * (os.clock() - startTime)  -- Approximate
+        local minutes = math.floor(elapsed / 3600)
+        local seconds = math.floor((elapsed % 3600) / 60)
+        drawtext(4, 4, string.format("Time: %02d:%02d", minutes, seconds), 0x2E)
+    end
+end
+```
+
+#### Multi-Line Status Display
+```lua
+function gui()
+    local fps = getfps()
+    local lineHeight = 10
+    
+    drawtext(4, 4, string.format("FPS: %.1f", fps), 0x2E)
+    drawtext(4, 4 + lineHeight, "Status: Running", 0x20)
+    drawtext(4, 4 + lineHeight * 2, "Press LT to rewind", 0x0F)
+end
+```
+
+### Script Loading Behavior
+
+- **Automatic Loading:** All `.lua` and `.LUA` files in the `lua\` directories are automatically loaded when a game starts.
+- **Multiple Scripts:** You can place multiple scripts - they will all be loaded and their `gui()` functions called.
+- **Reload Behavior:** Scripts are loaded fresh each time you start a game.
+- **Error Handling:** Script errors are logged (visible via debug output). Scripts that error won't crash the emulator, but won't draw anything.
+
+### Technical Details
+
+- **Lua Version:** Lua 5.1 (compatible with standard Lua 5.1 scripts)
+- **Update Frequency:** `gui()` is called at ~30Hz (every ~33ms) for performance
+- **Rendering:** Overlay is double-buffered and composited at 60Hz to prevent flicker
+- **Coordinate System:** 
+  - Origin (0, 0) is top-left
+  - X increases rightward (0-255)
+  - Y increases downward (0-239)
+- **Color Palette:** Uses FCEUX's NES palette system. Color index 0x2E is typically yellow/green, 0x20 is white.
+- **Performance:** Scripts run on the main emulation thread. Keep `gui()` functions fast to maintain 60 FPS.
+
+### Troubleshooting
+
+**Script not loading:**
+- Verify the `lua\` folder exists in the same directory as `fceux.xex`
+- Check file extension is `.lua` (not `.txt`)
+- Ensure script file is not empty
+- Check debug output for load errors
+
+**Text not appearing:**
+- Verify `gui()` function is defined in your script
+- Check coordinates are within bounds (0-255, 0-239)
+- Try a simple test: `drawtext(4, 4, "TEST", 0x2E)`
+- Ensure script loaded successfully (check debug output)
+
+**Script errors:**
+- Check debug output for Lua error messages
+- Verify function names match exactly (`gui`, `drawtext`, `getfps`)
+- Test with a minimal script first
+
+**Performance issues:**
+- Keep `gui()` functions simple - avoid heavy calculations
+- Don't call expensive string operations every frame
+- Use local variables for frequently accessed values
+
+### Advanced: Multiple Scripts
+
+You can create multiple `.lua` files, each with its own `gui()` function. All `gui()` functions will be called in load order. Each script maintains its own global state.
+
+**Example:**
+```
+lua\
+├── fps.lua      # Shows FPS counter
+├── timer.lua    # Shows game timer
+└── hud.lua      # Custom HUD elements
+```
+
+All three will load and execute simultaneously!
 
 ---
 
@@ -200,6 +405,36 @@ FCEUX360-<version>-xex.zip
 ---
 
 ## Changelog
+
+* **v0.6.0**
+
+  * feat(lua): Full Lua 5.1 scripting engine integration for custom overlays and automation.
+  * feat(lua): Automatic script loading from `lua\` directories (`hdd1:\fce360-enhanced\lua\`, `game:\lua\`, `usb0:\lua\`).
+  * feat(lua): API functions: `drawtext(x, y, text [, color])` for overlay drawing, `getfps()` for frame rate monitoring.
+  * feat(lua): Callback system: `gui()` function called every frame (~30Hz) for drawing, optional `joypad()` for input manipulation.
+  * feat(lua): Double-buffered overlay system with 60Hz composition prevents flicker during 30Hz Lua updates.
+  * feat(lua): Support for multiple simultaneous scripts - all `.lua` files in `lua\` folders are auto-loaded.
+  * feat(lua): Robust error handling - script errors logged but don't crash emulator.
+  * tech(lua): Lua 5.1 compatibility - works with standard Lua scripts.
+  * tech(lua): Performance optimized - Lua runs at 30Hz while overlay composites at 60Hz for smooth rendering.
+  * tech(lua): Status message system shows "Lua: Loaded..." when scripts are successfully loaded.
+  * fix(lua): Fixed overlay ghosting issues with improved clearing logic for status messages.
+  * fix(lua): Prevented blank overlay publishing when scripts early-return without drawing.
+  * docs(lua): Complete Lua API documentation added to README with examples and troubleshooting guide.
+
+* **v0.5.3**
+
+  * feat(favorites): Favorite games list via X button in ROM browser.
+  * feat(favorites): Favorite games displayed below recent games with `[Favorite]` prefix.
+  * feat(favorites): Visual separators (`---`) between recent, favorites, and full ROM list.
+  * feat(favorites): Favorites persist across sessions via `fceui.ini` config file.
+  * feat(favorites): Auto-cleans deleted ROMs from favorites list on load.
+  * feat(favorites): Favorite games included in search results.
+  * feat(favorites): List refreshes automatically when toggling favorites.
+  * tech: Favorite games stored in `[favorites]` section of config as `game0`, `game1`, etc.
+  * tech: Optimized save performance to prevent UI freezing when adding favorites.
+  * fix(favorites): X button only works in ROM browser, prevents freeze during gameplay.
+  * fix(favorites): Favorites persist across builds, matching recent games behavior.
 
 * **v0.5.2**
 
