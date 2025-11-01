@@ -421,6 +421,7 @@ private:
 	std::vector<rom_item> m_rom_list;
 	std::vector<rom_item> m_rom_list_full;  // Full list for filtering
 	std::vector<rom_item> m_recent_games;   // Recent games list (up to 15)
+	std::vector<rom_item> m_favorite_games; // Favorite games list (user-selected)
 	std::wstring m_searchFilter;  // Current search filter
 	bool m_searchLatch;  // Prevents multiple keyboard opens
 	XOVERLAPPED m_keyboardOverlapped;  // Overlapped structure for keyboard
@@ -551,8 +552,15 @@ public:
         memset(&m_keyboardOverlapped, 0, sizeof(XOVERLAPPED));
         m_keyboardResult[0] = L'\0';
 
+        // Ensure config is loaded before loading recent games and favorites
+        extern Config fcecfg;
+        fcecfg.Load("game:\\fceui.ini");
+        
         // Load recent games from config
         LoadRecentGames();
+        
+        // Load favorites from config
+        LoadFavorites();
 
         // expose instance for per-frame updates from RenderXui
         g_LoadGameInstance = this;
@@ -562,13 +570,14 @@ public:
     
     HRESULT OnEnterTab( BOOL& bHandled )
     {
-        // Reload config to ensure we have latest saved recent games
+        // Reload config to ensure we have latest saved recent games and favorites
         extern Config fcecfg;
         fcecfg.Load("game:\\fceui.ini");
         
-        // Reload recent games and refresh the list when returning to this scene
+        // Reload recent games and favorites and refresh the list when returning to this scene
         LoadRecentGames();
-        ApplySearchFilter();  // Refresh the display with updated recent games
+        LoadFavorites();
+        ApplySearchFilter();  // Refresh the display with updated recent games and favorites
         bHandled = TRUE;
         return S_OK;
     }
@@ -636,6 +645,84 @@ public:
             ShowSearchKeyboard();
         }
         yWasPressed = yJustPressed;
+        
+        // Check for favorites toggle (X button) - use pressed buttons to catch edge
+        // Only process if we're in the ROM browser (not during emulation)
+        if (!emul.RenderEmulation)
+        {
+            bool xJustPressed = (pad->wButtons & XINPUT_GAMEPAD_X) != 0;
+            static bool xWasPressed = false;
+            
+            if (xJustPressed && !xWasPressed && !m_keyboardPending)
+            {
+                // X button just pressed - toggle favorite for currently selected ROM
+                int selIndex = XuiRomList.GetCurSel();
+                if (selIndex >= 0 && selIndex < (int)m_rom_list.size())
+                {
+                    rom_item selected = m_rom_list.at(selIndex);
+                    
+                    // Skip separator items (empty filename)
+                    if (!selected.filename.empty() && !selected.path.empty())
+                    {
+                        std::string fullRomPath = selected.path + selected.filename;
+                        
+                        // Remove [Recent] or [Favorite] prefix from display name
+                        std::wstring cleanName = selected.affichage;
+                        if (cleanName.find(L"[Recent] ") == 0)
+                        {
+                            cleanName = cleanName.substr(9); // Remove "[Recent] " prefix
+                        }
+                        if (cleanName.find(L"[Favorite] ") == 0)
+                        {
+                            cleanName = cleanName.substr(11); // Remove "[Favorite] " prefix
+                        }
+                        
+                        // Store the selected item's path for restoration after refresh
+                        std::string selectedPath = fullRomPath;
+                        
+                        // Toggle favorite status
+                        bool wasFavorite = IsFavorite(fullRomPath);
+                        if (wasFavorite)
+                        {
+                            // Remove from favorites
+                            RemoveFromFavorites(fullRomPath);
+                        }
+                        else
+                        {
+                            // Add to favorites
+                            AddToFavorites(fullRomPath, cleanName);
+                        }
+                        
+                        // Refresh the list to update display (with [Favorite] prefix)
+                        ApplySearchFilter();
+                        
+                        // Restore selection by finding the item again (it might have moved)
+                        int newSelIndex = -1;
+                        for (size_t i = 0; i < m_rom_list.size(); i++)
+                        {
+                            std::string itemPath = m_rom_list[i].path + m_rom_list[i].filename;
+                            if (selectedPath == itemPath)
+                            {
+                                newSelIndex = (int)i;
+                                break;
+                            }
+                        }
+                        
+                        // Restore selection if we found the item
+                        if (newSelIndex >= 0 && newSelIndex < (int)m_rom_list.size())
+                        {
+                            XuiRomList.SetCurSel(newSelIndex);
+                        }
+                        else if (selIndex < (int)m_rom_list.size())
+                        {
+                            // Fallback: try original index if item count hasn't changed much
+                            XuiRomList.SetCurSel(selIndex);
+                        }
+                    }
+                }
+            }
+            xWasPressed = xJustPressed;
+        }
 
         // 1) PAGING (LB/RB) — repeats while held
         static DWORD lastPageTick = 0;
@@ -796,8 +883,30 @@ private:
 				m_rom_list.push_back(recent_item);
 			}
 			
-			// Add separator if we have recent games and other games
-			if (m_recent_games.size() > 0 && m_rom_list_full.size() > 0)
+			// Add separator after recent games if we have recent games AND (favorites or other games)
+			bool hasRecent = m_recent_games.size() > 0;
+			bool hasFavorites = m_favorite_games.size() > 0;
+			bool hasOtherGames = m_rom_list_full.size() > 0;
+			if (hasRecent && (hasFavorites || hasOtherGames))
+			{
+				rom_item separator;
+				separator.path = "";
+				separator.filename = "";
+				separator.affichage = L"---";
+				m_rom_list.push_back(separator);
+			}
+			
+			// Add favorite games after recent games
+			for (size_t i = 0; i < m_favorite_games.size(); i++)
+			{
+				rom_item favorite_item = m_favorite_games[i];
+				// Mark as favorite with a prefix (will be displayed in UI)
+				favorite_item.affichage = L"[Favorite] " + favorite_item.affichage;
+				m_rom_list.push_back(favorite_item);
+			}
+			
+			// Add separator after favorites if we have favorites and other games
+			if (hasFavorites && hasOtherGames)
 			{
 				rom_item separator;
 				separator.path = "";
@@ -809,13 +918,14 @@ private:
 		
 		if (m_searchFilter.empty())
 		{
-			// No filter - show all ROMs (after recent games)
-			// Add all ROMs that aren't already in recent games
+			// No filter - show all ROMs (after recent games and favorites)
+			// Add all ROMs that aren't already in recent games or favorites
 			for (size_t i = 0; i < m_rom_list_full.size(); i++)
 			{
+				std::string fullPath = m_rom_list_full[i].path + m_rom_list_full[i].filename;
+				
 				// Check if this ROM is already in recent games (avoid duplicates)
 				bool isRecent = false;
-				std::string fullPath = m_rom_list_full[i].path + m_rom_list_full[i].filename;
 				for (size_t j = 0; j < m_recent_games.size(); j++)
 				{
 					std::string recentPath = m_recent_games[j].path + m_recent_games[j].filename;
@@ -826,7 +936,19 @@ private:
 					}
 				}
 				
-				if (!isRecent)
+				// Check if this ROM is already in favorites (avoid duplicates)
+				bool isFavorite = false;
+				for (size_t j = 0; j < m_favorite_games.size(); j++)
+				{
+					std::string favoritePath = m_favorite_games[j].path + m_favorite_games[j].filename;
+					if (fullPath == favoritePath)
+					{
+						isFavorite = true;
+						break;
+					}
+				}
+				
+				if (!isRecent && !isFavorite)
 				{
 					m_rom_list.push_back(m_rom_list_full[i]);
 				}
@@ -835,7 +957,7 @@ private:
 		else
 		{
 			// Filter ROMs by search string (case-insensitive)
-			// Include both recent games and full list in search
+			// Include recent games, favorites, and full list in search
 			std::wstring searchLower = m_searchFilter;
 			for (size_t i = 0; i < searchLower.length(); i++)
 			{
@@ -859,6 +981,39 @@ private:
 				}
 			}
 			
+			// Search in favorite games
+			for (size_t i = 0; i < m_favorite_games.size(); i++)
+			{
+				std::wstring romNameLower = m_favorite_games[i].affichage;
+				for (size_t j = 0; j < romNameLower.length(); j++)
+				{
+					romNameLower[j] = towlower(romNameLower[j]);
+				}
+				
+				if (romNameLower.find(searchLower) != std::wstring::npos)
+				{
+					// Check if already added from recent games
+					bool alreadyAdded = false;
+					std::string favoritePath = m_favorite_games[i].path + m_favorite_games[i].filename;
+					for (size_t k = 0; k < m_rom_list.size(); k++)
+					{
+						std::string listPath = m_rom_list[k].path + m_rom_list[k].filename;
+						if (favoritePath == listPath)
+						{
+							alreadyAdded = true;
+							break;
+						}
+					}
+					
+					if (!alreadyAdded)
+					{
+						rom_item favorite_item = m_favorite_games[i];
+						favorite_item.affichage = L"[Favorite] " + favorite_item.affichage;
+						m_rom_list.push_back(favorite_item);
+					}
+				}
+			}
+			
 			// Search in full ROM list
 			for (size_t i = 0; i < m_rom_list_full.size(); i++)
 			{
@@ -871,7 +1026,7 @@ private:
 				// Check if search string is contained in ROM name
 				if (romNameLower.find(searchLower) != std::wstring::npos)
 				{
-					// Check if already added from recent games
+					// Check if already added from recent games or favorites
 					bool alreadyAdded = false;
 					std::string fullPath = m_rom_list_full[i].path + m_rom_list_full[i].filename;
 					for (size_t k = 0; k < m_rom_list.size(); k++)
@@ -1191,6 +1346,199 @@ private:
 			
 			std::string fullPath = m_recent_games[i].path + m_recent_games[i].filename;
 			fcecfg.Set("recent", keyName, fullPath);
+		}
+		
+		// Save config file
+		fcecfg.Save("game:\\fceui.ini");
+	}
+	
+	bool IsFavorite(const std::string& romPath)
+	{
+		for (size_t i = 0; i < m_favorite_games.size(); i++)
+		{
+			std::string favoritePath = m_favorite_games[i].path + m_favorite_games[i].filename;
+			if (romPath == favoritePath)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+	
+	void AddToFavorites(const std::string& romPath, const std::wstring& displayName)
+	{
+		// Remove [Recent] or [Favorite] prefix if present
+		std::wstring cleanName = displayName;
+		if (cleanName.find(L"[Recent] ") == 0)
+		{
+			cleanName = cleanName.substr(9); // Remove "[Recent] " prefix
+		}
+		if (cleanName.find(L"[Favorite] ") == 0)
+		{
+			cleanName = cleanName.substr(11); // Remove "[Favorite] " prefix
+		}
+		
+		// Create rom_item for the game
+		rom_item newItem;
+		
+		// Extract path and filename from full path
+		size_t lastSlash = romPath.find_last_of("\\/");
+		if (lastSlash != std::string::npos)
+		{
+			newItem.path = romPath.substr(0, lastSlash + 1);
+			newItem.filename = romPath.substr(lastSlash + 1);
+		}
+		else
+		{
+			newItem.path = "game:\\roms\\";
+			newItem.filename = romPath;
+		}
+		
+		newItem.affichage = cleanName;
+		
+		// Remove if already exists (to avoid duplicates) - don't save yet, we'll save at the end
+		for (size_t i = 0; i < m_favorite_games.size(); i++)
+		{
+			std::string favoritePath = m_favorite_games[i].path + m_favorite_games[i].filename;
+			if (romPath == favoritePath)
+			{
+				m_favorite_games.erase(m_favorite_games.begin() + i);
+				break;
+			}
+		}
+		
+		// Add to favorites
+		m_favorite_games.push_back(newItem);
+		
+		// Save to config file
+		SaveFavorites();
+	}
+	
+	void RemoveFromFavorites(const std::string& romPath)
+	{
+		for (size_t i = 0; i < m_favorite_games.size(); i++)
+		{
+			std::string favoritePath = m_favorite_games[i].path + m_favorite_games[i].filename;
+			if (romPath == favoritePath)
+			{
+				m_favorite_games.erase(m_favorite_games.begin() + i);
+				break;
+			}
+		}
+		SaveFavorites();
+	}
+	
+	void LoadFavorites()
+	{
+		std::vector<rom_item> temp_favorites;
+		
+		extern Config fcecfg;
+		
+		// Load favorites (no max limit, but reasonable limit for sanity)
+		int maxFavorites = 1000; // Reasonable upper limit
+		for (int i = 0; i < maxFavorites; i++)
+		{
+			char keyName[32];
+			sprintf(keyName, "game%d", i);
+			
+			std::string romPath;
+			if (SUCCEEDED(fcecfg.Find("favorites", keyName, romPath)))
+			{
+				if (!romPath.empty())
+				{
+					// Verify file still exists
+					if (!FileExists(romPath))
+					{
+						// File no longer exists, skip it but continue checking others
+						continue;
+					}
+					
+					rom_item item;
+					
+					// Extract path and filename
+					size_t lastSlash = romPath.find_last_of("\\/");
+					if (lastSlash != std::string::npos)
+					{
+						item.path = romPath.substr(0, lastSlash + 1);
+						item.filename = romPath.substr(lastSlash + 1);
+					}
+					else
+					{
+						item.path = "game:\\roms\\";
+						item.filename = romPath;
+					}
+					
+					// Extract display name from filename (remove extension)
+					std::string displayName = item.filename;
+					size_t lastDot = displayName.find_last_of(".");
+					if (lastDot != std::string::npos)
+					{
+						displayName = displayName.substr(0, lastDot);
+					}
+					item.affichage = strtowstr(displayName);
+					
+					temp_favorites.push_back(item);
+				}
+			}
+			else
+			{
+				// No more favorites
+				break;
+			}
+		}
+		
+		// Check if we need to update (if any files were missing)
+		int originalCount = 0;
+		for (int i = 0; i < maxFavorites; i++)
+		{
+			char keyName[32];
+			sprintf(keyName, "game%d", i);
+			std::string romPath;
+			if (SUCCEEDED(fcecfg.Find("favorites", keyName, romPath)) && !romPath.empty())
+			{
+				originalCount++;
+			}
+			else
+			{
+				break;
+			}
+		}
+		
+		// Only save if we removed entries
+		bool needsSave = (temp_favorites.size() != originalCount);
+		
+		m_favorite_games = temp_favorites;
+		
+		// If we skipped any deleted files, update the saved list
+		if (needsSave && m_favorite_games.size() > 0)
+		{
+			SaveFavorites();
+		}
+	}
+	
+	void SaveFavorites()
+	{
+		extern Config fcecfg;
+		
+		// Clear old favorites entries - always clear a fixed reasonable number
+		// This ensures we always clear old entries, similar to how SaveRecentGames works
+		// Using 500 as a reasonable upper limit (much higher than typical use case)
+		const int MAX_FAVORITES_TO_CLEAR = 500;
+		for (int i = 0; i < MAX_FAVORITES_TO_CLEAR; i++)
+		{
+			char keyName[32];
+			sprintf(keyName, "game%d", i);
+			fcecfg.Set("favorites", keyName, "");
+		}
+		
+		// Save current favorites
+		for (size_t i = 0; i < m_favorite_games.size(); i++)
+		{
+			char keyName[32];
+			sprintf(keyName, "game%d", i);
+			
+			std::string fullPath = m_favorite_games[i].path + m_favorite_games[i].filename;
+			fcecfg.Set("favorites", keyName, fullPath);
 		}
 		
 		// Save config file
