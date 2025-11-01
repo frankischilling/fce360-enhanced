@@ -14,7 +14,23 @@
 #include "config_reader.h"
 #include "net360.h"
 #include "fceux/emufile.h"
+#include "fceux/drawing.h"
+#ifdef USE_LUA
+#include "fceux/fceulua.h"
+#endif
 #include "zlib.h"
+
+//-----------------------------------------------------------------------------
+// Performance: Disable printf spam in retail builds
+//-----------------------------------------------------------------------------
+#if !defined(DEBUG) && !defined(_DEBUG)
+#undef printf
+#define printf(...) ((void)0)
+#endif
+
+// Log budget system to prevent excessive debug output
+static int g_log_budget = 200; // print at most 200 lines total per run
+#define LOGF(...) do { if (g_log_budget > 0) { --g_log_budget; printf(__VA_ARGS__); } } while(0)
 
 //-----------------------------------------------------------------------------
 // Global variables
@@ -48,6 +64,8 @@ D3DXMATRIX g_matWorldViewProjection;
 // Audio
 //-------------------------------------------------------------------------------------
 #define SOUND_BUFFER_SIZE 5000
+#define BLOCK_FRAMES 512    // ~10.7ms @48k, lower latency for snappier controls
+#define MAX_BLOCKS_QUEUED 2  // Cap queue depth (still stable on 360)
 
 //fceux bitmap
 uint8 * bitmap;
@@ -179,20 +197,26 @@ HRESULT Cemulator::InitVideo(){
 	//g_d3dpp.PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
 
 //-------------------------------------------------------------------------------------
-// MSAA surface
+// Create device FIRST (before creating surfaces - correct order)
+// Note: D3DCREATE_BUFFER_3_FRAMES not available on Xbox 360 - command buffer depth is managed internally
+// Using standard flags for Xbox 360
 //-------------------------------------------------------------------------------------
-	D3DSURFACE_PARAMETERS params = {0};
-	g_pd3dDevice->CreateRenderTarget( g_dwTileWidth, g_dwTileHeight, D3DFMT_X8R8G8B8, D3DMULTISAMPLE_4_SAMPLES, 0, 0, &m_pBackBuffer, &params );
-	params.Base = m_pBackBuffer->Size / GPU_EDRAM_TILE_SIZE;
-	params.HierarchicalZBase = D3DHIZFUNC_GREATER_EQUAL;
-
-	g_pd3dDevice->CreateDepthStencilSurface( g_dwTileWidth, g_dwTileHeight, D3DFMT_D24S8, D3DMULTISAMPLE_4_SAMPLES, 0, 0, &m_pDepthBuffer, &params );
-	g_pd3dDevice->CreateTexture( g_dwFrameWidth, g_dwFrameHeight, 1, 0, D3DFMT_LE_X8R8G8B8, 0, &m_pFrontBuffer, NULL );
-	if( FAILED( g_pD3D->CreateDevice( 0, D3DDEVTYPE_HAL, NULL, D3DCREATE_BUFFER_2_FRAMES, &g_d3dpp, &g_pd3dDevice ) ) )
+	if( FAILED( g_pD3D->CreateDevice( 0, D3DDEVTYPE_HAL, NULL, D3DCREATE_HARDWARE_VERTEXPROCESSING, &g_d3dpp, &g_pd3dDevice ) ) )
 	{
 		printf("CreateDevice failed\n");
         return E_FAIL;
 	}
+
+//-------------------------------------------------------------------------------------
+// Create render surfaces AFTER device creation
+//-------------------------------------------------------------------------------------
+	D3DSURFACE_PARAMETERS params = {0};
+	g_pd3dDevice->CreateRenderTarget( g_dwTileWidth, g_dwTileHeight, D3DFMT_X8R8G8B8, D3DMULTISAMPLE_NONE, 0, 0, &m_pBackBuffer, &params );
+	params.Base = m_pBackBuffer->Size / GPU_EDRAM_TILE_SIZE;
+	params.HierarchicalZBase = D3DHIZFUNC_GREATER_EQUAL;
+
+	g_pd3dDevice->CreateDepthStencilSurface( g_dwTileWidth, g_dwTileHeight, D3DFMT_D24S8, D3DMULTISAMPLE_NONE, 0, 0, &m_pDepthBuffer, &params );
+	g_pd3dDevice->CreateTexture( g_dwFrameWidth, g_dwFrameHeight, 1, 0, D3DFMT_LE_X8R8G8B8, 0, &m_pFrontBuffer, NULL );
 //-------------------------------------------------------------------------------------
 // Create the buffer, and load the effect from the file.
 //-------------------------------------------------------------------------------------
@@ -219,7 +243,7 @@ HRESULT Cemulator::InitVideo(){
 
     // Compile the effect by using the ID3DXEffectCompiler interface, and then release the compiler.
     Result = pCompiler->CompileEffect(
-		D3DXSHADER_DEBUG , 
+		0,  // No debug flags in retail (was D3DXSHADER_DEBUG)
 		&pCompiledData, 
 		NULL
 	);
@@ -387,7 +411,12 @@ HRESULT Cemulator::InitAudio()
 //-------------------------------------------------------------------------------------
 //	Source voice
 //-------------------------------------------------------------------------------------
-	if(FAILED( g_pXAudio2->CreateSourceVoice(&g_pSourceVoice,(WAVEFORMATEX*)&wfx, XAUDIO2_VOICE_NOSRC | XAUDIO2_VOICE_NOPITCH , 1.0f, &XAudio2_Notifier)	))
+	// Only use NOSRC if we're at 48k (mastering voice default)
+	// Otherwise, let XAudio2 resample to avoid issues
+	UINT32 voiceFlags = (m_Settings.soundrate == 48000) ? (XAUDIO2_VOICE_NOSRC | XAUDIO2_VOICE_NOPITCH)
+	                                                    : (XAUDIO2_VOICE_NOPITCH);
+	
+	if(FAILED( g_pXAudio2->CreateSourceVoice(&g_pSourceVoice,(WAVEFORMATEX*)&wfx, voiceFlags, 1.0f, &XAudio2_Notifier)	))
 	{
 		printf("CreateSourceVoice failed\n");
 		return E_FAIL;
@@ -407,41 +436,77 @@ HRESULT Cemulator::InitAudio()
 
 void Cemulator::UpdateAudio(int * snd, int sndsize)
 {
-	if(sndsize==0)
+	if(sndsize <= 0 || !g_pSourceVoice)
 		return;
 
 //-------------------------------------------------------------------------------------
-// Rebuild sound stream
+// Audio: Convert mono 16-bit (signed) -> interleaved stereo 16-bit (L=R)
+// Use signed samples to avoid DC bias and XAudio2 limiter overhead
+// Accumulate samples across frames since NES produces ~735-800 samples/frame
 //-------------------------------------------------------------------------------------	
-	unsigned short sample;
-	unsigned int *dst = (unsigned int *)g_sound_buffer;
+	static std::vector<short> accumulator;  // Accumulate samples across frames
+	static int accCount = 0;
 	
-	for(int i = 0;i<sndsize;i++)
-	{
-		sample = snd[i] & 0xffff;
-		g_sound_buffer[snd_written++]=sample | ( sample << 16);
-		if(snd_written==sndsize)
-		{
-			snd_written=0;
+	// Accumulate incoming samples
+	for (int i = 0; i < sndsize; ++i) {
+		short sample = (short)(snd[i] & 0xFFFF);    // signed 16-bit!
+		
+		// Grow accumulator if needed
+		if (accCount * 2 + 1 >= (int)accumulator.size()) {
+			accumulator.resize((accCount + sndsize) * 2);  // Ensure room for stereo
+		}
+		
+		accumulator[accCount * 2 + 0] = sample;  // Left channel
+		accumulator[accCount * 2 + 1] = sample;  // Right channel (same as left)
+		++accCount;
+	}
+	
+	// Submit when we have a full block
+	// Use a pool of reusable buffers to avoid malloc/free churn
+	static const int POOL_SIZE = 8;
+	static BYTE* pool[POOL_SIZE] = {0};
+	static int poolHead = 0;
+	
+	while (accCount >= BLOCK_FRAMES) {
+		// Check queue state - flush only if strictly greater than threshold
+		XAUDIO2_VOICE_STATE st = {0};
+		g_pSourceVoice->GetState(&st);
+		if (st.BuffersQueued > MAX_BLOCKS_QUEUED) {  // Strictly greater, not >=
+			// Drop backlog to keep A/V in sync (prefer a tiny click over seconds of lag)
+			g_pSourceVoice->FlushSourceBuffers();
+		}
 
-			//-------------------------------------------------------------------------------------
-			// Submit sound - fait une copie par secu - free par la callback
-			//-------------------------------------------------------------------------------------	
-			unsigned int * nes_sound = (unsigned int *)malloc(sndsize * sizeof(int));
-			XMemCpy(nes_sound,g_sound_buffer,sndsize* sizeof(int));
-			g_SoundBuffer.AudioBytes = sndsize * sizeof(int);	//size of the audio buffer in bytes
-			g_SoundBuffer.pAudioData = (BYTE*)nes_sound;//;		//buffer containing audio data
-			g_SoundBuffer.pContext = (BYTE*)nes_sound;
-			g_SoundBuffer.Flags = XAUDIO2_END_OF_STREAM;
+		// Get buffer from pool (reuse instead of malloc/free per block)
+		const size_t bytes = BLOCK_FRAMES * 2 /*stereo*/ * sizeof(short);
+		if (!pool[poolHead]) {
+			pool[poolHead] = (BYTE*)malloc(bytes);
+			if (!pool[poolHead])
+				break;  // Can't allocate, skip this block
+		}
+		BYTE* buf = pool[poolHead];
+		
+		// Copy BLOCK_FRAMES worth of stereo samples
+		memcpy(buf, &accumulator[0], bytes);
 
-			//-------------------------------------------------------------------------------------
-			// Send sound stream
-			//-------------------------------------------------------------------------------------	
-			if( FAILED(g_pSourceVoice->SubmitSourceBuffer( &g_SoundBuffer ) ) )
-			{
-				printf("SubmitSourceBuffer failed\n");
-				return ;
+		XAUDIO2_BUFFER xb = {0};
+		xb.AudioBytes = (UINT32)bytes;
+		xb.pAudioData = buf;
+		xb.pContext   = (void*)(intptr_t)poolHead;  // Store pool index instead of pointer
+		xb.Flags      = 0;     // streaming, NOT end-of-stream
+
+		if (SUCCEEDED(g_pSourceVoice->SubmitSourceBuffer(&xb))) {
+			// Advance pool head (buffer will be reused when callback fires)
+			poolHead = (poolHead + 1) % POOL_SIZE;
+			
+			// Remove submitted samples from accumulator
+			int remaining = accCount - BLOCK_FRAMES;
+			if (remaining > 0) {
+				// Shift remaining samples to front
+				memmove(&accumulator[0], &accumulator[BLOCK_FRAMES * 2], remaining * 2 * sizeof(short));
 			}
+			accCount = remaining;
+		} else {
+			break;  // Submission failed, stop trying (buffer stays in pool)
 		}
 	}
 	return;
@@ -481,54 +546,55 @@ void Cemulator::UpdateInput()
 			if(Gamepads[dwUser].fX1 < -0.3f)
 				pad[dwUser] |= m_Settings.gamepad_dpad_left;
 
-			if(Gamepads[dwUser].wLastButtons & XINPUT_GAMEPAD_DPAD_UP)
-				pad[dwUser] |= m_Settings.gamepad_dpad_up;
-
-			if(Gamepads[dwUser].wLastButtons & XINPUT_GAMEPAD_DPAD_DOWN)
-				pad[dwUser] |= m_Settings.gamepad_dpad_down;
-
-			if(Gamepads[dwUser].wLastButtons & XINPUT_GAMEPAD_DPAD_LEFT)
-				pad[dwUser] |= m_Settings.gamepad_dpad_left;
-
-			if(Gamepads[dwUser].wLastButtons & XINPUT_GAMEPAD_DPAD_RIGHT)
-				pad[dwUser] |= m_Settings.gamepad_dpad_right;
-
-			if(Gamepads[dwUser].wLastButtons & XINPUT_GAMEPAD_A)
-				pad[dwUser] |= m_Settings.gamepad_a;
-
-			if(Gamepads[dwUser].wLastButtons & XINPUT_GAMEPAD_B)
-				pad[dwUser] |= m_Settings.gamepad_b;
-
-			if(Gamepads[dwUser].wLastButtons & XINPUT_GAMEPAD_X)
-				pad[dwUser] |= m_Settings.gamepad_x;
+		// Use wButtons instead of wLastButtons for better frame cadence (avoids frame-timing weirdness)
+		if(Gamepads[dwUser].wButtons & XINPUT_GAMEPAD_DPAD_UP)
+			pad[dwUser] |= m_Settings.gamepad_dpad_up;
 			
-			if(Gamepads[dwUser].wLastButtons & XINPUT_GAMEPAD_Y)
-				pad[dwUser] |= m_Settings.gamepad_y;
-				
-			if(Gamepads[dwUser].wLastButtons & XINPUT_GAMEPAD_LEFT_THUMB)
-				pad[dwUser] |= m_Settings.gamepad_left_thumb;
+		if(Gamepads[dwUser].wButtons & XINPUT_GAMEPAD_DPAD_DOWN)
+			pad[dwUser] |= m_Settings.gamepad_dpad_down;
 
-			if(Gamepads[dwUser].wLastButtons & XINPUT_GAMEPAD_RIGHT_THUMB)
-				pad[dwUser] |= m_Settings.gamepad_right_thumb;
+		if(Gamepads[dwUser].wButtons & XINPUT_GAMEPAD_DPAD_LEFT)
+			pad[dwUser] |= m_Settings.gamepad_dpad_left;
 
-			if(Gamepads[dwUser].wLastButtons & XINPUT_GAMEPAD_LEFT_SHOULDER)
-				pad[dwUser] |= m_Settings.gamepad_left_shoulder;
+		if(Gamepads[dwUser].wButtons & XINPUT_GAMEPAD_DPAD_RIGHT)
+			pad[dwUser] |= m_Settings.gamepad_dpad_right;
+
+		if(Gamepads[dwUser].wButtons & XINPUT_GAMEPAD_A)
+			pad[dwUser] |= m_Settings.gamepad_a;
+
+		if(Gamepads[dwUser].wButtons & XINPUT_GAMEPAD_B)
+			pad[dwUser] |= m_Settings.gamepad_b;
+
+		if(Gamepads[dwUser].wButtons & XINPUT_GAMEPAD_X)
+			pad[dwUser] |= m_Settings.gamepad_x;
+		
+		if(Gamepads[dwUser].wButtons & XINPUT_GAMEPAD_Y)
+			pad[dwUser] |= m_Settings.gamepad_y;
 			
-			if(Gamepads[dwUser].wLastButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER)
-				pad[dwUser] |= m_Settings.gamepad_right_shoulder;
+		if(Gamepads[dwUser].wButtons & XINPUT_GAMEPAD_LEFT_THUMB)
+			pad[dwUser] |= m_Settings.gamepad_left_thumb;
+
+		if(Gamepads[dwUser].wButtons & XINPUT_GAMEPAD_RIGHT_THUMB)
+			pad[dwUser] |= m_Settings.gamepad_right_thumb;
+
+		if(Gamepads[dwUser].wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER)
+			pad[dwUser] |= m_Settings.gamepad_left_shoulder;
+		
+		if(Gamepads[dwUser].wButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER)
+			pad[dwUser] |= m_Settings.gamepad_right_shoulder;
 				
-			// When LT is serving rewind, don't pass it through to the NES pad
-			if(!m_isRewinding && Gamepads[dwUser].bLeftTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD)
-				pad[dwUser] |= m_Settings.gamepad_left_trigger;
-				
-			if(Gamepads[dwUser].bRightTrigger>XINPUT_GAMEPAD_TRIGGER_THRESHOLD)
-				pad[dwUser] |= m_Settings.gamepad_right_trigger;
-				
-			if(Gamepads[dwUser].wLastButtons & XINPUT_GAMEPAD_START)
-				pad[dwUser] |= m_Settings.gamepad_start;
+		// When LT is serving rewind, don't pass it through to the NES pad
+		if(!m_isRewinding && Gamepads[dwUser].bLeftTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD)
+			pad[dwUser] |= m_Settings.gamepad_left_trigger;
 			
-			if(Gamepads[dwUser].wLastButtons & XINPUT_GAMEPAD_BACK)
-				pad[dwUser] |= m_Settings.gamepad_back;
+		if(Gamepads[dwUser].bRightTrigger>XINPUT_GAMEPAD_TRIGGER_THRESHOLD)
+			pad[dwUser] |= m_Settings.gamepad_right_trigger;
+			
+		if(Gamepads[dwUser].wButtons & XINPUT_GAMEPAD_START)
+			pad[dwUser] |= m_Settings.gamepad_start;
+		
+		if(Gamepads[dwUser].wButtons & XINPUT_GAMEPAD_BACK)
+			pad[dwUser] |= m_Settings.gamepad_back;
 		}
 	}
 //-------------------------------------------------------------------------------------
@@ -572,6 +638,20 @@ HRESULT Cemulator::InitSystem()
 	fcecfg.Find("video","swfilter", m_Settings.SelectedGfxFilter);
 	fcecfg.Find("video","screenaspect", m_Settings.SelectedVertexFilter);
 	
+	// Default to cheap filter for performance (override expensive CPU filters)
+	// User can still change this in settings, but baseline should be fast
+	if (m_Settings.SelectedGfxFilter != gfx_normal && 
+	    m_Settings.SelectedGfxFilter != gfx_hq2x &&
+	    m_Settings.SelectedGfxFilter != gfx_hq3x &&
+	    m_Settings.SelectedGfxFilter != gfx_2xsai &&
+	    m_Settings.SelectedGfxFilter != gfx_super2sai &&
+	    m_Settings.SelectedGfxFilter != gfx_superEagle) {
+		m_Settings.SelectedGfxFilter = gfx_normal;  // Force baseline if invalid
+	}
+	
+	// Lock to gfx_normal for performance - fancy CPU filters are expensive and not worth it on 360
+	m_Settings.SelectedGfxFilter = gfx_normal;
+	
 	//network
 	fcecfg.Find("network","enable", m_Settings.use_netplay);
 
@@ -607,12 +687,25 @@ HRESULT Cemulator::LoadGame(std::string name, bool restart)
 //-------------------------------------------------------------------------------------
 	FCEUI_SetBaseDirectory("game:");
 	
-	// Set snapshot directory and ensure it exists
-	static char snapDir[] = "game:\\snaps";
+	// Set snapshot directory to user-writable location on hdd1
+	// This works even when game: is read-only (XZP/STFS packages)
+	static char snapDir[] = "hdd1:\\fce360-enhanced\\snaps";
 	FCEUI_SetDirOverride(FCEUIOD_SNAPS, snapDir);
 	
-	// Create snaps directory if it doesn't exist
-	CreateDirectoryA("game:\\snaps", NULL);
+	// Create user directories on hdd1 (always writable)
+	CreateDirectoryA("hdd1:\\fce360-enhanced", NULL);
+	CreateDirectoryA("hdd1:\\fce360-enhanced\\snaps", NULL);
+	CreateDirectoryA("hdd1:\\fce360-enhanced\\lua", NULL);
+	
+	// Also try to create lua directory in game: (works if not read-only)
+	CreateDirectoryA("game:\\lua", NULL);
+	CreateDirectoryA("game:\\Lua", NULL);
+	
+	// Auto-load all Lua scripts from lua directories (in addition to FCEUD_LuaRunFrom())
+#ifdef USE_LUA
+	extern void FCEU_AutoLoadLuaScripts(void);
+	FCEU_AutoLoadLuaScripts();
+#endif
 	
 	FCEUI_SetVidSystem(0);
 
@@ -687,6 +780,9 @@ HRESULT Cemulator::LoadGame(std::string name, bool restart)
 		if(m_Settings.use_netplay)
 			FCEUD_NetworkConnect();
 
+		// Load Lua scripts from game:/lua/ folder
+		FCEUD_LuaRunFrom();
+
 		return S_OK;
 	}
 	
@@ -743,16 +839,17 @@ void Cemulator::Render()
 // Draw Bg
 //-------------------------------------------------------------------------------------	
 	g_effect->SetTechnique( g_technique_bg );
-	g_effect->Begin( &cPasses, 0 );
-	g_pd3dDevice->SetVertexDeclaration( g_pVertexDecl );
-	g_pd3dDevice->SetStreamSource( 0, g_pVB, 0, sizeof(TEXTURED) );
-	for( iPass = 0; iPass < cPasses; iPass++ )
-	{
-		g_effect->BeginPass( iPass );
-		g_pd3dDevice->DrawPrimitiveUP( D3DPT_QUADLIST, 1, g_VerticesTextured, sizeof( TEXTURED ) );
-		g_effect->EndPass();
-	}
-	g_effect->End();
+		g_effect->Begin( &cPasses, 0 );
+		g_pd3dDevice->SetVertexDeclaration( g_pVertexDecl );
+		g_pd3dDevice->SetStreamSource( 0, g_pVB, 0, sizeof(TEXTURED) );
+		for( iPass = 0; iPass < cPasses; iPass++ )
+		{
+			g_effect->BeginPass( iPass );
+			// Use VB draw instead of DrawPrimitiveUP for better performance (doesn't stall pipeline)
+			g_pd3dDevice->DrawPrimitive( D3DPT_QUADLIST, 0, 1 );
+			g_effect->EndPass();
+		}
+		g_effect->End();
 
 //-------------------------------------------------------------------------------------
 // Draw Game
@@ -774,10 +871,13 @@ void Cemulator::Render()
 		
 		g_effect->SetTexture( g_MeshTexture, g_texture );
 		g_effect->Begin( &cPasses, 0 );
+		g_pd3dDevice->SetVertexDeclaration( g_pVertexDecl );
+		g_pd3dDevice->SetStreamSource( 0, g_pVB, 0, sizeof(TEXTURED) );
 		for( iPass = 0; iPass < cPasses; iPass++ )
 		{
 			g_effect->BeginPass( iPass );
-			g_pd3dDevice->DrawPrimitiveUP( D3DPT_QUADLIST, 1, g_VerticesTextured, sizeof( TEXTURED ) );
+			// Use VB draw instead of DrawPrimitiveUP for better performance (doesn't stall pipeline)
+			g_pd3dDevice->DrawPrimitive( D3DPT_QUADLIST, 0, 1 );
 			//mesh->DrawSubset(0);
 			g_effect->EndPass();
 		}
@@ -798,7 +898,7 @@ void Cemulator::Render()
 	g_pd3dDevice->EndTiling( 0, NULL, m_pFrontBuffer, NULL, 1, 0, NULL );
     
     // Present the backbuffer contents to the display
-    g_pd3dDevice->SynchronizeToPresentationInterval();
+    // Note: PresentationInterval already set, no need to double-block with SynchronizeToPresentationInterval
 	g_pd3dDevice->Swap( m_pFrontBuffer, NULL );
 };
 
@@ -833,126 +933,125 @@ HRESULT Cemulator::Run()
 	InitUi(g_pd3dDevice, g_d3dpp);
 
 //-------------------------------------------------------------------------------------
-// Looop :D
+// Fixed-timestep emulation loop (60.0 Hz, matched to vsync to prevent drift-induced stutter)
 //-------------------------------------------------------------------------------------	
-	if(true)
-	{
-		int32 * snd;
-		int32 sndsize;
-		
-		gfx_filter.SetTextureDimension(GetWidth(), GetHeight());
-		//filter from configuration - can be updated by xui
-		gfx_filter.UseFilter( m_Settings.SelectedGfxFilter );
+	// Use QueryPerformanceCounter for high-resolution timing on Xbox 360
+	// Frequency is typically 3.2MHz on Xbox 360, so we convert to 100ns units (10MHz)
+	LARGE_INTEGER perfFreq, lastCounter, currentCounter;
+	QueryPerformanceFrequency(&perfFreq);
+	QueryPerformanceCounter(&lastCounter);
+	
+	static const double NTSC_HZ = 60.0;  // Match display refresh to remove drift-induced stutter
+	static const double TICKS_PER_FRAME_D = (10000000.0 / NTSC_HZ);  // 100ns units per frame
+	ULONGLONG acc = 0;
 
-		while(end==false)
-		{
-			if(RenderEmulation == true)
-			{
-				// Update input first so each frame uses current input state
+	gfx_filter.SetTextureDimension(GetWidth(), GetHeight());
+	//filter from configuration - can be updated by xui
+	gfx_filter.UseFilter( m_Settings.SelectedGfxFilter );
+
+	// Fixed-timestep loop: run emulation at 60.0988 Hz, present at vsync (60Hz)
+	// Always render to maintain responsive UI and smooth presentation
+	int32 * snd;
+	int32 sndsize;
+	
+	// Pre-calculate conversion factor for better performance
+	double perfFreqDouble = (double)perfFreq.QuadPart;
+	double conversionFactor = 10000000.0 / perfFreqDouble;
+
+	while (end == false) {
+		QueryPerformanceCounter(&currentCounter);
+		// Convert performance counter delta to 100ns units (optimized calculation)
+		ULONGLONG delta = (ULONGLONG)((double)(currentCounter.QuadPart - lastCounter.QuadPart) * conversionFactor);
+		acc += delta;
+		
+		// Clamp runaway catch-up to prevent blasting multiple frames and causing hitches
+		const ULONGLONG MAX_CATCHUP = (ULONGLONG)(TICKS_PER_FRAME_D * 2);
+		if (acc > MAX_CATCHUP) acc = MAX_CATCHUP;
+		
+		lastCounter = currentCounter;
+
+		// run emu at 60.0 Hz (matches vsync); allow a small catch-up to avoid spiraling
+		int safety = 0;
+		
+		while (acc >= (ULONGLONG)TICKS_PER_FRAME_D && safety < 4) {
+			if (RenderEmulation) {
+				// Input
 				UpdateInput();
-				
-				// Check for screenshot (LEFT_THUMB button + LT trigger)
-				bool screenshotCombo = 
+
+				// Screenshot combo
+				bool screenshotCombo =
 					(Gamepads[0].wButtons & XINPUT_GAMEPAD_LEFT_THUMB) &&
 					(Gamepads[0].bLeftTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
-				
-				if(screenshotCombo && !m_screenshotLatch)
-				{
-					m_screenshotLatch = true;
-					FCEUI_SaveSnapshot();
-				}
-				else if(!screenshotCombo)
-				{
-					m_screenshotLatch = false;
-				}
-				
-				// Check for rewind (LT held) - only if not screenshot combo
-				const bool rewindPressed =
-					(Gamepads[0].bLeftTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD) && !screenshotCombo;
-				// Track hold duration to ramp speed
+				if (screenshotCombo && !m_screenshotLatch) { m_screenshotLatch = true; FCEUI_SaveSnapshot(); }
+				else if (!screenshotCombo) { m_screenshotLatch = false; }
+
+				// Rewind (LT), skip audio while rewinding
+				const bool rewindPressed = (Gamepads[0].bLeftTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD) && !screenshotCombo;
 				m_rewindHeldFrames = rewindPressed ? (m_rewindHeldFrames + 1) : 0;
 
-				if(rewindPressed)
-				{
-					if(!m_isRewinding)
-					{
-						// Start rewinding if we have states
-						if(m_rewindCount > 0)
-						{
-							SaveRewindState();
-							m_isRewinding = true;
-							m_rewindFrameSkip = 0;
-							m_rewindStartPos = m_rewindWritePos;
-						}
+				if (rewindPressed) {
+					if (!m_isRewinding && m_rewindCount > 0) {
+						SaveRewindState();
+						m_isRewinding = true;
+						m_rewindFrameSkip = 0;
+						m_rewindStartPos = m_rewindWritePos;
 					}
- 
-					// Rewind: load previous states continuously (ramping faster as you hold)
-					if(m_isRewinding)
-					{
-						// Ramp: 0.25s hold → 2x, 0.75s → 4x, 1.5s → 8x
+					if (m_isRewinding) {
 						int steps = 1;
 						if (m_rewindHeldFrames >= 90) steps = 8;
 						else if (m_rewindHeldFrames >= 45) steps = 4;
 						else if (m_rewindHeldFrames >= 15) steps = 2;
-
-						for (int s = 0; s < steps; ++s)
-						{
-							if (!LoadRewindState()) {
-								// Hit oldest state—stop cleanly
-								m_isRewinding = false;
-								m_rewindFrameSkip = 0;
-								m_frameCounter = 0;
-								break;
-							}
-						}
-
-						// Refresh display once after loading
-						extern uint8 *XBuf;
-						if (m_isRewinding && XBuf)
-						{
-							bitmap = XBuf;
-							FCEU_PutImage();
-							for (int i = 0; i < (256*240); ++i)
-								nesBitmap[i] =
-									((pcpalette[bitmap[i]].r) << 16) |
-									((pcpalette[bitmap[i]].g) << 8)  |
-									( pcpalette[bitmap[i]].b )       |
-									(0xFF << 24);
-							gfx_filter.UpdateFilter(nesBitmap);
-						}
-						// Skip audio during rewind
+						for (int s = 0; s < steps; ++s) if (!LoadRewindState()) { m_isRewinding = false; break; }
+						// draw-only refresh handled later by Render(); audio intentionally skipped
 					}
-				}
-				// Normal emulation mode - only run if NOT rewinding
-				if(!m_isRewinding)
-				{
-					// Save state to rewind buffer periodically
-					m_frameCounter++;
-					if(m_frameCounter >= REWIND_SAVE_INTERVAL)
-					{
-						m_frameCounter = 0;
-						SaveRewindState();
-					}
-					
-					// Check for fast forward (RT trigger) - Gamepads array is already updated by UpdateInput()
-					bool fastForward = false;
-					if(Gamepads[0].bRightTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD)
-						fastForward = true;
-					
-					// Fast forward multiplier (fixed at 2x speed)
-					int framesToRun = fastForward ? 2 : 1;
-					
-					for(int frame = 0; frame < framesToRun; frame++)
-					{
+					// Skip normal emu frame while rewinding
+				} else if (m_isRewinding) {
+					m_isRewinding = false;
+					m_rewindFrameSkip = 0;
+					m_frameCounter = 0;
+				} else {
+					// Normal emulation
+					// Fast-forward (RT) = 2× emu steps for this render
+					int framesToRun = (Gamepads[0].bRightTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD) ? 2 : 1;
+
+					for (int frame = 0; frame < framesToRun; ++frame) {
 						FCEUI_Emulate(&bitmap, &snd, &sndsize, 0);
-						
-						// Only process bitmap/audio for the last frame to maintain smooth playback
-						if(frame == framesToRun - 1)
-						{
-							for(int i = 0;i<(256*240);i++)
-							{
-								//Make an ARGB bitmap
-								nesBitmap[i] = ( (pcpalette[bitmap[i]].r) << 16) | ( (pcpalette[bitmap[i]].g) << 8 ) | ( pcpalette[bitmap[i]].b ) | ( 0xFF << 24 );
+
+#ifdef USE_LUA
+						FCEU_LuaFrameBoundary();
+#endif
+						// Save rewind state periodically (less frequently for performance)
+						if (++m_frameCounter >= REWIND_SAVE_INTERVAL) {
+							m_frameCounter = 0;
+							SaveRewindState();
+						}
+
+						if (frame == framesToRun - 1) {
+#ifndef USE_LUA
+							DrawTextTrans(bitmap + 4*256 + 4, 256, (uint8*)"LUA OFF", 0x2E | 0x80);
+#else
+							DrawTextTrans(bitmap + 4*256 + 4, 256, (uint8*)"LUA ON",  0x2E | 0x80);
+							// Throttled Lua GUI (runs at ~30Hz for performance), draws onto XBuf
+							FCEU_LuaGui(bitmap);
+#endif
+							
+							// Optimized ARGB conversion with precomputed LUT
+							static unsigned int lut[256];
+							static bool lutInit = false;
+							if (!lutInit) {
+								extern pcpal pcpalette[256];
+								for (int i = 0; i < 256; ++i) {
+									lut[i] = (0xFF << 24) | 
+									         (pcpalette[i].r << 16) | 
+									         (pcpalette[i].g << 8) | 
+									         pcpalette[i].b;
+								}
+								lutInit = true;
+							}
+							
+							// Fast lookup table conversion (no branching per pixel)
+							for (int i = 0; i < (256 * 240); ++i) {
+								nesBitmap[i] = lut[bitmap[i]];
 							}
 							
 							gfx_filter.UpdateFilter(nesBitmap);
@@ -960,16 +1059,15 @@ HRESULT Cemulator::Run()
 						}
 					}
 				}
-				else if (!rewindPressed) // ← only stop when LT is actually released
-				{
-					m_isRewinding = false;
-					m_rewindFrameSkip = 0;
-					m_frameCounter = 0;
-				}
 			}
-			UpdateVideo();
-			Render();
+			acc -= (ULONGLONG)TICKS_PER_FRAME_D;
+			++safety;
 		}
+
+		// Always render every loop iteration - Swap() will block on vsync for smooth pacing
+		// This creates perfectly regular present intervals and absorbs timing differences
+		UpdateVideo();
+		Render();  // Always present once per loop; Swap() syncs to vsync
 	}
 //-------------------------------------------------------------------------------------
 // End

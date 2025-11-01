@@ -77,8 +77,10 @@ private:
 	bool m_screenshotLatch;  // prevents multiple screenshots per button press
 	
 	// Rewind system
-	static const int REWIND_BUFFER_SIZE = 300;  // Store up to 300 states (~5 seconds at 60fps with 1 state per frame)
-	static const int REWIND_SAVE_INTERVAL = 1;  // Save state every N frames (1 = every frame for smooth rewind)
+	static const int REWIND_BUFFER_SIZE = 300;  // Store up to 300 states (~5 seconds at 60fps)
+#ifndef REWIND_SAVE_INTERVAL
+	static const int REWIND_SAVE_INTERVAL = 60;  // Save state once per second (was 1, too frequent and causes slowdown)
+#endif
 	
 	struct RewindState {
 		std::vector<uint8> stateData;
@@ -157,8 +159,9 @@ private:
 		}
 
 		STDMETHOD_( void, OnBufferEnd ) ( void *pBufferContext ) {
+			// Buffer is from pool - don't free, keep it hot for reuse
+			// pBufferContext is actually a pool index cast to void*
 			SetEvent( hBufferEndEvent );
-			free(pBufferContext);
 		}
 
 		// dummies:

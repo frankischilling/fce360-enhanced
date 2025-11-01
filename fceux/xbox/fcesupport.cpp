@@ -15,6 +15,13 @@ void FCEUD_SetPalette(unsigned char index, unsigned char r, unsigned char g, uns
     pcpalette[index].r = r;
     pcpalette[index].g = g;
     pcpalette[index].b = b;
+    // Mirror color into overlay range so 0x80|color shows up
+    // This makes overlay pixels (used by DrawTextTrans) visible
+    if (index < 128) {
+        pcpalette[index | 0x80].r = r;
+        pcpalette[index | 0x80].g = g;
+        pcpalette[index | 0x80].b = b;
+    }
 }
 
 void FCEUD_GetPalette(unsigned char i, unsigned char *r, unsigned char *g, unsigned char *b) {
@@ -97,6 +104,26 @@ DUMMY(FCEUD_SaveStateAs)
 DUMMY(FCEUD_LoadStateFrom)
 DUMMY(FCEUD_MovieRecordTo)
 DUMMY(FCEUD_MovieReplayFrom)
+void FCEUD_LuaRunFrom(void) {
+#ifdef USE_LUA
+	extern void FCEU_AutoLoadLuaScripts(void);
+	
+	// Ensure lua directory exists in user-writable location (hdd1 always works)
+	// Also try game: location (may be read-only in XZP/STFS, which is fine)
+	CreateDirectoryA("hdd1:\\fce360-enhanced", NULL);
+	CreateDirectoryA("hdd1:\\fce360-enhanced\\lua", NULL);
+	CreateDirectoryA("hdd1:\\fce360-enhanced\\Lua", NULL);
+	CreateDirectoryA("game:\\lua", NULL);
+	CreateDirectoryA("game:\\Lua", NULL);
+	
+	printf("FCEUD_LuaRunFrom: Auto-loading all .lua scripts from lua directories\n");
+	printf("FCEUD_LuaRunFrom: NOTE - Files must be loose (not in .xzp)\n");
+	printf("FCEUD_LuaRunFrom: Search paths: hdd1:\\fce360-enhanced\\lua, game:\\lua, etc.\n");
+	
+	// Auto-load all .lua scripts from all lua directories
+	FCEU_AutoLoadLuaScripts();
+#endif
+}
 DUMMY(FCEUD_ToggleStatusIcon)
 DUMMY(FCEUD_DebugBreakpoint)
 DUMMY(FCEUD_SoundToggle)
