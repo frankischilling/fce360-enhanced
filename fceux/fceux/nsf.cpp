@@ -39,7 +39,7 @@
 #include "cart.h"
 #include "input.h"
 #include "driver.h"
-#ifdef _S9XLUA_H
+#ifdef USE_LUA
 #include "fceulua.h"
 #endif
 
@@ -441,7 +441,7 @@ static DECLFR(NSF_read)
 				for(x=0;x<8;x++)
 					BANKSET(0x8000+x*4096,NSFHeader.BankSwitch[x]);
 			}
-			#ifdef _S9XLUA_H
+			#ifdef USE_LUA
 			//CallRegisteredLuaMemHook(A, 1, V, LUAMEMHOOK_WRITE); FIXME
 			#endif
 			return (CurrentSong-1);

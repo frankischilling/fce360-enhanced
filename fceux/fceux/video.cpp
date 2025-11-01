@@ -46,7 +46,7 @@
 #include "vsuni.h"
 #include "drawing.h"
 #include "driver.h"
-#ifdef _S9XLUA_H
+#ifdef USE_LUA
 #include "fceulua.h"
 #endif
 
@@ -240,7 +240,7 @@ void FCEU_PutImage(void)
 		//Some messages need to be displayed before the avi is dumped
 		DrawMessage(true);
 
-		#ifdef _S9XLUA_H
+		#ifdef USE_LUA
 		//Lua gui should draw before the avi is dumped.
 		FCEU_LuaGui(XBuf);
 		#endif

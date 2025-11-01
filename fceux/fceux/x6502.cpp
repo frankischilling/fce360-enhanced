@@ -24,7 +24,7 @@
 #include "fceu.h"
 #include "debug.h"
 #include "sound.h"
-#ifdef _S9XLUA_H
+#ifdef USE_LUA
 #include "fceulua.h"
 #endif
 
@@ -51,7 +51,7 @@ static INLINE uint8 RdMem(unsigned int A)
 static INLINE void WrMem(unsigned int A, uint8 V)
 {
 	BWrite[A](A,V);
-	#ifdef _S9XLUA_H
+	#ifdef USE_LUA
 	CallRegisteredLuaMemHook(A, 1, V, LUAMEMHOOK_WRITE);
 	#endif
 }
@@ -66,7 +66,7 @@ static INLINE uint8 RdRAM(unsigned int A)
 static INLINE void WrRAM(unsigned int A, uint8 V)
 {
 	RAM[A]=V;
-	#ifdef _S9XLUA_H
+	#ifdef USE_LUA
 	CallRegisteredLuaMemHook(A, 1, V, LUAMEMHOOK_WRITE);
 	#endif
 }
@@ -81,7 +81,7 @@ void X6502_DMW(uint32 A, uint8 V)
 {
  ADDCYC(1);
  BWrite[A](A,V);
- #ifdef _S9XLUA_H
+ #ifdef USE_LUA
  CallRegisteredLuaMemHook(A, 1, V, LUAMEMHOOK_WRITE);
  #endif
 }
@@ -490,7 +490,7 @@ extern int test; test++;
    _tcount=0;
    if(MapIRQHook) MapIRQHook(temp);
    FCEU_SoundCPUHook(temp);
-   #ifdef _S9XLUA_H
+   #ifdef USE_LUA
    CallRegisteredLuaMemHook(_PC, 1, 0, LUAMEMHOOK_EXEC);
    #endif
    _PC++;

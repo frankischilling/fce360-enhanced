@@ -57,7 +57,7 @@
 #include <fstream>
 #include <sstream>
 
-#ifdef _S9XLUA_H
+#ifdef USE_LUA
 #include "fceulua.h"
 #endif
 
@@ -365,7 +365,7 @@ uint8 PAL=0;
 static DECLFW(BRAML)
 {
 	RAM[A]=V;
-	#ifdef _S9XLUA_H
+	#ifdef USE_LUA
 	CallRegisteredLuaMemHook(A, 1, V, LUAMEMHOOK_WRITE);
 	#endif
 }
@@ -373,7 +373,7 @@ static DECLFW(BRAML)
 static DECLFW(BRAMH)
 {
 	RAM[A&0x7FF]=V;
-	#ifdef _S9XLUA_H
+	#ifdef USE_LUA
 	CallRegisteredLuaMemHook(A&0x7FF, 1, V, LUAMEMHOOK_WRITE);
 	#endif
 }
@@ -574,7 +574,7 @@ bool FCEUI_Initialize()
 
 void FCEUI_Kill(void)
 {
-	#ifdef _S9XLUA_H
+	#ifdef USE_LUA
 	FCEU_LuaStop();
 	#endif
 	FCEU_KillVirtualVideo();
@@ -671,14 +671,14 @@ void FCEUI_Emulate(uint8 **pXBuf, int32 **SoundBuf, int32 *SoundBufSize, int ski
 	AutoFire();
 	UpdateAutosave();
 
-#ifdef _S9XLUA_H
+#ifdef USE_LUA
 	FCEU_LuaFrameBoundary();
 #endif
 
 	FCEU_UpdateInput();
 	lagFlag = 1;
 
-#ifdef _S9XLUA_H
+#ifdef USE_LUA
 	CallRegisteredLuaFunctions(LUACALL_BEFOREEMULATION);
 #endif
 
@@ -687,7 +687,7 @@ void FCEUI_Emulate(uint8 **pXBuf, int32 **SoundBuf, int32 *SoundBufSize, int ski
 
 	if (skip != 2) ssize=FlushEmulateSound(); //If skip = 2 we are skipping sound processing
 
-#ifdef _S9XLUA_H
+#ifdef USE_LUA
 	CallRegisteredLuaFunctions(LUACALL_AFTEREMULATION);
 #endif
 

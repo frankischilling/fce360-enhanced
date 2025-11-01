@@ -47,7 +47,7 @@
 #include "input.h"
 #include "zlib.h"
 #include "driver.h"
-#ifdef _S9XLUA_H
+#ifdef USE_LUA
 #include "fceulua.h"
 #endif
 
@@ -484,7 +484,7 @@ void FCEUSS_Save(const char *fname)
 		return;
 	}
 
-	#ifdef _S9XLUA_H
+	#ifdef USE_LUA
 	if (!internalSaveLoad)
 	{
 		LuaSaveData saveData;
@@ -753,7 +753,7 @@ bool FCEUSS_Load(const char *fname)
 		}
 		delete st;
 
-		#ifdef _S9XLUA_H
+		#ifdef USE_LUA
 		if (!internalSaveLoad)
 		{
 			LuaSaveData saveData;

@@ -23,7 +23,7 @@
 #include "video.h"
 #include "movie.h"
 #include "fds.h"
-#ifdef _S9XLUA_H
+#ifdef USE_LUA
 #include "fceulua.h"
 #endif
 #include "utils/guid.h"
@@ -1552,7 +1552,7 @@ bool FCEUMOV_ReadState(EMUFILE* is, uint32 size)
 				if (!fullSaveStateLoads)
 					tempMovieData.truncateAt(currFrameCounter); //we can only assume this here since we have checked that the frame counter is not greater than the movie data
 				currMovieData = tempMovieData;				
-#ifdef _S9XLUA_H
+#ifdef USE_LUA
 				if(!FCEU_LuaRerecordCountSkip())
 					currRerecordCount++;
 #else

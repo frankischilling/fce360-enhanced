@@ -29,7 +29,7 @@
 #include "fceu.h"
 #include "driver.h"
 #include "boards/mapinc.h"
-#ifdef _S9XLUA_H
+#ifdef USE_LUA
 #include "fceulua.h"
 #endif
 
@@ -112,7 +112,7 @@ void SetNESDeemph(uint8 d, int force)
 	}
 	else   /* Only set this when palette has changed. */
 	{
-		#ifdef _S9XLUA_H
+		#ifdef USE_LUA
 		FCEU_LuaUpdatePalette();
 		#endif
 
@@ -159,7 +159,7 @@ void SetNESDeemph(uint8 d, int force)
 	}
 
 	lastd=d;
-	#ifdef _S9XLUA_H
+	#ifdef USE_LUA
 	FCEU_LuaUpdatePalette();
 	#endif
 }
@@ -269,7 +269,7 @@ void WritePalette(void)
 		FCEUD_SetPalette(x,unvpalette[x].r,unvpalette[x].g,unvpalette[x].b);
 	if(GameInfo->type==GIT_NSF)
 	{
-		#ifdef _S9XLUA_H
+		#ifdef USE_LUA
 		FCEU_LuaUpdatePalette();
 		#endif
 		//for(x=0;x<128;x++)
