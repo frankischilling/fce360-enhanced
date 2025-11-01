@@ -11,6 +11,23 @@
 #include <tchar.h>
 #include <math.h>
 #include <algorithm>
+#include <cwctype>
+
+// Forward declaration for Xbox keyboard UI if not in xui.h
+#ifndef XShowKeyboardUI
+extern "C" {
+	DWORD WINAPI XShowKeyboardUI(
+		DWORD dwUserIndex,
+		DWORD dwFlags,
+		LPCWSTR pwszDefaultText,
+		LPCWSTR pwszTitleText,
+		LPCWSTR pwszDescriptionText,
+		LPWSTR pwszResultText,
+		DWORD cchResultText,
+		XOVERLAPPED* pOverlapped
+	);
+}
+#endif
 #include "..\Cemulator.h"
 #include "..\config_reader.h"
 #include "..\input.h"
@@ -402,6 +419,13 @@ private:
 
 	//list des roms
 	std::vector<rom_item> m_rom_list;
+	std::vector<rom_item> m_rom_list_full;  // Full list for filtering
+	std::wstring m_searchFilter;  // Current search filter
+	bool m_searchLatch;  // Prevents multiple keyboard opens
+	XOVERLAPPED m_keyboardOverlapped;  // Overlapped structure for keyboard
+	bool m_keyboardPending;  // True when keyboard is open and waiting
+	HANDLE m_keyboardEvent;  // Event handle for keyboard
+	WCHAR m_keyboardResult[256];  // Buffer to hold keyboard result
 
     // Scroll state
     DWORD m_lastMoveTick;
@@ -465,18 +489,10 @@ public:
 		}
 		else
 		{
-			XuiRomList.DeleteItems(0, XuiRomList.GetItemCount());
-			//XuiRomList.addi
-			if(!FAILED(ScanDir()))
+			// ScanDir will handle list population via ApplySearchFilter
+			if(FAILED(ScanDir()))
 			{
-				std::vector<rom_item>::iterator it;
-				XuiRomList.InsertItems(0, m_rom_list.size());
-				int i = 0;
-				for ( it=m_rom_list.begin() ; it < m_rom_list.end(); it++ )
-				{
-					XuiRomList.SetText(i, (*it).affichage.c_str());
-					i++;
-				}
+				return hr;
 			}
 		}
 
@@ -501,6 +517,14 @@ public:
         m_navHoldDir        = 0;
         m_navHoldStartTick  = 0;
         m_navLastInjectTick = 0;
+        
+        // Initialize search
+        m_searchFilter = L"";
+        m_searchLatch = false;
+        m_keyboardPending = false;
+        m_keyboardEvent = NULL;
+        memset(&m_keyboardOverlapped, 0, sizeof(XOVERLAPPED));
+        m_keyboardResult[0] = L'\0';
 
         // expose instance for per-frame updates from RenderXui
         g_LoadGameInstance = this;
@@ -539,6 +563,38 @@ public:
         if (!pad) return;
 
         DWORD now = GetTickCount();
+        
+        // Check for keyboard completion if one is pending (non-blocking check)
+        if (m_keyboardPending && m_keyboardEvent)
+        {
+            DWORD dwWaitResult = WaitForSingleObject(m_keyboardEvent, 0);  // Non-blocking check
+            if (dwWaitResult == WAIT_OBJECT_0)
+            {
+                // Keyboard input completed - always process the result
+                m_keyboardPending = false;
+                
+                // Get the result text (should already be populated in m_keyboardResult by XShowKeyboardUI)
+                std::wstring newFilter = m_keyboardResult;
+                
+                // Apply the filter (even if empty - empty means show all ROMs)
+                m_searchFilter = newFilter;
+                ApplySearchFilter();
+                
+                CloseHandle(m_keyboardEvent);
+                m_keyboardEvent = NULL;
+            }
+        }
+        
+        // Check for search trigger (Y button) - use pressed buttons to catch edge
+        bool yJustPressed = (pad->wButtons & XINPUT_GAMEPAD_Y) != 0;
+        static bool yWasPressed = false;
+        
+        if (yJustPressed && !yWasPressed && !m_keyboardPending)
+        {
+            // Y button just pressed - show keyboard
+            ShowSearchKeyboard();
+        }
+        yWasPressed = yJustPressed;
 
         // 1) PAGING (LB/RB) — repeats while held
         static DWORD lastPageTick = 0;
@@ -683,12 +739,137 @@ public:
         }
     }
 private:
+	void ApplySearchFilter()
+	{
+		m_rom_list.clear();
+		
+		if (m_searchFilter.empty())
+		{
+			// No filter - show all ROMs
+			m_rom_list = m_rom_list_full;
+		}
+		else
+		{
+			// Filter ROMs by search string (case-insensitive)
+			std::wstring searchLower = m_searchFilter;
+			for (size_t i = 0; i < searchLower.length(); i++)
+			{
+				searchLower[i] = towlower(searchLower[i]);
+			}
+			
+			for (size_t i = 0; i < m_rom_list_full.size(); i++)
+			{
+				std::wstring romNameLower = m_rom_list_full[i].affichage;
+				for (size_t j = 0; j < romNameLower.length(); j++)
+				{
+					romNameLower[j] = towlower(romNameLower[j]);
+				}
+				
+				// Check if search string is contained in ROM name
+				if (romNameLower.find(searchLower) != std::wstring::npos)
+				{
+					m_rom_list.push_back(m_rom_list_full[i]);
+				}
+			}
+		}
+		
+		// Update the list display
+		XuiRomList.DeleteItems(0, XuiRomList.GetItemCount());
+		if (m_rom_list.size() > 0)
+		{
+			XuiRomList.InsertItems(0, m_rom_list.size());
+			for (size_t i = 0; i < m_rom_list.size(); i++)
+			{
+				XuiRomList.SetText(i, m_rom_list[i].affichage.c_str());
+			}
+			
+			// Reset selection to first item
+			if (XuiRomList.GetItemCount() > 0)
+			{
+				XuiRomList.SetCurSel(0);
+				XuiRomList.SetTopItem(0);
+			}
+		}
+	}
+	
+	void ShowSearchKeyboard()
+	{
+		// Prevent multiple keyboard opens
+		if (m_searchLatch || m_keyboardPending) return;
+		m_searchLatch = true;
+		
+		// Close any existing event handle
+		if (m_keyboardEvent)
+		{
+			CloseHandle(m_keyboardEvent);
+			m_keyboardEvent = NULL;
+		}
+		
+		// Create event for async operation
+		m_keyboardEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+		if (!m_keyboardEvent)
+		{
+			m_searchLatch = false;
+			return;
+		}
+		
+		// Initialize overlapped structure
+		memset(&m_keyboardOverlapped, 0, sizeof(XOVERLAPPED));
+		m_keyboardOverlapped.hEvent = m_keyboardEvent;
+		
+		// Initialize result buffer and pre-populate with current filter
+		memset(m_keyboardResult, 0, sizeof(m_keyboardResult));
+		// Copy current filter to result buffer (for default text)
+		if (!m_searchFilter.empty())
+		{
+			wcsncpy(m_keyboardResult, m_searchFilter.c_str(), sizeof(m_keyboardResult) / sizeof(WCHAR) - 1);
+			m_keyboardResult[(sizeof(m_keyboardResult) / sizeof(WCHAR)) - 1] = L'\0';  // Ensure null termination
+		}
+		
+		DWORD dwResultLength = sizeof(m_keyboardResult) / sizeof(WCHAR);
+		
+		// Show the Xbox 360 on-screen keyboard (non-blocking async call)
+		DWORD dwResult = XShowKeyboardUI(
+			0,                              // dwUserIndex (controller 1 = 0)
+			0,                              // dwFlags (0 = default keyboard)
+			m_searchFilter.c_str(),          // pwszDefaultText - pre-populate with current filter
+			L"Search ROMs",                   // pwszTitleText
+			L"Enter game name to search",     // pwszDescriptionText
+			m_keyboardResult,                // pwszResultText - receives the entered text
+			dwResultLength,                  // cchResultText - size of result buffer
+			&m_keyboardOverlapped            // pOverlapped - for async operation
+		);
+		
+		if (dwResult == ERROR_IO_PENDING)
+		{
+			// Keyboard is now pending - will check for completion in UpdatePerFrame (non-blocking)
+			m_keyboardPending = true;
+			m_searchLatch = false;  // Allow Y button to work again after keyboard closes
+		}
+		else if (dwResult == ERROR_SUCCESS)
+		{
+			// Keyboard returned immediately (unlikely but handle it)
+			m_searchFilter = m_keyboardResult;
+			ApplySearchFilter();
+			CloseHandle(m_keyboardEvent);
+			m_keyboardEvent = NULL;
+			m_searchLatch = false;
+		}
+		else
+		{
+			// Error occurred
+			CloseHandle(m_keyboardEvent);
+			m_keyboardEvent = NULL;
+			m_searchLatch = false;
+		}
+	}
+	
 	HRESULT ScanDir()
 	{
 		HANDLE				hFind;                   // Handle to file
 		WIN32_FIND_DATA	FileInformation;         // File information
 
-		m_rom_list.clear();
+		m_rom_list_full.clear();
 
 		hFind = FindFirstFile( "game:\\roms\\*", &FileInformation );
 		if( hFind != INVALID_HANDLE_VALUE )
@@ -708,7 +889,7 @@ private:
 							s.path="game:\\roms\\";
 							s.filename= FileInformation.cFileName;
 							s.affichage = strtowstr(FileInformation.cFileName);
-							m_rom_list.push_back(s);
+							m_rom_list_full.push_back(s);
 						}
 					}
 				}
@@ -716,6 +897,10 @@ private:
 			while( FindNextFile( hFind, &FileInformation ) == TRUE );
 			FindClose( hFind );
 		}
+		
+		// Apply current filter (will show all if no filter)
+		ApplySearchFilter();
+		
 		//Tri alphabetic
 		return S_OK;
 	}
