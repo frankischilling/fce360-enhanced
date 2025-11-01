@@ -420,12 +420,15 @@ private:
 	//list des roms
 	std::vector<rom_item> m_rom_list;
 	std::vector<rom_item> m_rom_list_full;  // Full list for filtering
+	std::vector<rom_item> m_recent_games;   // Recent games list (up to 15)
 	std::wstring m_searchFilter;  // Current search filter
 	bool m_searchLatch;  // Prevents multiple keyboard opens
 	XOVERLAPPED m_keyboardOverlapped;  // Overlapped structure for keyboard
 	bool m_keyboardPending;  // True when keyboard is open and waiting
 	HANDLE m_keyboardEvent;  // Event handle for keyboard
 	WCHAR m_keyboardResult[256];  // Buffer to hold keyboard result
+	
+	static const int MAX_RECENT_GAMES = 15;  // Maximum number of recent games to track
 
     // Scroll state
     DWORD m_lastMoveTick;
@@ -455,6 +458,7 @@ public:
     XUI_BEGIN_MSG_MAP()
         XUI_ON_XM_INIT( OnInit )
         XUI_ON_XM_NOTIFY_PRESS( OnNotifyPress )
+        XUI_ON_XM_ENTER_TAB( OnEnterTab )
     XUI_END_MSG_MAP()
 
 	//----------------------------------------------------------------------------------
@@ -466,8 +470,29 @@ public:
 		HRESULT hr = S_OK;
 		if( hObjPressed == XuiRomList )
 		{
-			std::string sRom = m_rom_list.at(XuiRomList.GetCurSel()).path;
-			sRom += m_rom_list.at(XuiRomList.GetCurSel()).filename;
+			int selIndex = XuiRomList.GetCurSel();
+			if (selIndex < 0 || selIndex >= (int)m_rom_list.size())
+				return S_OK;
+			
+			rom_item selected = m_rom_list.at(selIndex);
+			
+			// Skip separator items (empty filename)
+			if (selected.filename.empty() || selected.path.empty())
+				return S_OK;
+			
+			std::string sRom = selected.path;
+			sRom += selected.filename;
+			
+			// Remove [Recent] prefix from display name before adding to recent games
+			std::wstring cleanName = selected.affichage;
+			if (cleanName.find(L"[Recent] ") == 0)
+			{
+				cleanName = cleanName.substr(9); // Remove "[Recent] " prefix
+			}
+			
+			// Add to recent games before loading
+			AddToRecentGames(sRom, cleanName);
+			
 			emul.LoadGame( sRom ,true);
 
 			GoToNext();
@@ -526,9 +551,25 @@ public:
         memset(&m_keyboardOverlapped, 0, sizeof(XOVERLAPPED));
         m_keyboardResult[0] = L'\0';
 
+        // Load recent games from config
+        LoadRecentGames();
+
         // expose instance for per-frame updates from RenderXui
         g_LoadGameInstance = this;
 
+        return S_OK;
+    }
+    
+    HRESULT OnEnterTab( BOOL& bHandled )
+    {
+        // Reload config to ensure we have latest saved recent games
+        extern Config fcecfg;
+        fcecfg.Load("game:\\fceui.ini");
+        
+        // Reload recent games and refresh the list when returning to this scene
+        LoadRecentGames();
+        ApplySearchFilter();  // Refresh the display with updated recent games
+        bHandled = TRUE;
         return S_OK;
     }
     
@@ -743,20 +784,82 @@ private:
 	{
 		m_rom_list.clear();
 		
+		// First, add recent games if no filter is active
 		if (m_searchFilter.empty())
 		{
-			// No filter - show all ROMs
-			m_rom_list = m_rom_list_full;
+			// Add recent games at the top with a prefix
+			for (size_t i = 0; i < m_recent_games.size(); i++)
+			{
+				rom_item recent_item = m_recent_games[i];
+				// Mark as recent with a prefix (will be displayed in UI)
+				recent_item.affichage = L"[Recent] " + recent_item.affichage;
+				m_rom_list.push_back(recent_item);
+			}
+			
+			// Add separator if we have recent games and other games
+			if (m_recent_games.size() > 0 && m_rom_list_full.size() > 0)
+			{
+				rom_item separator;
+				separator.path = "";
+				separator.filename = "";
+				separator.affichage = L"---";
+				m_rom_list.push_back(separator);
+			}
+		}
+		
+		if (m_searchFilter.empty())
+		{
+			// No filter - show all ROMs (after recent games)
+			// Add all ROMs that aren't already in recent games
+			for (size_t i = 0; i < m_rom_list_full.size(); i++)
+			{
+				// Check if this ROM is already in recent games (avoid duplicates)
+				bool isRecent = false;
+				std::string fullPath = m_rom_list_full[i].path + m_rom_list_full[i].filename;
+				for (size_t j = 0; j < m_recent_games.size(); j++)
+				{
+					std::string recentPath = m_recent_games[j].path + m_recent_games[j].filename;
+					if (fullPath == recentPath)
+					{
+						isRecent = true;
+						break;
+					}
+				}
+				
+				if (!isRecent)
+				{
+					m_rom_list.push_back(m_rom_list_full[i]);
+				}
+			}
 		}
 		else
 		{
 			// Filter ROMs by search string (case-insensitive)
+			// Include both recent games and full list in search
 			std::wstring searchLower = m_searchFilter;
 			for (size_t i = 0; i < searchLower.length(); i++)
 			{
 				searchLower[i] = towlower(searchLower[i]);
 			}
 			
+			// Search in recent games first
+			for (size_t i = 0; i < m_recent_games.size(); i++)
+			{
+				std::wstring romNameLower = m_recent_games[i].affichage;
+				for (size_t j = 0; j < romNameLower.length(); j++)
+				{
+					romNameLower[j] = towlower(romNameLower[j]);
+				}
+				
+				if (romNameLower.find(searchLower) != std::wstring::npos)
+				{
+					rom_item recent_item = m_recent_games[i];
+					recent_item.affichage = L"[Recent] " + recent_item.affichage;
+					m_rom_list.push_back(recent_item);
+				}
+			}
+			
+			// Search in full ROM list
 			for (size_t i = 0; i < m_rom_list_full.size(); i++)
 			{
 				std::wstring romNameLower = m_rom_list_full[i].affichage;
@@ -768,7 +871,23 @@ private:
 				// Check if search string is contained in ROM name
 				if (romNameLower.find(searchLower) != std::wstring::npos)
 				{
-					m_rom_list.push_back(m_rom_list_full[i]);
+					// Check if already added from recent games
+					bool alreadyAdded = false;
+					std::string fullPath = m_rom_list_full[i].path + m_rom_list_full[i].filename;
+					for (size_t k = 0; k < m_rom_list.size(); k++)
+					{
+						std::string listPath = m_rom_list[k].path + m_rom_list[k].filename;
+						if (fullPath == listPath)
+						{
+							alreadyAdded = true;
+							break;
+						}
+					}
+					
+					if (!alreadyAdded)
+					{
+						m_rom_list.push_back(m_rom_list_full[i]);
+					}
 				}
 			}
 		}
@@ -898,11 +1017,184 @@ private:
 			FindClose( hFind );
 		}
 		
-		// Apply current filter (will show all if no filter)
+		// Apply current filter (will show all if no filter, with recent games at top)
 		ApplySearchFilter();
 		
-		//Tri alphabetic
 		return S_OK;
+	}
+	
+	void AddToRecentGames(const std::string& romPath, const std::wstring& displayName)
+	{
+		// Remove [Recent] prefix if present
+		std::wstring cleanName = displayName;
+		if (cleanName.find(L"[Recent] ") == 0)
+		{
+			cleanName = cleanName.substr(9); // Remove "[Recent] " prefix
+		}
+		
+		// Create rom_item for the game
+		rom_item newItem;
+		
+		// Extract path and filename from full path
+		size_t lastSlash = romPath.find_last_of("\\/");
+		if (lastSlash != std::string::npos)
+		{
+			newItem.path = romPath.substr(0, lastSlash + 1);
+			newItem.filename = romPath.substr(lastSlash + 1);
+		}
+		else
+		{
+			newItem.path = "game:\\roms\\";
+			newItem.filename = romPath;
+		}
+		
+		newItem.affichage = cleanName;
+		
+		// Remove if already exists (to move to top)
+		for (size_t i = 0; i < m_recent_games.size(); i++)
+		{
+			std::string existingPath = m_recent_games[i].path + m_recent_games[i].filename;
+			if (romPath == existingPath || 
+			    (newItem.path + newItem.filename) == existingPath)
+			{
+				m_recent_games.erase(m_recent_games.begin() + i);
+				break;
+			}
+		}
+		
+		// Insert at beginning
+		m_recent_games.insert(m_recent_games.begin(), newItem);
+		
+		// Limit to MAX_RECENT_GAMES
+		if (m_recent_games.size() > MAX_RECENT_GAMES)
+		{
+			m_recent_games.resize(MAX_RECENT_GAMES);
+		}
+		
+		// Save to config
+		SaveRecentGames();
+	}
+	
+	bool FileExists(const std::string& filePath)
+	{
+		HANDLE hFile = CreateFileA(filePath.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+		bool exists = (hFile != INVALID_HANDLE_VALUE);
+		if (exists)
+			CloseHandle(hFile);
+		return exists;
+	}
+	
+	void LoadRecentGames()
+	{
+		std::vector<rom_item> temp_recent;
+		
+		extern Config fcecfg;
+		
+		// Load up to MAX_RECENT_GAMES recent games
+		for (int i = 0; i < MAX_RECENT_GAMES; i++)
+		{
+			char keyName[32];
+			sprintf(keyName, "game%d", i);
+			
+			std::string romPath;
+			if (SUCCEEDED(fcecfg.Find("recent", keyName, romPath)))
+			{
+				if (!romPath.empty())
+				{
+					// Verify file still exists
+					if (!FileExists(romPath))
+					{
+						// File no longer exists, skip it but continue checking others
+						continue;
+					}
+					
+					rom_item item;
+					
+					// Extract path and filename
+					size_t lastSlash = romPath.find_last_of("\\/");
+					if (lastSlash != std::string::npos)
+					{
+						item.path = romPath.substr(0, lastSlash + 1);
+						item.filename = romPath.substr(lastSlash + 1);
+					}
+					else
+					{
+						item.path = "game:\\roms\\";
+						item.filename = romPath;
+					}
+					
+					// Extract display name from filename (remove extension)
+					std::string displayName = item.filename;
+					size_t lastDot = displayName.find_last_of(".");
+					if (lastDot != std::string::npos)
+					{
+						displayName = displayName.substr(0, lastDot);
+					}
+					item.affichage = strtowstr(displayName);
+					
+					temp_recent.push_back(item);
+				}
+			}
+			else
+			{
+				// No more recent games
+				break;
+			}
+		}
+		
+		// Check if we need to update (if any files were missing)
+		int originalCount = 0;
+		for (int i = 0; i < MAX_RECENT_GAMES; i++)
+		{
+			char keyName[32];
+			sprintf(keyName, "game%d", i);
+			std::string romPath;
+			if (SUCCEEDED(fcecfg.Find("recent", keyName, romPath)) && !romPath.empty())
+			{
+				originalCount++;
+			}
+			else
+			{
+				break;
+			}
+		}
+		
+		// Only save if we removed entries
+		bool needsSave = (temp_recent.size() != originalCount);
+		
+		m_recent_games = temp_recent;
+		
+		// If we skipped any deleted files, update the saved list
+		if (needsSave && m_recent_games.size() > 0)
+		{
+			SaveRecentGames();
+		}
+	}
+	
+	void SaveRecentGames()
+	{
+		extern Config fcecfg;
+		
+		// Clear old recent games entries
+		for (int i = 0; i < MAX_RECENT_GAMES; i++)
+		{
+			char keyName[32];
+			sprintf(keyName, "game%d", i);
+			fcecfg.Set("recent", keyName, "");
+		}
+		
+		// Save current recent games
+		for (size_t i = 0; i < m_recent_games.size(); i++)
+		{
+			char keyName[32];
+			sprintf(keyName, "game%d", i);
+			
+			std::string fullPath = m_recent_games[i].path + m_recent_games[i].filename;
+			fcecfg.Set("recent", keyName, fullPath);
+		}
+		
+		// Save config file
+		fcecfg.Save("game:\\fceui.ini");
 	}
 };
 
