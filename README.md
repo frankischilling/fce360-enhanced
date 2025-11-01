@@ -14,7 +14,10 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 ### Fast Scrolling (v0.2)
 
-https://github.com/frankischilling/fce360-enhanced/raw/main/img/fastScrolling.mp4
+<video width="640" height="360" controls>
+  <source src="https://github.com/frankischilling/fce360-enhanced/raw/main/img/fastScrolling.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
 
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
@@ -68,7 +71,10 @@ https://github.com/frankischilling/fce360-enhanced/raw/main/img/fastScrolling.mp
 * **Sane UX guards:** Minimum dwell to prevent double-steps, direction/neutral resets, and a deadzone so tiny bumps don't spam moves.
 * **Precision preserved:** D-pad / Left Stick keep XUI's native single-step behavior for fine selection.
 
-https://github.com/frankischilling/fce360-enhanced/raw/main/img/fastScrolling.mp4
+<video width="640" height="360" controls>
+  <source src="https://github.com/frankischilling/fce360-enhanced/raw/main/img/fastScrolling.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
 
 *Fast scrolling demonstration*
 
