@@ -4,6 +4,11 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 > **Note:** Code hasn't been touched since around 2016, so I'm giving it some love with UI improvements and modern features while preserving the original emulation core.
 
+* Toolchain: Visual Studio 2008 SP1
+* SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
+* Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
+* Current release: **v0.5.2** — *Frame-perfect rewind with speed ramping, recent games list, ROM search with Xbox keyboard UI, screenshot capture, fast forward (RT trigger), in-game OSD (pause menu), save states/slots, quick reset, + prior scrolling upgrades*
+
 ## Features Showcase
 
 ### Recent Games List (v0.5.1)
@@ -18,10 +23,11 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 *Note: Click the link above to view the video demonstration. GitHub README files don't support embedded video playback.*
 
-* Toolchain: Visual Studio 2008 SP1
-* SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
-* Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.5.1** — *Recent games list, ROM search with Xbox keyboard UI, screenshot capture, fast forward (RT trigger), in-game OSD (pause menu), save states/slots, quick reset, + prior scrolling upgrades*
+---
+
+## What's new (v0.5.2)
+
+* **Rewind System:** Hold **LT (Left Trigger)** during gameplay to rewind through recent frames. Speed automatically ramps up the longer you hold: starts at 1x (frame-by-frame), then 2x after 0.25s, 4x after 0.75s, and 8x after 1.5s. The system stores up to 300 frames (~5 seconds at 60fps) in a circular buffer. Rewind stops when you release LT or reach the oldest saved state. Screenshot combo (LEFT_THUMB + LT) takes precedence over rewind.
 
 ---
 
@@ -139,8 +145,9 @@ Steps
 
 ### In-Game
 
+* **LT (Left Trigger):** **Rewind** — Hold to rewind gameplay. Speed ramps automatically: 1x → 2x → 4x → 8x based on hold duration. Stores up to ~5 seconds of gameplay history.
 * **RT (Right Trigger):** **Fast Forward** — Hold to speed up emulation at 2x speed. Release to return to normal speed.
-* **LEFT_THUMB + LT:** **Screenshot** — Press simultaneously to capture a screenshot. Saved to `game:\snaps\` using ROM filename (e.g., `SuperMario-0.png`).
+* **LEFT_THUMB + LT:** **Screenshot** — Press simultaneously to capture a screenshot. Saved to `game:\snaps\` using ROM filename (e.g., `SuperMario-0.png`). *Note: Screenshot combo takes precedence over rewind.*
 * **START + BACK:** Open **OSD** (auto-pause).
 * **OSD actions:** Save/Load State (with slots), Reset Game, GFX options (experimental). Exiting OSD resumes gameplay; "Load Game" returns to ROM browser.
 
@@ -194,6 +201,18 @@ FCEUX360-<version>-xex.zip
 
 ## Changelog
 
+* **v0.5.2**
+
+  * feat(rewind): Frame-perfect rewind system via LT trigger with automatic speed ramping.
+  * feat(rewind): Stores up to 300 frames (~5 seconds at 60fps) in circular buffer.
+  * feat(rewind): Speed ramping: 1x → 2x (0.25s) → 4x (0.75s) → 8x (1.5s) based on hold duration.
+  * feat(rewind): Continuous rewind while LT is held; stops when released or reaching oldest state.
+  * fix(rewind): Fixed premature stopping bug where rewind would pause every frame.
+  * fix(input): Prevents LT input from leaking through to NES gamepad during rewind.
+  * tech: Rewind buffer saves states every frame using FCEU save/load system.
+  * tech: Audio skipped during rewind for better performance.
+  * tech: Proper initialization and cleanup of rewind state variables.
+  * tech: Rewind buffer cleared when loading new games.
 * **v0.5.1**
 
   * feat(recent): Recent games list tracks last 15 played ROMs automatically.
