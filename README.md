@@ -5,7 +5,13 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.4.0** — *screenshot capture, fast forward (RT trigger), in-game OSD (pause menu), save states/slots, quick reset, + prior scrolling upgrades*
+* Current release: **v0.5.0** — *ROM search with Xbox keyboard UI, screenshot capture, fast forward (RT trigger), in-game OSD (pause menu), save states/slots, quick reset, + prior scrolling upgrades*
+
+---
+
+## What's new (v0.5.0)
+
+* **ROM Search:** Press **Y button** in the ROM browser to open the Xbox 360 on-screen keyboard. Enter a game name to filter the ROM list in real-time with case-insensitive partial matching. Empty search shows all ROMs.
 
 ---
 
@@ -93,6 +99,7 @@ Steps
 
 ### ROM Browser
 
+* **Y:** **Search** — Open Xbox keyboard to search ROMs by name. Filters list in real-time with case-insensitive partial matching.
 * **Right Stick (hold up/down):** *Time-based acceleration* of selection.
 * **LB / RB (hold):** Page up / page down at a steady cadence.
 * **D-pad / Left Stick:** Single-step precision (native XUI behavior).
@@ -156,6 +163,15 @@ FCEUX360-<version>-xex.zip
 
 ## Changelog
 
+* **v0.5.0**
+
+  * feat(search): ROM search functionality with Xbox 360 on-screen keyboard (Y button).
+  * feat(search): Case-insensitive partial matching (e.g., "mario" matches "Super Mario Bros").
+  * feat(search): Real-time filtering of ROM list as you type.
+  * feat(search): Non-blocking async implementation keeps UI responsive.
+  * tech: Uses XShowKeyboardUI with overlapped I/O for native Xbox keyboard interface.
+  * tech: Maintains full ROM list for filtering; filtered results displayed in XUI list.
+  * tech: Search filter persists until cleared or modified.
 * **v0.4.0**
 
   * feat(screenshot): Screenshot capture via LEFT_THUMB button + LT trigger during gameplay.
