@@ -5,7 +5,12 @@
 
 #pragma once
 
+#define NOMINMAX  // Prevent Windows min/max macros from conflicting with std::min/max
+
 #include <xtl.h>
 #include <xboxmath.h>
 
-// TODO: reference additional headers your program requires here
+// Enable Lua support
+#ifndef USE_LUA
+#define USE_LUA 1
+#endif
