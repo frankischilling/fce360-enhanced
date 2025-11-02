@@ -123,22 +123,9 @@ DUMMY(FCEUD_MovieRecordTo)
 DUMMY(FCEUD_MovieReplayFrom)
 void FCEUD_LuaRunFrom(void) {
 #ifdef USE_LUA
-	extern void FCEU_AutoLoadLuaScripts(void);
-	
-	// Ensure lua directory exists in user-writable location (hdd1 always works)
-	// Also try game: location (may be read-only in XZP/STFS, which is fine)
-	CreateDirectoryA("hdd1:\\fce360-enhanced", NULL);
-	CreateDirectoryA("hdd1:\\fce360-enhanced\\lua", NULL);
-	CreateDirectoryA("hdd1:\\fce360-enhanced\\Lua", NULL);
-	CreateDirectoryA("game:\\lua", NULL);
-	CreateDirectoryA("game:\\Lua", NULL);
-	
-	printf("FCEUD_LuaRunFrom: Auto-loading all .lua scripts from lua directories\n");
-	printf("FCEUD_LuaRunFrom: NOTE - Files must be loose (not in .xzp)\n");
-	printf("FCEUD_LuaRunFrom: Search paths: hdd1:\\fce360-enhanced\\lua, game:\\lua, etc.\n");
-	
-	// Auto-load all .lua scripts from all lua directories
-	FCEU_AutoLoadLuaScripts();
+	// Respect UI: autoloading is handled in Cemulator::LoadGame()
+	// Leave this stub empty so legacy calls from the core do nothing.
+	printf("FCEUD_LuaRunFrom: disabled (UI controls autoload mode)\n");
 #endif
 }
 DUMMY(FCEUD_ToggleStatusIcon)

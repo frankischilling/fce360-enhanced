@@ -671,6 +671,16 @@ HRESULT Cemulator::InitSystem()
 	fcecfg.Find("controller","XINPUT_GAMEPAD_RIGHT_SHOULDER", m_Settings.gamepad_right_shoulder);
 	fcecfg.Find("controller","XINPUT_LEFT_TRIGGER", m_Settings.gamepad_left_trigger);
 	fcecfg.Find("controller","XINPUT_RIGHT_TRIGGER", m_Settings.gamepad_right_trigger);
+	
+	// Lua scripting - auto-load all scripts by default
+#ifdef USE_LUA
+	extern void FCEU_LuaSetDisabled(int disabled);
+	extern void FCEU_LuaKillAll(void);
+	// Start with Lua enabled - scripts will auto-load when ROM is loaded
+	FCEU_LuaSetDisabled(0);
+	FCEU_LuaKillAll();
+	printf("InitSystem: Lua enabled for auto-loading\n");
+#endif
 
 	return S_OK;
 };
@@ -701,10 +711,13 @@ HRESULT Cemulator::LoadGame(std::string name, bool restart)
 	CreateDirectoryA("game:\\lua", NULL);
 	CreateDirectoryA("game:\\Lua", NULL);
 	
-	// Auto-load all Lua scripts from lua directories (in addition to FCEUD_LuaRunFrom())
+	// CRITICAL: Disable Lua BEFORE ROM load to prevent any autoload during file open
 #ifdef USE_LUA
-	extern void FCEU_AutoLoadLuaScripts(void);
-	FCEU_AutoLoadLuaScripts();
+	extern void FCEU_LuaSetDisabled(int disabled);
+	extern void FCEU_LuaKillAll(void);
+	FCEU_LuaSetDisabled(1);  // Hard disable before ROM load
+	FCEU_LuaKillAll();        // Kill any running scripts
+	printf("LoadGame: Lua disabled before ROM load to prevent autoload\n");
 #endif
 	
 	FCEUI_SetVidSystem(0);
@@ -780,8 +793,13 @@ HRESULT Cemulator::LoadGame(std::string name, bool restart)
 		if(m_Settings.use_netplay)
 			FCEUD_NetworkConnect();
 
-		// Load Lua scripts from game:/lua/ folder
-		FCEUD_LuaRunFrom();
+		// Auto-load all Lua scripts after ROM is loaded
+#ifdef USE_LUA
+		extern void FCEU_ApplyLuaMode(int mode, const char* scriptName);
+		// Auto-load all scripts from known directories
+		FCEU_ApplyLuaMode(Settings::LUA_AUTO_ALL, NULL);
+		printf("LoadGame: Auto-loaded all Lua scripts\n");
+#endif
 
 		return S_OK;
 	}
@@ -1055,7 +1073,11 @@ HRESULT Cemulator::Run()
 						FCEUI_Emulate(&bitmap, &snd, &sndsize, 0);
 
 #ifdef USE_LUA
-						FCEU_LuaFrameBoundary();
+						// Only tick Lua if it's not disabled (auto-load is always enabled)
+						extern int FCEU_LuaIsDisabled(void);
+						if (!FCEU_LuaIsDisabled()) {
+							FCEU_LuaFrameBoundary();
+						}
 #endif
 						// Save rewind state periodically (less frequently for performance)
 						if (++m_frameCounter >= REWIND_SAVE_INTERVAL) {
@@ -1065,11 +1087,17 @@ HRESULT Cemulator::Run()
 
 						if (frame == framesToRun - 1) {
 #ifndef USE_LUA
-							DrawTextTrans(bitmap + 4*256 + 4, 256, (uint8*)"LUA OFF", 0x2E | 0x80);
+							DrawTextTrans(bitmap + 4*256 + 4, 256, (uint8*)"LUA: N/A", 0x2E | 0x80);
 #else
-							DrawTextTrans(bitmap + 4*256 + 4, 256, (uint8*)"LUA ON",  0x2E | 0x80);
-							// Throttled Lua GUI (runs at ~30Hz for performance), draws onto XBuf
-							FCEU_LuaGui(bitmap);
+							extern int FCEU_LuaIsDisabled(void);
+							const char* luaMsg = FCEU_LuaIsDisabled() ? "LUA: OFF" : "LUA: AUTO";
+							DrawTextTrans(bitmap + 4*256 + 4, 256, (uint8*)luaMsg, 0x2E | 0x80);
+							
+							// Run Lua GUI if Lua is enabled (auto-load is always enabled)
+							if (!FCEU_LuaIsDisabled()) {
+								// Throttled Lua GUI (runs at ~30Hz for performance), draws onto XBuf
+								FCEU_LuaGui(bitmap);
+							}
 #endif
 							
 						// Optimized ARGB conversion with precomputed LUT
