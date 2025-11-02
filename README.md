@@ -7,14 +7,15 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.6.0** — *Lua scripting support for custom overlays and automation, favorite games list, frame-perfect rewind with speed ramping, recent games list, ROM search with Xbox keyboard UI, screenshot capture, fast forward (RT trigger), in-game OSD (pause menu), save states/slots, quick reset, + prior scrolling upgrades*
+* Current release: **v0.6.1** — *Lua drawing API with 8 new primitives (rectangles, circles, triangles), full NES palette support, enhanced text rendering, comprehensive documentation + prior Lua scripting, favorite games, rewind, recent games, ROM search, screenshot capture, fast forward, in-game OSD, save states/slots, quick reset, + scrolling upgrades*
 
 ---
 
 ## Table of Contents
 
 - [Features Showcase](#features-showcase)
-- [What's New](#whats-new-v060)
+- [What's New](#whats-new)
+  - [v0.6.1 - Lua Drawing API Upgrade](#whats-new-v061)
   - [v0.6.0 - Lua Scripting Support](#whats-new-v060)
   - [v0.5.3 - Favorite Games List](#whats-new-v053)
   - [v0.5.2 - Rewind System](#whats-new-v052)
@@ -62,6 +63,22 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 ---
 
+## What's new (v0.6.1)
+
+* **Lua Drawing API Upgrade:** Expanded Lua scripting with comprehensive drawing primitives!
+  * **8 New Drawing Functions:**
+    * `drawrect()` / `fillrect()` - Rectangle outlines and filled rectangles
+    * `clearrect()` - Clear/erase rectangular areas
+    * `drawtextwh()` - Advanced text with width/height limits and optional borders
+    * `drawcircle()` / `fillcircle()` - Circle outlines and filled circles
+    * `drawtriangle()` / `filltriangle()` - Triangle outlines and filled triangles
+  * **Full NES Palette Support:** All 64 NES colors (0x00-0x3F) available with automatic mapping and comprehensive palette reference documentation
+  * **Enhanced Text Rendering:** Borderless text mode eliminates artifacts; bordered text with 3 styles (none, thin, thick) for maximum visibility
+  * **Improved Rendering:** Fixed color mapping, overlay ghosting prevention, and full palette population for Xbox 360 video path
+  * **Complete Documentation:** Full API reference, NES palette guide, example scripts, and troubleshooting guide
+  * See the **[Lua Scripting API](#lua-scripting-api)** section below for complete documentation!
+
+---
 ## What's new (v0.6.0)
 
 * **Lua Scripting Support:** Full Lua 5.1 scripting engine for custom overlays and automation! Create your own HUDs, FPS counters, timers, and more.
@@ -1156,6 +1173,22 @@ FCEUX360-<version>-xex.zip
 ---
 
 ## Changelog
+
+* **v0.6.1**
+
+  * feat(lua): Added 8 new drawing primitives: `drawrect()`, `fillrect()`, `clearrect()`, `drawtextwh()`, `drawcircle()`, `fillcircle()`, `drawtriangle()`, `filltriangle()`.
+  * feat(lua): Full NES palette support - all 64 colors (0x00-0x3F) with automatic mapping to overlay range (0x80-0xBF).
+  * feat(lua): Enhanced text rendering with `drawtextwh()` - supports width/height limits, multi-line text, and 3 border styles (none, thin, thick).
+  * fix(lua): Corrected color mapping in all drawing functions to properly map NES palette indices.
+  * fix(lua): Eliminated overlay ghosting by clearing buffer each frame instead of seeding from previous.
+  * fix(lua): Fixed text rendering artifacts - added borderless text path that draws only glyph pixels.
+  * fix(lua): Fixed bordered text backgrounds appearing as blue rectangles - full 256-entry palette population for Xbox 360 video path.
+  * tech(lua): Efficient rendering algorithms - Bresenham's line for lines/triangles, midpoint circle for circles, scanline fill for triangles.
+  * tech(lua): Proper coordinate clamping and bounds checking for all drawing functions (256x240 resolution).
+  * tech(lua): VS2008 compatible code - no C++11 features, works with Visual Studio 2008 toolchain.
+  * docs(lua): Complete API documentation for all 10 drawing functions with parameters, notes, and examples.
+  * docs(lua): Comprehensive NES palette reference guide with all 64 colors organized by brightness rows, descriptions, and recommended defaults.
+  * docs(lua): Updated table of contents and added example test scripts demonstrating all drawing primitives.
 
 * **v0.6.0**
 
