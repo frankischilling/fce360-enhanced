@@ -233,6 +233,14 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
       - Parameters, Returns, Notes, Examples
     - [`clearrect(x, y, w, h)`](#clearrectx-y-w-h)
       - Parameters, Returns, Notes, Examples
+    - [`drawcircle(x, y, radius, color)`](#drawcirclex-y-radius-color)
+      - Parameters, Returns, Notes, Examples
+    - [`fillcircle(x, y, radius, color)`](#fillcirclex-y-radius-color)
+      - Parameters, Returns, Notes, Examples
+    - [`drawtriangle(x1, y1, x2, y2, x3, y3, color)`](#drawtrianglex1-y1-x2-y2-x3-y3-color)
+      - Parameters, Returns, Notes, Examples
+    - [`filltriangle(x1, y1, x2, y2, x3, y3, color)`](#filltrianglex1-y1-x2-y2-x3-y3-color)
+      - Parameters, Returns, Notes, Examples
   - [Monitoring Functions](#monitoring-functions)
     - [`getfps()`](#getfps)
       - Parameters, Returns, Notes, Basic & Advanced Examples
@@ -528,12 +536,288 @@ clearrect(10, 100, 100, 8)  -- Clear entire bar area
 fillrect(10, 100, barWidth, 8, 0x2E)  -- Redraw with new width
 ```
 
-**Common Color Values:**
-- `0x20` - White
-- `0x2E` - Yellow/Green
-- `0x0F` - Red/Pink
-- `0x30` - Light gray
-- `0x00` - Black (rarely visible on overlay)
+##### `drawcircle(x, y, radius, color)`
+Draws a circle outline at the specified center position and radius.
+
+**Parameters:**
+- `x` (integer): Center X coordinate (0-255). NES horizontal resolution is 256 pixels.
+- `y` (integer): Center Y coordinate (0-239). NES vertical resolution is 240 pixels.
+- `radius` (integer): Circle radius in pixels. Must be positive.
+- `color` (integer): Palette color index. Valid range is 0x00-0x3F (automatically mapped to NES palette range).
+
+**Returns:** Nothing
+
+**Notes:**
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- The circle is drawn as an outline only (border), not filled.
+- Uses the midpoint circle algorithm for smooth, accurate circles.
+- Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
+- The overlay is composited on top of the NES frame, so Lua-drawn circles appear above game graphics.
+- Useful for drawing circular indicators, markers, or decorative elements.
+
+**Example:**
+```lua
+-- Draw circles at different positions
+drawcircle(128, 120, 30, 0x2E)    -- Yellow/Green circle at center
+drawcircle(50, 50, 10, 0x29)      -- Green/Teal circle
+drawcircle(200, 180, 20, 0x16)    -- Red circle
+drawcircle(90, 180, 12, 0x37)     -- Yellow circle
+
+-- Draw multiple concentric circles
+for i = 5, 25, 5 do
+    drawcircle(128, 120, i, 0x20)  -- White circles
+end
+```
+
+##### `fillcircle(x, y, radius, color)`
+Draws a filled circle (solid color) at the specified center position and radius.
+
+**Parameters:**
+- `x` (integer): Center X coordinate (0-255). NES horizontal resolution is 256 pixels.
+- `y` (integer): Center Y coordinate (0-239). NES vertical resolution is 240 pixels.
+- `radius` (integer): Circle radius in pixels. Must be positive.
+- `color` (integer): Palette color index. Valid range is 0x00-0x3F (automatically mapped to NES palette range).
+
+**Returns:** Nothing
+
+**Notes:**
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- The circle is completely filled with the specified color (solid circle).
+- Uses distance calculation to determine which pixels are inside the circle radius.
+- Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
+- The overlay is composited on top of the NES frame, so Lua-drawn circles appear above game graphics.
+- Useful for drawing solid circular indicators, markers, progress indicators, or decorative elements.
+- For circle outlines only, use `drawcircle()`.
+
+**Example:**
+```lua
+-- Draw filled circles at different positions
+fillcircle(128, 120, 30, 0x2E)    -- Filled yellow/green circle at center
+fillcircle(50, 50, 10, 0x29)      -- Filled green/teal circle
+fillcircle(200, 180, 20, 0x16)    -- Filled red circle
+fillcircle(90, 180, 12, 0x37)     -- Filled yellow circle
+
+-- Draw concentric filled circles
+fillcircle(128, 120, 25, 0x20)    -- White circle
+fillcircle(128, 120, 15, 0x16)    -- Red circle inside
+fillcircle(128, 120, 5, 0x3F)     -- Bright white center
+
+-- Progress indicator using filled circles
+local progress = 0.75  -- 75% progress
+fillcircle(128, 120, 30, 0x10)    -- Background circle
+fillcircle(128, 120, math.floor(30 * progress), 0x29)  -- Progress circle
+```
+
+##### `drawtriangle(x1, y1, x2, y2, x3, y3, color)`
+Draws a triangle outline by connecting three vertices with lines.
+
+**Parameters:**
+- `x1` (integer): First vertex X coordinate (0-255). NES horizontal resolution is 256 pixels.
+- `y1` (integer): First vertex Y coordinate (0-239). NES vertical resolution is 240 pixels.
+- `x2` (integer): Second vertex X coordinate (0-255).
+- `y2` (integer): Second vertex Y coordinate (0-239).
+- `x3` (integer): Third vertex X coordinate (0-255).
+- `y3` (integer): Third vertex Y coordinate (0-239).
+- `color` (integer): Palette color index. Valid range is 0x00-0x3F (automatically mapped to NES palette range).
+
+**Returns:** Nothing
+
+**Notes:**
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- The triangle is drawn as an outline only (three connected lines), not filled.
+- Uses Bresenham's line algorithm to draw the three edges connecting the vertices.
+- Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
+- The overlay is composited on top of the NES frame, so Lua-drawn triangles appear above game graphics.
+- Useful for drawing triangular indicators, markers, directional arrows, or decorative elements.
+- The triangle can be oriented in any direction by specifying the three vertex positions.
+
+**Example:**
+```lua
+-- Draw triangles pointing in different directions
+drawtriangle(128, 50, 100, 80, 156, 80, 0x20)    -- Pointing up (white)
+drawtriangle(128, 190, 100, 160, 156, 160, 0x2E) -- Pointing down (yellow/green)
+drawtriangle(50, 120, 80, 100, 80, 140, 0x16)     -- Pointing right (red)
+drawtriangle(206, 120, 176, 100, 176, 140, 0x29)  -- Pointing left (green/teal)
+
+-- Draw multiple triangles for decorative effects
+for i = 1, 5 do
+    local x = 40 + i * 35
+    local size = 15
+    drawtriangle(x, 30, x + size, 30 + size, x - size/2, 30 + size, 0x37)  -- Yellow triangles
+end
+
+-- Draw a diamond shape using two triangles
+drawtriangle(128, 80, 148, 120, 108, 120, 0x20)   -- Top triangle
+drawtriangle(128, 160, 148, 120, 108, 120, 0x20)  -- Bottom triangle
+```
+
+##### `filltriangle(x1, y1, x2, y2, x3, y3, color)`
+Draws a filled triangle (solid color) by filling the interior area defined by three vertices.
+
+**Parameters:**
+- `x1` (integer): First vertex X coordinate (0-255). NES horizontal resolution is 256 pixels.
+- `y1` (integer): First vertex Y coordinate (0-239). NES vertical resolution is 240 pixels.
+- `x2` (integer): Second vertex X coordinate (0-255).
+- `y2` (integer): Second vertex Y coordinate (0-239).
+- `x3` (integer): Third vertex X coordinate (0-255).
+- `y3` (integer): Third vertex Y coordinate (0-239).
+- `color` (integer): Palette color index. Valid range is 0x00-0x3F (automatically mapped to NES palette range).
+
+**Returns:** Nothing
+
+**Notes:**
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- The triangle is completely filled with the specified color (solid triangle).
+- Uses scanline fill algorithm to efficiently fill the triangle interior.
+- Vertices are automatically sorted by Y coordinate for proper filling.
+- Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
+- The overlay is composited on top of the NES frame, so Lua-drawn triangles appear above game graphics.
+- Useful for drawing solid triangular indicators, markers, directional arrows, progress indicators, or decorative elements.
+- The triangle can be oriented in any direction by specifying the three vertex positions.
+- For triangle outlines only, use `drawtriangle()`.
+
+**Example:**
+```lua
+-- Draw filled triangles pointing in different directions
+filltriangle(128, 50, 100, 80, 156, 80, 0x20)    -- Pointing up (white)
+filltriangle(128, 190, 100, 160, 156, 160, 0x2E) -- Pointing down (yellow/green)
+filltriangle(50, 120, 80, 100, 80, 140, 0x16)     -- Pointing right (red)
+filltriangle(206, 120, 176, 100, 176, 140, 0x29)  -- Pointing left (green/teal)
+
+-- Draw multiple filled triangles for decorative effects
+for i = 1, 5 do
+    local x = 40 + i * 35
+    local size = 15
+    filltriangle(x, 30, x + size, 30 + size, x - size/2, 30 + size, 0x37)  -- Yellow triangles
+end
+
+-- Draw a diamond shape using two filled triangles
+filltriangle(128, 80, 148, 120, 108, 120, 0x20)   -- Top triangle
+filltriangle(128, 160, 148, 120, 108, 120, 0x20)  -- Bottom triangle
+
+-- Combine outline and filled for effect
+filltriangle(100, 50, 156, 50, 128, 100, 0x16)     -- Filled red triangle
+drawtriangle(100, 50, 156, 50, 128, 100, 0x20)    -- White outline on top
+```
+
+### NES Palette Reference for Lua Overlays
+
+FCE360 Enhanced exposes the full NES 64-color palette (`0x00`–`0x3F`) to Lua for overlay rendering. Each color index corresponds to one of the system's internal palette entries and automatically maps to the overlay range (`0x80–0xBF`). Use these values in all drawing API calls such as `drawtext()`, `fillrect()`, and `drawline()`.
+
+#### General Notes
+
+- **Valid range:** `0x00–0x3F` (64 colors total)
+- **Internally mapped to:** `0x80–0xBF` for overlay rendering
+- **Coordinates and drawing functions:** 256×240 pixels resolution
+- **Transparent/black values:** Some palette indices (notably `0x0D, 0x0E, 0x0F, 0x1E, 0x1F, 0x2F`) are near-black or transparent and will render invisibly—avoid these for text or outlines
+- **Palette variation:** Colors vary slightly depending on the current NTSC tint/hue settings, but their relative brightness and hue ordering are fixed
+
+#### Recommended Defaults
+
+| Use Case                   | Suggested Colors                                             |
+| -------------------------- | ------------------------------------------------------------ |
+| **Text / HUD**             | `0x20` (bright white), `0x2E` (yellow-green), `0x3F` (bright white) |
+| **Panels / Backgrounds**   | `0x10` (medium-dark gray), `0x2D` (light gray)                     |
+| **Outlines / Borders**     | `0x3F` (bright white)                                        |
+| **Warnings / Alerts**      | `0x16` (red-orange), `0x26` (orange-red), `0x37` (bright yellow)    |
+| **Highlights / Status OK** | `0x29` (light green-teal), `0x39` (yellow-green)                  |
+
+#### Complete Palette Table
+
+**Row 0 — Dark (0x00–0x0F)**
+- `0x00` - dark gray
+- `0x01` - midnight navy
+- `0x02` - deep blue
+- `0x03` - indigo
+- `0x04` - deep violet
+- `0x05` - wine / dark magenta
+- `0x06` - maroon
+- `0x07` - very dark red
+- `0x08` - brown
+- `0x09` - deep green
+- `0x0A` - dark green
+- `0x0B` - teal-green
+- `0x0C` - dark cyan-blue
+- `0x0D` - black (transparent)
+- `0x0E` - black (transparent)
+- `0x0F` - black (transparent)
+
+**Row 1 — Medium-Dark (0x10–0x1F)**
+- `0x10` - light gray
+- `0x11` - light blue
+- `0x12` - blue
+- `0x13` - violet
+- `0x14` - light purple
+- `0x15` - salmon 
+- `0x16` - red / orange-red
+- `0x17` - orange
+- `0x18` - yellow-brown
+- `0x19` - dark leaf green
+- `0x1A` - medium green
+- `0x1B` - bright green
+- `0x1C` - cyan
+- `0x1D` - black (transparent)
+- `0x1E` - black (transparent)
+- `0x1F` - black (transparent)
+
+**Row 2 — Medium-Bright (0x20–0x2F)**
+- `0x20` - bright white
+- `0x21` - light blue
+- `0x22` - baby blue 
+- `0x23` - sky blue
+- `0x24` - lavander
+- `0x25` - light pink
+- `0x26` - coral red
+- `0x27` - orange
+- `0x28` - yellow
+- `0x29` - medium bright green
+- `0x2A` - bright neon green
+- `0x2B` - aqua-green
+- `0x2C` - cyan
+- `0x2D` - light gray
+- `0x2E` - black (transparent)
+- `0x2F` - black (transparent)
+
+**Row 3 — Bright (0x30–0x3F)**
+- `0x30` - very light gray
+- `0x31` - very light blue
+- `0x32` - light gray blue
+- `0x33` - periwinkle
+- `0x34` - very light lavander
+- `0x35` - light salmon
+- `0x36` - peach
+- `0x37` - bright yellow
+- `0x38` - golden yellow
+- `0x39` - yellow-green
+- `0x3A` - bright green
+- `0x3B` - aqua-green
+- `0x3C` - light cyan
+- `0x3D` - silver
+- `0x3E` - black (transparent)
+- `0x3F` - black (transparent)
+
+#### Example: Displaying the Palette in Lua
+
+You can create a visual palette reference using `fillrect`:
+
+```lua
+function gui()
+    local x0, y0, w, h = 8, 8, 12, 12
+    local i = 0
+    
+    for row = 0, 3 do
+        for col = 0, 15 do
+            local idx = i
+            fillrect(x0 + col * (w + 1), y0 + row * (h + 1), w, h, idx)
+            i = i + 1
+        end
+    end
+    
+    drawtext(8, y0 + 4 * (h + 1) + 6, "NES Palette 0x00–0x3F", 0x20)
+end
+```
+
+This will display all 64 colors from the NES palette as an overlay grid.
 
 #### Monitoring Functions
 
