@@ -985,36 +985,73 @@ HRESULT Cemulator::Run()
 				if (screenshotCombo && !m_screenshotLatch) { m_screenshotLatch = true; FCEUI_SaveSnapshot(); }
 				else if (!screenshotCombo) { m_screenshotLatch = false; }
 
-				// Rewind (LT), skip audio while rewinding
+				// Rewind (LT) with tap=single-step semantics + delayed key-repeat
+				static bool prevRewindPressed = false;
+				static int  rewindRepeatFrames = 0;
+
 				const bool rewindPressed = (Gamepads[0].bLeftTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD) && !screenshotCombo;
+				const bool justPressed   = rewindPressed && !prevRewindPressed;
+				const bool justReleased  = !rewindPressed && prevRewindPressed;
+
+				// Count how long LT is held (in emu frames)
 				m_rewindHeldFrames = rewindPressed ? (m_rewindHeldFrames + 1) : 0;
 
 				if (rewindPressed) {
 					if (!m_isRewinding && m_rewindCount > 0) {
-						SaveRewindState();
-						m_isRewinding = true;
-						m_rewindFrameSkip = 0;
-						m_rewindStartPos = m_rewindWritePos;
+						// IMPORTANT: Do NOT save a state here; we want a tap to jump exactly one saved interval
+						m_isRewinding      = true;
+						m_rewindFrameSkip  = 0;
+						m_rewindStartPos   = m_rewindWritePos;
+						rewindRepeatFrames = 0;
+						// m_rewindHeldFrames is already 1 on first pressed frame
 					}
+
 					if (m_isRewinding) {
-						int steps = 1;
-						if (m_rewindHeldFrames >= 90) steps = 8;
-						else if (m_rewindHeldFrames >= 45) steps = 4;
-						else if (m_rewindHeldFrames >= 15) steps = 2;
-						for (int s = 0; s < steps; ++s) if (!LoadRewindState()) { m_isRewinding = false; break; }
-						// draw-only refresh handled later by Render(); audio intentionally skipped
+						int steps = 0;
+
+						if (justPressed) {
+							// Single step on tap
+							steps = 1;
+						} else {
+							// After a short delay, start key-repeat;
+							// accelerate the longer LT is held
+							++rewindRepeatFrames;
+
+							int repeatRate = 4; // one step every 4 frames (~66ms)
+							if (m_rewindHeldFrames >= 90)      repeatRate = 1; // ~16ms per step
+							else if (m_rewindHeldFrames >= 45) repeatRate = 2; // ~33ms per step
+
+							if (rewindRepeatFrames >= REWIND_INITIAL_DELAY_FRAMES &&
+							   ((rewindRepeatFrames - REWIND_INITIAL_DELAY_FRAMES) % repeatRate) == 0) {
+								steps = 1;
+							}
+						}
+
+						for (int s = 0; s < steps; ++s) {
+							if (!LoadRewindState()) { m_isRewinding = false; break; }
+						}
+						// (Audio intentionally skipped while rewinding; Render() refreshes visuals)
 					}
 					// Skip normal emu frame while rewinding
 				} else if (m_isRewinding) {
-					m_isRewinding = false;
-					m_rewindFrameSkip = 0;
-					m_frameCounter = 0;
+					// Release: exit rewind cleanly and reset repeat timers
+					m_isRewinding      = false;
+					m_rewindFrameSkip  = 0;
+					m_frameCounter     = 0;
+					rewindRepeatFrames = 0;
 				} else {
 					// Normal emulation
 					// Fast-forward (RT) = 2× emu steps for this render
 					int framesToRun = (Gamepads[0].bRightTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD) ? 2 : 1;
 
+					// Cache input state before fast-forward loop to prevent double-processing
+					// When multiple buttons are pressed during fast-forward, we want both frames
+					// to use the same input state (not re-read multiple times)
+					uint32 cachedPowerpadbuf = powerpadbuf;
+
 					for (int frame = 0; frame < framesToRun; ++frame) {
+						// Restore cached input before each frame to ensure consistent input across fast-forward frames
+						powerpadbuf = cachedPowerpadbuf;
 						FCEUI_Emulate(&bitmap, &snd, &sndsize, 0);
 
 #ifdef USE_LUA

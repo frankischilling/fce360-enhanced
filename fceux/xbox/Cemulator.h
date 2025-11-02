@@ -79,7 +79,12 @@ private:
 	// Rewind system
 	static const int REWIND_BUFFER_SIZE = 300;  // Store up to 300 states (~5 seconds at 60fps)
 #ifndef REWIND_SAVE_INTERVAL
-	static const int REWIND_SAVE_INTERVAL = 60;  // Save state once per second (was 1, too frequent and causes slowdown)
+	// Save a rewind state ~every 100ms @60fps (fine-grained steps)
+	static const int REWIND_SAVE_INTERVAL = 6;
+#endif
+#ifndef REWIND_INITIAL_DELAY_FRAMES
+	// How long you must hold before auto-repeat kicks in (~166ms @60fps)
+	static const int REWIND_INITIAL_DELAY_FRAMES = 10;
 #endif
 	
 	struct RewindState {
