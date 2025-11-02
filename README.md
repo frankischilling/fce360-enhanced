@@ -220,18 +220,24 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
 - [API Functions](#api-functions)
   - [Drawing Functions](#drawing-functions)
     - [`drawtext(x, y, text [, color])`](#drawtextx-y-text--color)
+      - Parameters, Returns, Notes, Examples, Common Colors
   - [Monitoring Functions](#monitoring-functions)
     - [`getfps()`](#getfps)
+      - Parameters, Returns, Notes, Basic & Advanced Examples
 - [Callbacks](#callbacks)
-  - [`gui()`](#gui) - Required callback
-  - [`joypad(player, buttons)`](#joypadplayer-buttons-optional) - Optional callback
+  - [`gui()`](#gui) - **Required callback**
+    - When Called, Important Notes, Basic & Advanced Examples
+  - [`joypad(player, buttons)`](#joypadplayer-buttons-optional) - *Optional callback*
+    - Button Bitmask Reference, Bitwise Operations, Multiple Examples
 - [Complete Examples](#complete-examples)
   - [FPS Display](#fps-display)
   - [On-Screen Timer](#on-screen-timer)
   - [Multi-Line Status Display](#multi-line-status-display)
 - [Script Loading Behavior](#script-loading-behavior)
 - [Technical Details](#technical-details)
+  - Lua Version, Update Frequency, Rendering, Coordinate System, Color Palette, Performance
 - [Troubleshooting](#troubleshooting-1)
+  - Script not loading, Text not appearing, Script errors, Performance issues
 - [Advanced: Multiple Scripts](#advanced-multiple-scripts)
 
 ---
