@@ -9,6 +9,43 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
 * Current release: **v0.6.0** — *Lua scripting support for custom overlays and automation, favorite games list, frame-perfect rewind with speed ramping, recent games list, ROM search with Xbox keyboard UI, screenshot capture, fast forward (RT trigger), in-game OSD (pause menu), save states/slots, quick reset, + prior scrolling upgrades*
 
+---
+
+## Table of Contents
+
+- [Features Showcase](#features-showcase)
+- [What's New](#whats-new-v060)
+  - [v0.6.0 - Lua Scripting Support](#whats-new-v060)
+  - [v0.5.3 - Favorite Games List](#whats-new-v053)
+  - [v0.5.2 - Rewind System](#whats-new-v052)
+  - [v0.5.1 - Recent Games List](#whats-new-v051)
+  - [v0.5.0 - ROM Search](#whats-new-v050)
+  - [v0.4.0 - Screenshot Capture](#whats-new-v040)
+  - [v0.3.1 - Fast Forward](#whats-new-v031)
+  - [v0.3.0 - In-Game OSD](#whats-new-v030)
+  - [v0.2 - Fast Scrolling](#whats-new-v02)
+- [Repository Layout](#repository-layout-excerpt)
+- [Build](#build)
+- [Deploy to Xbox 360](#deploy-to-xbox-360-rghjtag)
+- [Controls](#controls-front-end--osd)
+  - [ROM Browser](#rom-browser)
+  - [In-Game](#in-game)
+- [Lua Scripting API](#lua-scripting-api)
+  - [Setup](#setup)
+  - [API Functions](#api-functions)
+  - [Callbacks](#callbacks)
+  - [Complete Examples](#complete-examples)
+  - [Script Loading Behavior](#script-loading-behavior)
+  - [Technical Details](#technical-details)
+  - [Troubleshooting](#troubleshooting-1)
+  - [Advanced: Multiple Scripts](#advanced-multiple-scripts)
+- [Advanced Tuning](#advanced-tuning-optional)
+- [Packaging Builds](#packaging-builds-for-github-releases)
+- [Troubleshooting](#troubleshooting)
+- [Changelog](#changelog)
+
+---
+
 ## Features Showcase
 
 ### Recent Games List (v0.5.1)
@@ -176,6 +213,27 @@ Steps
 
 FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, automation, and game enhancements.
 
+### Table of Contents (Lua API)
+
+- [Setup](#setup)
+- [Search Paths](#search-paths)
+- [API Functions](#api-functions)
+  - [`drawtext(x, y, text [, color])`](#drawtextx-y-text--color)
+  - [`getfps()`](#getfps)
+- [Callbacks](#callbacks)
+  - [`gui()`](#gui)
+  - [`joypad(player, buttons)`](#joypadplayer-buttons-optional)
+- [Complete Examples](#complete-examples)
+  - [FPS Display](#fps-display)
+  - [On-Screen Timer](#on-screen-timer)
+  - [Multi-Line Status Display](#multi-line-status-display)
+- [Script Loading Behavior](#script-loading-behavior)
+- [Technical Details](#technical-details)
+- [Troubleshooting](#troubleshooting-1)
+- [Advanced: Multiple Scripts](#advanced-multiple-scripts)
+
+---
+
 ### Setup
 
 1. **Create the Lua directory** in your game folder (same location as `fceux.xex`):
@@ -191,7 +249,7 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
 
 3. **Scripts auto-load** when a game starts - no manual loading required!
 
-**Search Paths** (in priority order):
+### Search Paths
 - `hdd1:\fce360-enhanced\lua\` (recommended - user-writable)
 - `game:\lua\` (game folder - may be read-only in packages)
 - `usb0:\lua\` (USB storage)
