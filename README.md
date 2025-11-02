@@ -218,11 +218,13 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
 - [Setup](#setup)
 - [Search Paths](#search-paths)
 - [API Functions](#api-functions)
-  - [`drawtext(x, y, text [, color])`](#drawtextx-y-text--color)
-  - [`getfps()`](#getfps)
+  - [Drawing Functions](#drawing-functions)
+    - [`drawtext(x, y, text [, color])`](#drawtextx-y-text--color)
+  - [Monitoring Functions](#monitoring-functions)
+    - [`getfps()`](#getfps)
 - [Callbacks](#callbacks)
-  - [`gui()`](#gui)
-  - [`joypad(player, buttons)`](#joypadplayer-buttons-optional)
+  - [`gui()`](#gui) - Required callback
+  - [`joypad(player, buttons)`](#joypadplayer-buttons-optional) - Optional callback
 - [Complete Examples](#complete-examples)
   - [FPS Display](#fps-display)
   - [On-Screen Timer](#on-screen-timer)
@@ -256,24 +258,53 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
 
 ### API Functions
 
-#### `drawtext(x, y, text [, color])`
-Draws text on the screen overlay.
+#### Drawing Functions
+
+##### `drawtext(x, y, text [, color])`
+Draws text on the screen overlay using FCEUX's built-in font renderer.
 
 **Parameters:**
-- `x, y` (integer): Screen coordinates (0-255, 0-239). NES resolution is 256×240.
-- `text` (string): Text to display.
-- `color` (integer, optional): Palette color index (default: `0x20`). Use 0x00-0xFF for different colors.
+- `x` (integer): X coordinate (0-255). NES horizontal resolution is 256 pixels.
+- `y` (integer): Y coordinate (0-239). NES vertical resolution is 240 pixels.
+- `text` (string): Text string to display. Multi-line text is not directly supported - use multiple `drawtext()` calls.
+- `color` (integer, optional): Palette color index (default: `0x20`). Valid range is 0x00-0xFF.
+
+**Returns:** Nothing
+
+**Notes:**
+- Text is drawn using an 8×8 pixel font. Each character occupies 8 pixels horizontally.
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- Text drawn outside the visible area (0-255, 0-239) will be clipped automatically.
+- The overlay is composited on top of the NES frame, so Lua-drawn text appears above game graphics.
 
 **Example:**
 ```lua
-drawtext(4, 4, "Hello World!", 0x20)  -- Draw at top-left
-drawtext(100, 120, "Score: 1000", 0x2E)  -- Draw centered
+drawtext(4, 4, "Hello World!", 0x20)        -- White text at top-left
+drawtext(100, 120, "Score: 1000", 0x2E)     -- Yellow/green text centered
+drawtext(4, 232, "Bottom text", 0x0F)       -- Near bottom of screen
 ```
 
-#### `getfps()`
-Returns the current frame rate as a number (updated once per second).
+**Common Color Values:**
+- `0x20` - White
+- `0x2E` - Yellow/Green
+- `0x0F` - Red/Pink
+- `0x30` - Light gray
+- `0x00` - Black (rarely visible on overlay)
 
-**Returns:** `number` - Current FPS (typically 60.0 for normal speed)
+#### Monitoring Functions
+
+##### `getfps()`
+Returns the current frame rate as a floating-point number. The FPS is recalculated every second.
+
+**Parameters:** None
+
+**Returns:** 
+- `number` - Current FPS value (typically 60.0 for normal speed, 120.0 for 2× fast-forward, etc.)
+
+**Notes:**
+- The FPS value is updated once per second, so rapid calls within the same second will return the same value.
+- During fast-forward (RT trigger), FPS will reflect the increased emulation speed.
+- During pause, FPS should remain stable (may show the last calculated value before pause).
 
 **Example:**
 ```lua
@@ -281,14 +312,56 @@ local fps = getfps()
 drawtext(4, 4, string.format("FPS: %.1f", fps), 0x2E)
 ```
 
+**Advanced Example:**
+```lua
+local lastFPS = 0
+local fpsHistory = {}
+
+function gui()
+    local fps = getfps()
+    
+    -- Track FPS history for averaging
+    table.insert(fpsHistory, fps)
+    if #fpsHistory > 60 then
+        table.remove(fpsHistory, 1)
+    end
+    
+    -- Calculate average
+    local sum = 0
+    for i = 1, #fpsHistory do
+        sum = sum + fpsHistory[i]
+    end
+    local avgFPS = sum / #fpsHistory
+    
+    drawtext(4, 4, string.format("FPS: %.1f", fps), 0x2E)
+    drawtext(4, 12, string.format("Avg: %.1f", avgFPS), 0x30)
+end
+```
+
 ### Callbacks
 
-Your script **must** define a `gui()` function that will be called every frame (~30Hz).
+Callbacks are functions that your script defines, which the emulator will call automatically at specific times.
 
 #### `gui()`
-Called every frame to draw overlay content. This is your main drawing function.
+**Required callback** - Called every ~33ms (~30Hz) to draw overlay content. This is your main drawing function and must be defined in your script.
 
-**Example:**
+**Parameters:** None
+
+**Returns:** Nothing (return values are ignored)
+
+**When Called:**
+- Automatically called by the emulator during each frame rendering cycle
+- Runs at approximately 30Hz (every 33 milliseconds) for performance
+- The overlay is double-buffered and composited at 60Hz to prevent flicker
+- Called even when emulation is paused (if a game is loaded)
+
+**Important Notes:**
+- Your script **must** define this function, or nothing will be drawn
+- Keep this function lightweight - heavy computations can impact emulation performance
+- All drawing functions (`drawtext`, etc.) must be called from within `gui()` to appear on screen
+- The function can be empty if you only use `joypad()` for input modification
+
+**Basic Example:**
 ```lua
 function gui()
     -- Draw FPS counter
@@ -300,22 +373,114 @@ function gui()
 end
 ```
 
+**Advanced Example with State:**
+```lua
+local startTime = os.clock()
+local frameCounter = 0
+
+function gui()
+    frameCounter = frameCounter + 1
+    
+    -- FPS display
+    local fps = getfps()
+    drawtext(4, 4, string.format("FPS: %.1f", fps), 0x2E)
+    
+    -- Frame counter
+    drawtext(4, 12, string.format("Frames: %d", frameCounter), 0x30)
+    
+    -- Elapsed time (approximate)
+    local elapsed = os.clock() - startTime
+    local minutes = math.floor(elapsed / 60)
+    local seconds = math.floor(elapsed % 60)
+    drawtext(4, 20, string.format("Time: %02d:%02d", minutes, seconds), 0x20)
+end
+```
+
 #### `joypad(player, buttons)` *(Optional)*
-Called when reading joypad input. Can intercept/modify controller input.
+Optional callback - Called when the emulator reads controller input. Allows you to intercept and modify button presses before they reach the game.
 
 **Parameters:**
 - `player` (integer): Player number (0-based)
-- `buttons` (integer): Current button state
+  - `0` = Player 1 (first controller)
+  - `1` = Player 2 (second controller, if connected)
+- `buttons` (integer): Current raw button state as a bitmask
 
-**Returns:** Modified button state (integer)
+**Returns:** 
+- `integer` - Modified button state that will be used by the game
 
-**Example:**
+**Button Bitmask Reference:**
+The `buttons` parameter is a bitmask where each bit represents a button:
+- Bit 0 (0x01): Right
+- Bit 1 (0x02): Left
+- Bit 2 (0x04): Down
+- Bit 3 (0x08): Up
+- Bit 4 (0x10): Start
+- Bit 5 (0x20): Select
+- Bit 6 (0x40): B
+- Bit 7 (0x80): A
+
+**Notes:**
+- This function is called every frame when reading controller input
+- If you don't define this function, input passes through unchanged
+- You can use bitwise operations to modify buttons:
+  - `buttons | mask` - Press a button (set bit)
+  - `buttons & ~mask` - Release a button (clear bit)
+  - `buttons ^ mask` - Toggle a button (flip bit)
+- Modifications apply immediately to the game
+- Can be used for auto-fire, button combinations, macros, etc.
+
+**Example: Auto-Fire A Button:**
+```lua
+local autoFireFrame = 0
+
+function joypad(player, buttons)
+    -- Auto-fire for player 1 only
+    if player == 0 then
+        autoFireFrame = autoFireFrame + 1
+        -- Press A button every other frame (30 Hz auto-fire)
+        if (autoFireFrame % 2) == 0 then
+            return buttons | 0x80  -- Set A button (bit 7)
+        end
+    end
+    return buttons  -- Pass through unmodified
+end
+```
+
+**Example: Turbo Mode (All Buttons Auto-Fire):**
+```lua
+local turboFrame = 0
+
+function joypad(player, buttons)
+    turboFrame = turboFrame + 1
+    if player == 0 then
+        -- Fast turbo (every 2 frames)
+        if (turboFrame % 2) == 0 then
+            -- Toggle A and B buttons for turbo effect
+            return buttons ^ (0x80 | 0x40)
+        end
+    end
+    return buttons
+end
+```
+
+**Example: Button Combo (Hold B + Right = Run):**
 ```lua
 function joypad(player, buttons)
-    -- Auto-fire for player 1's A button
     if player == 0 then
-        return buttons | 0x80  -- Set A button (bit 7)
+        -- If B is pressed, also press Right (useful for some games)
+        if (buttons & 0x40) ~= 0 then  -- B button pressed
+            return buttons | 0x01  -- Also press Right
+        end
     end
+    return buttons
+end
+```
+
+**Example: Input Passthrough (No Modification):**
+```lua
+function joypad(player, buttons)
+    -- You can log or monitor input without modifying it
+    -- Just return the original buttons value
     return buttons
 end
 ```
