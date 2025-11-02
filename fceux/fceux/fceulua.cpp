@@ -476,10 +476,375 @@
 	 }
 	 
 	 return 0;
- }
+}
 
- // Get current FPS
- int lua_getfps(lua_State *L) {
+// Lua drawing function - allows scripts to draw a circle outline
+int lua_drawcircle(lua_State *L) {
+	int n = lua_gettop(L);
+	if (n < 4) {
+		return luaL_error(L, "drawcircle(x, y, radius, color) requires 4 arguments");
+	}
+	
+	int cx = (int)luaL_checkinteger(L, 1);
+	int cy = (int)luaL_checkinteger(L, 2);
+	int radius = (int)luaL_checkinteger(L, 3);
+	int color = (int)luaL_checkinteger(L, 4);
+	
+	// Draw circle outline on the current frame buffer
+	if (!currentXBuf) return 0;
+	
+	// Validate radius
+	if (radius <= 0) return 0;
+	
+	uint8 mappedColor = map_overlay_color(color);
+	bool drewSomething = false;
+	
+	// Use midpoint circle algorithm to draw circle outline
+	int x = 0;
+	int y = radius;
+	int d = 1 - radius;
+	
+	// Helper function to draw 8 symmetric points (for complete circle)
+	// Using inline macro-style approach for VS2008 compatibility (no C++11 lambdas)
+	while (true) {
+		// Draw 8 symmetric points for current (x, y) position
+		int points[8][2];
+		points[0][0] = cx + x; points[0][1] = cy + y;
+		points[1][0] = cx - x; points[1][1] = cy + y;
+		points[2][0] = cx + x; points[2][1] = cy - y;
+		points[3][0] = cx - x; points[3][1] = cy - y;
+		points[4][0] = cx + y; points[4][1] = cy + x;
+		points[5][0] = cx - y; points[5][1] = cy + x;
+		points[6][0] = cx + y; points[6][1] = cy - x;
+		points[7][0] = cx - y; points[7][1] = cy - x;
+		
+		for (int i = 0; i < 8; ++i) {
+			int px = points[i][0];
+			int py = points[i][1];
+			if (px >= 0 && px < 256 && py >= 0 && py < 240) {
+				uint8 *dest = currentXBuf + py * 256 + px;
+				*dest = mappedColor;
+				drewSomething = true;
+			}
+		}
+		
+		// Check if we're done (midpoint algorithm termination)
+		if (x >= y) break;
+		
+		// Update decision parameter and position
+		if (d < 0) {
+			d += 2 * x + 3;
+		} else {
+			d += 2 * (x - y) + 5;
+			y--;
+		}
+		x++;
+	}
+	
+	if (drewSomething) {
+		g_overlayDirty = true;  // Mark that something was drawn
+	}
+	
+	return 0;
+}
+
+// Lua drawing function - allows scripts to draw a filled circle
+int lua_fillcircle(lua_State *L) {
+	int n = lua_gettop(L);
+	if (n < 4) {
+		return luaL_error(L, "fillcircle(x, y, radius, color) requires 4 arguments");
+	}
+	
+	int cx = (int)luaL_checkinteger(L, 1);
+	int cy = (int)luaL_checkinteger(L, 2);
+	int radius = (int)luaL_checkinteger(L, 3);
+	int color = (int)luaL_checkinteger(L, 4);
+	
+	// Draw filled circle on the current frame buffer
+	if (!currentXBuf) return 0;
+	
+	// Validate radius
+	if (radius <= 0) return 0;
+	
+	uint8 mappedColor = map_overlay_color(color);
+	bool drewSomething = false;
+	
+	// Clamp circle bounds to screen
+	int minX = (cx - radius < 0) ? 0 : (cx - radius);
+	int maxX = (cx + radius >= 256) ? 255 : (cx + radius);
+	int minY = (cy - radius < 0) ? 0 : (cy - radius);
+	int maxY = (cy + radius >= 240) ? 239 : (cy + radius);
+	
+	if (minX >= 256 || minY >= 240 || maxX < 0 || maxY < 0) return 0;
+	
+	// Fill circle by checking if each pixel is inside the circle
+	for (int py = minY; py <= maxY; ++py) {
+		for (int px = minX; px <= maxX; ++px) {
+			// Calculate distance from center
+			int dx = px - cx;
+			int dy = py - cy;
+			int distSq = dx * dx + dy * dy;
+			int radiusSq = radius * radius;
+			
+			// If pixel is inside or on the circle, fill it
+			if (distSq <= radiusSq) {
+				if (px >= 0 && px < 256 && py >= 0 && py < 240) {
+					uint8 *dest = currentXBuf + py * 256 + px;
+					*dest = mappedColor;
+					drewSomething = true;
+				}
+			}
+		}
+	}
+	
+	if (drewSomething) {
+		g_overlayDirty = true;  // Mark that something was drawn
+	}
+	
+	return 0;
+}
+
+// Lua drawing function - allows scripts to draw a triangle outline
+int lua_drawtriangle(lua_State *L) {
+	int n = lua_gettop(L);
+	if (n < 7) {
+		return luaL_error(L, "drawtriangle(x1, y1, x2, y2, x3, y3, color) requires 7 arguments");
+	}
+	
+	int x1 = (int)luaL_checkinteger(L, 1);
+	int y1 = (int)luaL_checkinteger(L, 2);
+	int x2 = (int)luaL_checkinteger(L, 3);
+	int y2 = (int)luaL_checkinteger(L, 4);
+	int x3 = (int)luaL_checkinteger(L, 5);
+	int y3 = (int)luaL_checkinteger(L, 6);
+	int color = (int)luaL_checkinteger(L, 7);
+	
+	// Draw triangle outline on the current frame buffer
+	if (!currentXBuf) return 0;
+	
+	uint8 mappedColor = map_overlay_color(color);
+	bool drewSomething = false;
+	
+	// Draw three lines to form triangle outline
+	// Line 1: (x1, y1) to (x2, y2)
+	int dx = (x2 > x1) ? (x2 - x1) : (x1 - x2);
+	int dy = (y2 > y1) ? (y2 - y1) : (y1 - y2);
+	int sx = (x1 < x2) ? 1 : -1;
+	int sy = (y1 < y2) ? 1 : -1;
+	int err = dx - dy;
+	
+	int x = x1;
+	int y = y1;
+	
+	while (true) {
+		if (x >= 0 && x < 256 && y >= 0 && y < 240) {
+			uint8 *dest = currentXBuf + y * 256 + x;
+			*dest = mappedColor;
+			drewSomething = true;
+		}
+		if (x == x2 && y == y2) break;
+		int e2 = 2 * err;
+		if (e2 > -dy) {
+			err -= dy;
+			x += sx;
+		}
+		if (e2 < dx) {
+			err += dx;
+			y += sy;
+		}
+	}
+	
+	// Line 2: (x2, y2) to (x3, y3)
+	dx = (x3 > x2) ? (x3 - x2) : (x2 - x3);
+	dy = (y3 > y2) ? (y3 - y2) : (y2 - y3);
+	sx = (x2 < x3) ? 1 : -1;
+	sy = (y2 < y3) ? 1 : -1;
+	err = dx - dy;
+	x = x2;
+	y = y2;
+	
+	while (true) {
+		if (x >= 0 && x < 256 && y >= 0 && y < 240) {
+			uint8 *dest = currentXBuf + y * 256 + x;
+			*dest = mappedColor;
+			drewSomething = true;
+		}
+		if (x == x3 && y == y3) break;
+		int e2 = 2 * err;
+		if (e2 > -dy) {
+			err -= dy;
+			x += sx;
+		}
+		if (e2 < dx) {
+			err += dx;
+			y += sy;
+		}
+	}
+	
+	// Line 3: (x3, y3) to (x1, y1)
+	dx = (x1 > x3) ? (x1 - x3) : (x3 - x1);
+	dy = (y1 > y3) ? (y1 - y3) : (y3 - y1);
+	sx = (x3 < x1) ? 1 : -1;
+	sy = (y3 < y1) ? 1 : -1;
+	err = dx - dy;
+	x = x3;
+	y = y3;
+	
+	while (true) {
+		if (x >= 0 && x < 256 && y >= 0 && y < 240) {
+			uint8 *dest = currentXBuf + y * 256 + x;
+			*dest = mappedColor;
+			drewSomething = true;
+		}
+		if (x == x1 && y == y1) break;
+		int e2 = 2 * err;
+		if (e2 > -dy) {
+			err -= dy;
+			x += sx;
+		}
+		if (e2 < dx) {
+			err += dx;
+			y += sy;
+		}
+	}
+	
+	if (drewSomething) {
+		g_overlayDirty = true;  // Mark that something was drawn
+	}
+	
+	return 0;
+}
+
+// Lua drawing function - allows scripts to draw a filled triangle
+int lua_filltriangle(lua_State *L) {
+	int n = lua_gettop(L);
+	if (n < 7) {
+		return luaL_error(L, "filltriangle(x1, y1, x2, y2, x3, y3, color) requires 7 arguments");
+	}
+	
+	int x1 = (int)luaL_checkinteger(L, 1);
+	int y1 = (int)luaL_checkinteger(L, 2);
+	int x2 = (int)luaL_checkinteger(L, 3);
+	int y2 = (int)luaL_checkinteger(L, 4);
+	int x3 = (int)luaL_checkinteger(L, 5);
+	int y3 = (int)luaL_checkinteger(L, 6);
+	int color = (int)luaL_checkinteger(L, 7);
+	
+	// Draw filled triangle on the current frame buffer
+	if (!currentXBuf) return 0;
+	
+	uint8 mappedColor = map_overlay_color(color);
+	bool drewSomething = false;
+	
+	// Sort vertices by Y coordinate (top to bottom)
+	int v[3][2];
+	v[0][0] = x1; v[0][1] = y1;
+	v[1][0] = x2; v[1][1] = y2;
+	v[2][0] = x3; v[2][1] = y3;
+	
+	// Bubble sort by Y coordinate (simple 3-element sort)
+	for (int i = 0; i < 2; ++i) {
+		for (int j = 0; j < 2 - i; ++j) {
+			if (v[j][1] > v[j + 1][1]) {
+				int tx = v[j][0];
+				int ty = v[j][1];
+				v[j][0] = v[j + 1][0];
+				v[j][1] = v[j + 1][1];
+				v[j + 1][0] = tx;
+				v[j + 1][1] = ty;
+			}
+		}
+	}
+	
+	// Now v[0] is top, v[1] is middle, v[2] is bottom
+	int topX = v[0][0], topY = v[0][1];
+	int midX = v[1][0], midY = v[1][1];
+	int botX = v[2][0], botY = v[2][1];
+	
+	// Check if triangle is valid (has area)
+	if (topY == botY) return 0;  // Flat triangle
+	
+	// Fill triangle using scanline algorithm
+	// Split into two parts: top half (top to mid) and bottom half (mid to bot)
+	
+	// Top half: from topY to midY
+	if (topY != midY) {
+		int dy1 = midY - topY;
+		for (int y = topY; y <= midY; ++y) {
+			if (y < 0 || y >= 240) continue;
+			
+			// Calculate x positions on left and right edges
+			// Left edge: top to mid
+			int xLeft1 = topX + ((midX - topX) * (y - topY)) / dy1;
+			// Right edge: top to bot
+			int dy2 = botY - topY;
+			int xRight1 = topX + ((botX - topX) * (y - topY)) / dy2;
+			
+			// Ensure left < right
+			int xStart = (xLeft1 < xRight1) ? xLeft1 : xRight1;
+			int xEnd = (xLeft1 < xRight1) ? xRight1 : xLeft1;
+			
+			// Fill scanline
+			for (int x = xStart; x <= xEnd; ++x) {
+				if (x >= 0 && x < 256) {
+					uint8 *dest = currentXBuf + y * 256 + x;
+					*dest = mappedColor;
+					drewSomething = true;
+				}
+			}
+		}
+	}
+	
+	// Bottom half: from midY to botY
+	if (midY != botY) {
+		int dy1 = botY - midY;
+		for (int y = midY; y <= botY; ++y) {
+			if (y < 0 || y >= 240) continue;
+			
+			// Calculate x positions on left and right edges
+			// Left edge: mid to bot
+			int xLeft2 = midX + ((botX - midX) * (y - midY)) / dy1;
+			// Right edge: top to bot
+			int dy2 = botY - topY;
+			int xRight2 = topX + ((botX - topX) * (y - topY)) / dy2;
+			
+			// Ensure left < right
+			int xStart = (xLeft2 < xRight2) ? xLeft2 : xRight2;
+			int xEnd = (xLeft2 < xRight2) ? xRight2 : xLeft2;
+			
+			// Fill scanline
+			for (int x = xStart; x <= xEnd; ++x) {
+				if (x >= 0 && x < 256) {
+					uint8 *dest = currentXBuf + y * 256 + x;
+					*dest = mappedColor;
+					drewSomething = true;
+				}
+			}
+		}
+	} else if (topY == midY && midY == botY) {
+		// All points on same line - draw a line
+		int xStart = (topX < midX) ? ((topX < botX) ? topX : botX) : ((midX < botX) ? midX : botX);
+		int xEnd = (topX > midX) ? ((topX > botX) ? topX : botX) : ((midX > botX) ? midX : botX);
+		if (topY >= 0 && topY < 240) {
+			for (int x = xStart; x <= xEnd; ++x) {
+				if (x >= 0 && x < 256) {
+					uint8 *dest = currentXBuf + topY * 256 + x;
+					*dest = mappedColor;
+					drewSomething = true;
+				}
+			}
+		}
+	}
+	
+	if (drewSomething) {
+		g_overlayDirty = true;  // Mark that something was drawn
+	}
+	
+	return 0;
+}
+
+// Get current FPS
+int lua_getfps(lua_State *L) {
 	 lua_pushnumber(L, currentFPS);
 	 return 1;
  }
@@ -505,6 +870,10 @@
 	 lua_register(luaState, "drawrect", lua_drawrect);
 	 lua_register(luaState, "fillrect", lua_fillrect);
 	 lua_register(luaState, "clearrect", lua_clearrect);
+	 lua_register(luaState, "drawcircle", lua_drawcircle);
+	 lua_register(luaState, "fillcircle", lua_fillcircle);
+	 lua_register(luaState, "drawtriangle", lua_drawtriangle);
+	 lua_register(luaState, "filltriangle", lua_filltriangle);
 	 lua_register(luaState, "getfps", lua_getfps);
 	 
 	 luaInitialized = true;
