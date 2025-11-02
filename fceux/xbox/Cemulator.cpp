@@ -1035,24 +1035,27 @@ HRESULT Cemulator::Run()
 							FCEU_LuaGui(bitmap);
 #endif
 							
-							// Optimized ARGB conversion with precomputed LUT
-							static unsigned int lut[256];
-							static bool lutInit = false;
-							if (!lutInit) {
-								extern pcpal pcpalette[256];
-								for (int i = 0; i < 256; ++i) {
-									lut[i] = (0xFF << 24) | 
-									         (pcpalette[i].r << 16) | 
-									         (pcpalette[i].g << 8) | 
-									         pcpalette[i].b;
-								}
-								lutInit = true;
+						// Optimized ARGB conversion with precomputed LUT
+						// NOTE: LUT uses full 8-bit palette index (0-255) - no masking
+						// This allows overlay palette ranges (0x80-0xBF normal, 0xC0-0xFF dimmed) to work correctly
+						static unsigned int lut[256];
+						static bool lutInit = false;
+						if (!lutInit) {
+							extern pcpal pcpalette[256];
+							for (int i = 0; i < 256; ++i) {
+								lut[i] = (0xFF << 24) | 
+								         (pcpalette[i].r << 16) | 
+								         (pcpalette[i].g << 8) | 
+								         pcpalette[i].b;
 							}
-							
-							// Fast lookup table conversion (no branching per pixel)
-							for (int i = 0; i < (256 * 240); ++i) {
-								nesBitmap[i] = lut[bitmap[i]];
-							}
+							lutInit = true;
+						}
+						
+						// Fast lookup table conversion (no branching per pixel)
+						// Uses full 8-bit index from bitmap - overlay palette ranges (0x80-0xFF) are properly handled
+						for (int i = 0; i < (256 * 240); ++i) {
+							nesBitmap[i] = lut[bitmap[i]];  // Full 8-bit index, no masking
+						}
 							
 							gfx_filter.UpdateFilter(nesBitmap);
 							UpdateAudio(snd, sndsize);
@@ -1090,9 +1093,21 @@ HRESULT Cemulator::CloseVideo()
 };
 HRESULT Cemulator::CloseAudio()
 {
-	g_pMasteringVoice->DestroyVoice();
-	g_pSourceVoice->DestroyVoice();
-	free(&g_SoundBuffer);
+	if (g_pSourceVoice) {
+		g_pSourceVoice->Stop(0);
+		g_pSourceVoice->DestroyVoice();
+		g_pSourceVoice = NULL;
+	}
+	if (g_pMasteringVoice) {
+		g_pMasteringVoice->DestroyVoice();
+		g_pMasteringVoice = NULL;
+	}
+
+	if (g_sound_buffer) {
+		free(g_sound_buffer);
+		g_sound_buffer = NULL;
+	}
+
 	return S_OK;	
 };
 

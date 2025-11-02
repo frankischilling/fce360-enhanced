@@ -11,16 +11,33 @@ ArchiveScanRecord FCEUD_ScanArchive(std::string fname) { return ArchiveScanRecor
 // Need something to hold the PC palette
 pcpal pcpalette[256];
 
+// Dimming function: reduces color intensity to ~60% for overlay backgrounds
+static inline void dim_color(uint8 r, uint8 g, uint8 b, uint8* out_r, uint8* out_g, uint8* out_b) {
+    // gentle dim: ~60% (multiply by 3, divide by 5)
+    *out_r = (uint8)((r * 3) / 5);
+    *out_g = (uint8)((g * 3) / 5);
+    *out_b = (uint8)((b * 3) / 5);
+}
+
 void FCEUD_SetPalette(unsigned char index, unsigned char r, unsigned char g, unsigned char b) {
     pcpalette[index].r = r;
     pcpalette[index].g = g;
     pcpalette[index].b = b;
-    // Mirror color into overlay range so 0x80|color shows up
+    
+    // Mirror color into overlay range (0x80-0xBF) so 0x80|color shows up
     // This makes overlay pixels (used by DrawTextTrans) visible
     if (index < 128) {
         pcpalette[index | 0x80].r = r;
         pcpalette[index | 0x80].g = g;
         pcpalette[index | 0x80].b = b;
+        
+        // Also populate dimmed overlay range (0xC0-0xFF) for bordered text backgrounds
+        // This is used by DrawTextTransWH when border > 0 (0xC1, 0xD1, 0xCF palette indices)
+        uint8 dim_r, dim_g, dim_b;
+        dim_color(r, g, b, &dim_r, &dim_g, &dim_b);
+        pcpalette[index | 0xC0].r = dim_r;
+        pcpalette[index | 0xC0].g = dim_g;
+        pcpalette[index | 0xC0].b = dim_b;
     }
 }
 
