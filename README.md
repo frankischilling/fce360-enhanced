@@ -221,6 +221,18 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
   - [Drawing Functions](#drawing-functions)
     - [`drawtext(x, y, text [, color])`](#drawtextx-y-text--color)
       - Parameters, Returns, Notes, Examples, Common Colors
+    - [`drawtextwh(x, y, text, color, max_w, max_h, border)`](#drawtextwhx-y-text-color-max_w-max_h-border)
+      - Parameters (including border details), Returns, Notes, Border Styles, Examples
+    - [`drawpixel(x, y, color)`](#drawpixelx-y-color)
+      - Parameters, Returns, Notes, Examples
+    - [`drawline(x1, y1, x2, y2, color)`](#drawlinex1-y1-x2-y2-color)
+      - Parameters, Returns, Notes, Examples
+    - [`drawrect(x, y, w, h, color)`](#drawrectx-y-w-h-color)
+      - Parameters, Returns, Notes, Examples
+    - [`fillrect(x, y, w, h, color)`](#fillrectx-y-w-h-color)
+      - Parameters, Returns, Notes, Examples
+    - [`clearrect(x, y, w, h)`](#clearrectx-y-w-h)
+      - Parameters, Returns, Notes, Examples
   - [Monitoring Functions](#monitoring-functions)
     - [`getfps()`](#getfps)
       - Parameters, Returns, Notes, Basic & Advanced Examples
@@ -267,27 +279,253 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
 #### Drawing Functions
 
 ##### `drawtext(x, y, text [, color])`
-Draws text on the screen overlay using FCEUX's built-in font renderer.
+Draws **borderless** text on the screen overlay using FCEUX's built-in font renderer. This function draws only the glyph pixels (characters) with no background, outline, or shadow.
 
 **Parameters:**
 - `x` (integer): X coordinate (0-255). NES horizontal resolution is 256 pixels.
 - `y` (integer): Y coordinate (0-239). NES vertical resolution is 240 pixels.
-- `text` (string): Text string to display. Multi-line text is not directly supported - use multiple `drawtext()` calls.
-- `color` (integer, optional): Palette color index (default: `0x20`). Valid range is 0x00-0xFF.
+- `text` (string): Text string to display. Multi-line text is not directly supported - use `drawtextwh()` for multi-line support.
+- `color` (integer, optional): Palette color index (default: `0x20`). Valid range is 0x00-0x3F (automatically mapped to NES palette range).
 
 **Returns:** Nothing
 
 **Notes:**
 - Text is drawn using an 8×8 pixel font. Each character occupies 8 pixels horizontally.
+- **Borderless rendering:** This function draws only the glyph pixels with no background, outline, or shadow effects. For text with borders/outlines, use `drawtextwh()`.
 - Coordinates (0, 0) represent the top-left corner of the screen.
 - Text drawn outside the visible area (0-255, 0-239) will be clipped automatically.
 - The overlay is composited on top of the NES frame, so Lua-drawn text appears above game graphics.
+- The entire 8-pixel height row is cleared before drawing to prevent ghosting from previous frames.
 
 **Example:**
 ```lua
-drawtext(4, 4, "Hello World!", 0x20)        -- White text at top-left
-drawtext(100, 120, "Score: 1000", 0x2E)     -- Yellow/green text centered
-drawtext(4, 232, "Bottom text", 0x0F)       -- Near bottom of screen
+drawtext(4, 4, "Hello World!", 0x20)        -- White text at top-left (no border)
+drawtext(100, 120, "Score: 1000", 0x2E)     -- Yellow/green text centered (no border)
+drawtext(4, 232, "Bottom text", 0x0F)       -- Near bottom of screen (no border)
+```
+
+##### `drawtextwh(x, y, text, color, max_w, max_h, border)`
+Draws text on the screen overlay with width/height clipping, multi-line support, and optional borders/outlines. This is the advanced text rendering function that supports bordered text for better visibility.
+
+**Parameters:**
+- `x` (integer): X coordinate (0-255). NES horizontal resolution is 256 pixels.
+- `y` (integer): Y coordinate (0-239). NES vertical resolution is 240 pixels.
+- `text` (string): Text string to display. Supports newline characters (`\n`) for multi-line text.
+- `color` (integer): Palette color index. Valid range is 0x00-0x3F (automatically mapped to NES palette range).
+- `max_w` (integer): Maximum width in pixels for text rendering. Text will wrap to the next line if it exceeds this width. Maximum 256 pixels.
+- `max_h` (integer): Maximum height in pixels for text rendering. Text beyond this height will be clipped. Maximum 64 pixels.
+- `border` (integer): Border style (0, 1, or 2). Values are clamped to this range.
+  - **`0`** - **Borderless:** Draws only glyph pixels with no background, outline, or shadow (same as `drawtext()`). Best for simple overlays.
+  - **`1`** - **Thin outline:** Draws text with a 1-pixel outline/shadow for better contrast. Adds a dimmed background around text.
+  - **`2`** - **Thick outline:** Draws text with a 2-pixel outline/shadow and enhanced background for maximum visibility. Best for text over busy backgrounds.
+
+**Returns:** Nothing
+
+**Notes:**
+- Text is drawn using an 8×8 pixel font. Each character occupies 8 pixels horizontally.
+- **Multi-line support:** Use newline characters (`\n`) in the text string to create multi-line displays. Text automatically wraps within `max_w` pixels.
+- **Border rendering:** When `border > 0`, the function draws a dimmed background (using palette indices 0xC1, 0xD1, 0xCF) around text for improved contrast and readability. Border style 2 provides the thickest outline for maximum visibility.
+- **Borderless mode (`border = 0`):** When border is 0, the function proactively clears the specified `max_w × max_h` area before drawing to prevent ghosting from previous frames, then draws only the glyph pixels.
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- Text drawn outside the visible area (0-255, 0-239) will be clipped automatically.
+- The overlay is composited on top of the NES frame, so Lua-drawn text appears above game graphics.
+- For simple single-line text without borders, `drawtext()` is more efficient and automatically handles ghosting prevention.
+
+**Example:**
+```lua
+-- Borderless text (same as drawtext but with size limits)
+drawtextwh(4, 4, "FPS: 60.0", 0x2E, 200, 16, 0)
+
+-- Multi-line text with thin border for better visibility
+drawtextwh(10, 50, "Line 1\nLine 2\nLine 3", 0x20, 150, 32, 1)
+
+-- Text with thick border for maximum contrast
+drawtextwh(10, 100, "IMPORTANT!", 0x0F, 200, 16, 2)
+
+-- Wrapped text with border in a panel
+fillrect(5, 115, 120, 60, 0x10)           -- Dark background panel
+drawrect(5, 115, 120, 60, 0x20)           -- White border
+drawtextwh(10, 120, "Status:\nHealth: 100\nScore: 5000", 0x2E, 110, 50, 1)
+```
+
+**Border Style Comparison:**
+- **`border = 0`:** Clean glyph-only rendering, no background interference. Fastest, least visual impact.
+- **`border = 1`:** Thin outline provides good contrast on most backgrounds. Slightly dimmed background.
+- **`border = 2`:** Thick outline with enhanced background for maximum readability. Best for text over complex or moving backgrounds.
+
+##### `drawpixel(x, y, color)`
+Draws a single pixel at the specified coordinates.
+
+**Parameters:**
+- `x` (integer): X coordinate (0-255). NES horizontal resolution is 256 pixels.
+- `y` (integer): Y coordinate (0-239). NES vertical resolution is 240 pixels.
+- `color` (integer): Palette color index. Valid range is 0x00-0x3F (automatically mapped to NES palette range).
+
+**Returns:** Nothing
+
+**Notes:**
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
+- The overlay is composited on top of the NES frame, so Lua-drawn pixels appear above game graphics.
+- Useful for drawing custom shapes, lines, or individual pixels for debugging.
+
+**Example:**
+```lua
+-- Draw a diagonal line of pixels
+for i = 0, 20 do
+  drawpixel(10 + i, 10 + i, 0x2E)  -- Yellow/green diagonal line
+end
+
+-- Draw a single pixel
+drawpixel(128, 120, 0x20)  -- White pixel at screen center
+```
+
+##### `drawline(x1, y1, x2, y2, color)`
+Draws a line between two points using Bresenham's line algorithm.
+
+**Parameters:**
+- `x1` (integer): Starting X coordinate (0-255). NES horizontal resolution is 256 pixels.
+- `y1` (integer): Starting Y coordinate (0-239). NES vertical resolution is 240 pixels.
+- `x2` (integer): Ending X coordinate (0-255).
+- `y2` (integer): Ending Y coordinate (0-239).
+- `color` (integer): Palette color index. Valid range is 0x00-0x3F (automatically mapped to NES palette range).
+
+**Returns:** Nothing
+
+**Notes:**
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
+- The overlay is composited on top of the NES frame, so Lua-drawn lines appear above game graphics.
+- Supports all line directions: horizontal, vertical, diagonal, and any angle.
+- Uses efficient Bresenham's algorithm for smooth, accurate lines.
+
+**Example:**
+```lua
+-- Draw a crosshair at screen center
+drawline(108, 120, 148, 120, 0x3F)  -- Horizontal line
+drawline(128, 100, 128, 140, 0x3F)  -- Vertical line
+
+-- Draw a box using lines
+drawline(200, 30, 250, 30, 0x2E)    -- Top
+drawline(250, 30, 250, 80, 0x2E)    -- Right
+drawline(250, 80, 200, 80, 0x2E)    -- Bottom
+drawline(200, 80, 200, 30, 0x2E)    -- Left
+```
+
+##### `drawrect(x, y, w, h, color)`
+Draws a rectangle outline (border only) at the specified position and size.
+
+**Parameters:**
+- `x` (integer): X coordinate of top-left corner (0-255). NES horizontal resolution is 256 pixels.
+- `y` (integer): Y coordinate of top-left corner (0-239). NES vertical resolution is 240 pixels.
+- `w` (integer): Width of the rectangle in pixels. Must be positive.
+- `h` (integer): Height of the rectangle in pixels. Must be positive.
+- `color` (integer): Palette color index. Valid range is 0x00-0x3F (automatically mapped to NES palette range).
+
+**Returns:** Nothing
+
+**Notes:**
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- The rectangle is drawn as an outline only (border), not filled.
+- Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
+- The overlay is composited on top of the NES frame, so Lua-drawn rectangles appear above game graphics.
+- Useful for drawing borders, boxes, panels, or highlighting areas of the screen.
+- For a filled rectangle, use `fillrect()` or draw multiple lines/pixels.
+
+**Example:**
+```lua
+-- Draw a simple rectangle border
+drawrect(10, 50, 60, 40, 0x20)  -- White outline rectangle
+
+-- Draw multiple rectangles with different colors
+drawrect(10, 50, 60, 40, 0x20)   -- White outline
+drawrect(80, 50, 60, 40, 0x2E)   -- Yellow/green outline
+drawrect(150, 50, 50, 30, 0x3F)  -- Bright outline
+
+-- Draw a border around an area (you can use multiple drawrect calls for nested borders)
+drawrect(5, 115, 120, 60, 0x20) -- White border around panel
+```
+
+##### `fillrect(x, y, w, h, color)`
+Draws a filled rectangle (solid color) at the specified position and size.
+
+**Parameters:**
+- `x` (integer): X coordinate of top-left corner (0-255). NES horizontal resolution is 256 pixels.
+- `y` (integer): Y coordinate of top-left corner (0-239). NES vertical resolution is 240 pixels.
+- `w` (integer): Width of the rectangle in pixels. Must be positive.
+- `h` (integer): Height of the rectangle in pixels. Must be positive.
+- `color` (integer): Palette color index. Valid range is 0x00-0x3F (automatically mapped to NES palette range).
+
+**Returns:** Nothing
+
+**Notes:**
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- The rectangle is completely filled with the specified color (solid rectangle).
+- Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
+- The overlay is composited on top of the NES frame, so Lua-drawn rectangles appear above game graphics.
+- Useful for drawing backgrounds, progress bars, panels, or any solid colored areas.
+- Combine with `drawrect()` to create bordered panels: first fill, then draw border.
+
+**Example:**
+```lua
+-- Draw a simple filled rectangle
+fillrect(10, 50, 60, 40, 0x10)  -- Dark gray filled rectangle
+
+-- Draw a progress bar
+local barWidth = 100  -- Progress percentage
+fillrect(10, 100, barWidth, 8, 0x2E)  -- Filled progress bar
+drawrect(10, 100, 100, 8, 0x3F)        -- Border around progress bar
+
+-- Draw a background panel with border
+fillrect(5, 115, 120, 60, 0x10)       -- Dark background
+drawrect(5, 115, 120, 60, 0x20)      -- White border around panel
+
+-- Draw multiple filled rectangles with varying colors
+for i = 0, 7 do
+    local x = 180 + (i % 4) * 18
+    local y = 170 + math.floor(i / 4) * 18
+    fillrect(x, y, 15, 15, 0x20 + i)  -- Varying colors
+    drawrect(x, y, 15, 15, 0x3F)      -- Border on each
+end
+```
+
+##### `clearrect(x, y, w, h)`
+Clears a rectangle area, making it transparent (removes any overlay content in that region).
+
+**Parameters:**
+- `x` (integer): X coordinate of top-left corner (0-255). NES horizontal resolution is 256 pixels.
+- `y` (integer): Y coordinate of top-left corner (0-239). NES vertical resolution is 240 pixels.
+- `w` (integer): Width of the rectangle to clear in pixels. Must be positive.
+- `h` (integer): Height of the rectangle to clear in pixels. Must be positive.
+
+**Returns:** Nothing
+
+**Notes:**
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- Clearing sets pixels to 0 (transparent), which means they won't overwrite the NES frame during compositing.
+- Useful for preventing ghosting when redrawing dynamic content that changes size or position.
+- Best practice: Clear areas before redrawing text or panels that update each frame.
+- Pixels cleared outside the visible area (0-255, 0-239) are ignored (silently clipped).
+- Unlike `fillrect()`, this function doesn't require a color parameter - it always clears to transparent.
+
+**Example:**
+```lua
+-- Clear the entire screen overlay
+clearrect(0, 0, 256, 240)
+
+-- Clear a specific panel area before redrawing
+clearrect(5, 115, 120, 60)  -- Clear panel area
+fillrect(5, 115, 120, 60, 0x10)  -- Redraw with new content
+drawrect(5, 115, 120, 60, 0x20)
+
+-- Clear text area before updating (prevents ghosting)
+clearrect(6, 170, 80, 8)  -- Clear FPS text area
+drawtext(6, 170, string.format("FPS: %.1f", fps), 0x2E)
+
+-- Clear a region that changes size
+local barWidth = math.floor(progress * 100)
+clearrect(10, 100, 100, 8)  -- Clear entire bar area
+fillrect(10, 100, barWidth, 8, 0x2E)  -- Redraw with new width
 ```
 
 **Common Color Values:**
