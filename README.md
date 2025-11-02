@@ -7,7 +7,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.6.1** — *Lua drawing API with 8 new primitives (rectangles, circles, triangles), full NES palette support, enhanced text rendering, comprehensive documentation + prior Lua scripting, favorite games, rewind, recent games, ROM search, screenshot capture, fast forward, in-game OSD, save states/slots, quick reset, + scrolling upgrades*
+* Current release: **v0.6.2** — *Rewind and fast-forward input fixes: tap=single-step rewind, delayed key-repeat, input caching fix + prior Lua drawing API, favorite games, rewind, recent games, ROM search, screenshot capture, fast forward, in-game OSD, save states/slots, quick reset, + scrolling upgrades*
 
 ---
 
@@ -15,6 +15,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.6.2 - Rewind and Fast-Forward Input Fixes](#whats-new-v062)
   - [v0.6.1 - Lua Drawing API Upgrade](#whats-new-v061)
   - [v0.6.0 - Lua Scripting Support](#whats-new-v060)
   - [v0.5.3 - Favorite Games List](#whats-new-v053)
@@ -63,6 +64,20 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 ---
 
+## What's new (v0.6.2)
+
+* **Rewind and Fast-Forward Input Fixes:** Improved precision and reliability of frame-perfect gameplay manipulation!
+  * **Rewind Improvements:**
+    * **Tap = Single Step:** Quick taps now step back exactly one saved interval (~100ms) instead of multiple states
+    * **Delayed Key-Repeat:** Auto-repeat starts after ~166ms (10 frames) of holding LT trigger
+    * **Gradual Acceleration:** Repeat rate increases smoothly based on hold duration for fine control
+    * **Finer-Grained Saves:** Save interval reduced from 1 second to ~100ms (every 6 frames) for more precise rewind steps
+  * **Fast-Forward Fix:**
+    * **Fixed Input Double-Processing:** When multiple buttons pressed during fast-forward (RT), input was being processed multiple times causing super-fast movement
+    * **Input State Caching:** Both fast-forward frames now use the same input snapshot for consistent behavior
+  * These fixes make frame-perfect gameplay manipulation much more reliable and predictable!
+
+---
 ## What's new (v0.6.1)
 
 * **Lua Drawing API Upgrade:** Expanded Lua scripting with comprehensive drawing primitives!
@@ -1173,6 +1188,18 @@ FCEUX360-<version>-xex.zip
 ---
 
 ## Changelog
+
+* **v0.6.2**
+
+  * fix(rewind): Changed tap behavior - quick taps now step back exactly one saved interval (~100ms) instead of multiple states.
+  * feat(rewind): Added delayed key-repeat - auto-repeat starts after ~166ms (10 frames) of holding LT trigger.
+  * feat(rewind): Gradual acceleration - repeat rate increases based on hold duration (4 frames → 2 frames → 1 frame per step).
+  * feat(rewind): Finer-grained saves - changed REWIND_SAVE_INTERVAL from 60 to 6 frames (~100ms saves instead of 1 second).
+  * fix(rewind): Removed SaveRewindState() call on initial press - ensures taps jump exactly one saved interval.
+  * fix(ff): Fixed input double-processing bug - when multiple buttons pressed during fast-forward (RT), input was being processed multiple times causing super-fast movement.
+  * fix(ff): Input state caching - cache powerpadbuf before fast-forward loop and restore it before each frame for consistent behavior.
+  * tech(rewind): Added REWIND_INITIAL_DELAY_FRAMES constant (10 frames) for key-repeat delay.
+  * tech(rewind): Improved rewind logic with justPressed/justReleased detection for precise tap handling.
 
 * **v0.6.1**
 
