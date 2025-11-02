@@ -269,9 +269,23 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
       - Parameters, Returns, Notes, Examples
     - [`fillcircle(x, y, radius, color)`](#fillcirclex-y-radius-color)
       - Parameters, Returns, Notes, Examples
+    - [`drawellipse(x, y, rx, ry, color)`](#drawellipsex-y-rx-ry-color)
+      - Parameters, Returns, Notes, Examples
+    - [`fillellipse(x, y, rx, ry, color)`](#fillellipsex-y-rx-ry-color)
+      - Parameters, Returns, Notes, Examples
+    - [`drawarc(x, y, radius, startAngle, endAngle, color)`](#drawarcx-y-radius-startangle-endangle-color)
+      - Parameters, Returns, Notes, Examples
+    - [`fillarc(x, y, radius, startAngle, endAngle, color)`](#fillarcx-y-radius-startangle-endangle-color)
+      - Parameters, Returns, Notes, Examples
+    - [`drawroundrect(x, y, w, h, radius, color)`](#drawroundrectx-y-w-h-radius-color)
+      - Parameters, Returns, Notes, Examples
+    - [`fillroundrect(x, y, w, h, radius, color)`](#fillroundrectx-y-w-h-radius-color)
+      - Parameters, Returns, Notes, Examples
     - [`drawtriangle(x1, y1, x2, y2, x3, y3, color)`](#drawtrianglex1-y1-x2-y2-x3-y3-color)
       - Parameters, Returns, Notes, Examples
     - [`filltriangle(x1, y1, x2, y2, x3, y3, color)`](#filltrianglex1-y1-x2-y2-x3-y3-color)
+      - Parameters, Returns, Notes, Examples
+    - [`drawpolygon(x1, y1, x2, y2, ..., color)`](#drawpolygonx1-y1-x2-y2--color)
       - Parameters, Returns, Notes, Examples
   - [Monitoring Functions](#monitoring-functions)
     - [`getfps()`](#getfps)
@@ -640,6 +654,291 @@ fillcircle(128, 120, 30, 0x10)    -- Background circle
 fillcircle(128, 120, math.floor(30 * progress), 0x29)  -- Progress circle
 ```
 
+##### `drawellipse(x, y, rx, ry, color)`
+Draws an ellipse outline at the specified center position with separate horizontal and vertical radii.
+
+**Parameters:**
+- `x` (integer): Center X coordinate (0-255). NES horizontal resolution is 256 pixels.
+- `y` (integer): Center Y coordinate (0-239). NES vertical resolution is 240 pixels.
+- `rx` (integer): Horizontal radius (semi-major axis) in pixels. Must be positive.
+- `ry` (integer): Vertical radius (semi-minor axis) in pixels. Must be positive.
+- `color` (integer): Palette color index. Valid range is 0x00-0x3F (automatically mapped to NES palette range).
+
+**Returns:** Nothing
+
+**Notes:**
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- The ellipse is drawn as an outline only (border), not filled.
+- Uses the midpoint ellipse algorithm for smooth, accurate ellipses.
+- When `rx == ry`, the ellipse is a circle (same result as `drawcircle()`).
+- When `rx > ry`, the ellipse is wider than tall (horizontal ellipse).
+- When `rx < ry`, the ellipse is taller than wide (vertical ellipse).
+- Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
+- The overlay is composited on top of the NES frame, so Lua-drawn ellipses appear above game graphics.
+- Useful for drawing oval indicators, markers, or decorative elements with non-circular shapes.
+
+**Example:**
+```lua
+-- Draw horizontal ellipses (wide ovals)
+drawellipse(128, 60, 50, 25, 0x20)    -- Wide white ellipse
+drawellipse(200, 60, 40, 20, 0x26)    -- Wide coral red ellipse
+
+-- Draw vertical ellipses (tall ovals)
+drawellipse(50, 120, 20, 40, 0x29)     -- Tall green ellipse
+drawellipse(50, 180, 15, 35, 0x37)     -- Tall yellow ellipse
+
+-- Draw a circle (rx == ry, same as drawcircle)
+drawellipse(128, 120, 30, 30, 0x2E)    -- Circle (yellow/green)
+
+-- Draw ellipses of different sizes
+drawellipse(100, 100, 25, 15, 0x16)    -- Small horizontal ellipse (red)
+drawellipse(180, 100, 15, 25, 0x1C)    -- Small vertical ellipse (cyan)
+```
+
+##### `fillellipse(x, y, rx, ry, color)`
+Draws a filled ellipse (solid color) at the specified center position with separate horizontal and vertical radii.
+
+**Parameters:**
+- `x` (integer): Center X coordinate (0-255). NES horizontal resolution is 256 pixels.
+- `y` (integer): Center Y coordinate (0-239). NES vertical resolution is 240 pixels.
+- `rx` (integer): Horizontal radius (semi-major axis) in pixels. Must be positive.
+- `ry` (integer): Vertical radius (semi-minor axis) in pixels. Must be positive.
+- `color` (integer): Palette color index. Valid range is 0x00-0x3F (automatically mapped to NES palette range).
+
+**Returns:** Nothing
+
+**Notes:**
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- The ellipse is completely filled with the specified color (solid ellipse).
+- Uses distance calculation with the ellipse equation to determine which pixels are inside the ellipse: `(dx²/rx²) + (dy²/ry²) ≤ 1`
+- When `rx == ry`, the ellipse is a circle (same result as `fillcircle()`).
+- When `rx > ry`, the ellipse is wider than tall (horizontal ellipse).
+- When `rx < ry`, the ellipse is taller than wide (vertical ellipse).
+- Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
+- The overlay is composited on top of the NES frame, so Lua-drawn ellipses appear above game graphics.
+- Useful for drawing solid oval indicators, markers, progress indicators, or decorative elements with non-circular shapes.
+- For ellipse outlines only, use `drawellipse()`.
+
+**Example:**
+```lua
+-- Draw filled horizontal ellipses (wide ovals)
+fillellipse(128, 60, 50, 25, 0x20)    -- Filled wide white ellipse
+fillellipse(200, 60, 40, 20, 0x26)    -- Filled wide coral red ellipse
+
+-- Draw filled vertical ellipses (tall ovals)
+fillellipse(50, 120, 20, 40, 0x29)     -- Filled tall green ellipse
+fillellipse(50, 180, 15, 35, 0x37)     -- Filled tall yellow ellipse
+
+-- Draw a filled circle (rx == ry, same as fillcircle)
+fillellipse(128, 120, 30, 30, 0x2E)    -- Filled circle (yellow/green)
+
+-- Draw filled ellipses of different sizes
+fillellipse(100, 100, 25, 15, 0x16)    -- Small horizontal filled ellipse (red)
+fillellipse(180, 100, 15, 25, 0x1C)    -- Small vertical filled ellipse (cyan)
+
+-- Combine outline and filled for effect
+fillellipse(128, 120, 40, 25, 0x16)     -- Filled red ellipse
+drawellipse(128, 120, 40, 25, 0x20)     -- White outline on top
+```
+
+##### `drawarc(x, y, radius, startAngle, endAngle, color)`
+Draws a circular arc outline (portion of a circle) between two angles.
+
+**Parameters:**
+- `x` (integer): Center X coordinate (0-255). NES horizontal resolution is 256 pixels.
+- `y` (integer): Center Y coordinate (0-239). NES vertical resolution is 240 pixels.
+- `radius` (integer): Circle radius in pixels. Must be positive.
+- `startAngle` (integer): Starting angle in degrees (0-360). Angles wrap automatically.
+- `endAngle` (integer): Ending angle in degrees (0-360). Angles wrap automatically.
+- `color` (integer): Palette color index. Valid range is 0x00-0x3F (automatically mapped to NES palette range).
+
+**Returns:** Nothing
+
+**Notes:**
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- The arc is drawn as an outline only (border), not filled.
+- Uses the midpoint circle algorithm with angle filtering to draw only the arc segment.
+- **Angle system:** 0° = right (east), 90° = down (south), 180° = left (west), 270° = up (north), 360° = right (same as 0°).
+- Angles are normalized to 0-360 range automatically.
+- Supports wrap-around arcs (e.g., arc from 350° to 10° crosses the 0°/360° boundary).
+- When `startAngle == endAngle`, draws a full circle (same result as `drawcircle()`).
+- Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
+- The overlay is composited on top of the NES frame, so Lua-drawn arcs appear above game graphics.
+- Useful for drawing progress indicators, dials, gauges, pie chart segments, or partial circular decorations.
+
+**Example:**
+```lua
+-- Draw quadrant arcs (four corners)
+drawarc(128, 120, 30, 0, 90, 0x20)    -- Top-right quadrant (0° to 90°)
+drawarc(128, 120, 30, 90, 180, 0x26)  -- Top-left quadrant (90° to 180°)
+drawarc(128, 120, 30, 180, 270, 0x29) -- Bottom-left quadrant (180° to 270°)
+drawarc(128, 120, 30, 270, 360, 0x37) -- Bottom-right quadrant (270° to 360°)
+
+-- Draw half circles
+drawarc(128, 60, 25, 0, 180, 0x16)     -- Top half circle
+drawarc(128, 180, 25, 180, 0, 0x1C)    -- Bottom half circle (crosses 0° boundary)
+
+-- Progress indicator (75% of circle)
+drawarc(128, 120, 40, 0, 270, 0x2E)    -- Large arc covering 270 degrees
+
+-- Small diagonal arcs
+drawarc(128, 120, 20, 45, 135, 0x20)   -- Small arc at diagonal angle
+drawarc(128, 120, 15, 225, 315, 0x26)  -- Small arc at opposite diagonal
+
+-- Full circle (startAngle == endAngle)
+drawarc(128, 120, 30, 0, 360, 0x29)    -- Full circle (same as drawcircle)
+```
+
+##### `fillarc(x, y, radius, startAngle, endAngle, color)`
+Draws a filled circular arc (pie slice) between two angles.
+
+**Parameters:**
+- `x` (integer): Center X coordinate (0-255). NES horizontal resolution is 256 pixels.
+- `y` (integer): Center Y coordinate (0-239). NES vertical resolution is 240 pixels.
+- `radius` (integer): Circle radius in pixels. Must be positive.
+- `startAngle` (integer): Starting angle in degrees (0-360). Angles wrap automatically.
+- `endAngle` (integer): Ending angle in degrees (0-360). Angles wrap automatically.
+- `color` (integer): Palette color index. Valid range is 0x00-0x3F (automatically mapped to NES palette range).
+
+**Returns:** Nothing
+
+**Notes:**
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- The arc is drawn as a filled shape (pie slice), filling all pixels within the angle range and radius.
+- Uses distance calculation and angle filtering to determine which pixels to fill.
+- **Angle system:** 0° = right (east), 90° = down (south), 180° = left (west), 270° = up (north), 360° = right (same as 0°).
+- Angles are normalized to 0-360 range automatically.
+- Supports wrap-around arcs (e.g., arc from 350° to 10° crosses the 0°/360° boundary).
+- When `startAngle == endAngle`, fills a full circle (same result as `fillcircle()`).
+- Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
+- The overlay is composited on top of the NES frame, so Lua-drawn arcs appear above game graphics.
+- Useful for drawing progress indicators, pie charts, gauges, dials, or sector-based visualizations.
+
+**Example:**
+```lua
+-- Draw four quadrant pie slices
+fillarc(64, 60, 40, 0, 90, 0x20)    -- Top-right quadrant (white)
+fillarc(192, 60, 40, 90, 180, 0x26)  -- Top-left quadrant (orange)
+fillarc(64, 180, 40, 180, 270, 0x29) -- Bottom-left quadrant (green)
+fillarc(192, 180, 40, 270, 360, 0x37) -- Bottom-right quadrant (yellow)
+
+-- Draw half circle pie slices
+fillarc(128, 40, 35, 0, 180, 0x16)     -- Top half (red)
+fillarc(128, 200, 35, 180, 360, 0x1C)  -- Bottom half (cyan)
+
+-- Progress indicators (different percentages)
+fillarc(50, 120, 30, 0, 90, 0x2E)     -- 25% progress (black)
+fillarc(206, 120, 30, 0, 180, 0x21)    -- 50% progress (light blue)
+fillarc(128, 120, 30, 0, 270, 0x28)    -- 75% progress (yellow)
+
+-- Small diagonal pie slices
+fillarc(32, 220, 15, 45, 135, 0x23)   -- Small diagonal slice (light purple)
+fillarc(224, 220, 15, 225, 315, 0x24)  -- Small opposite diagonal (pink)
+
+-- Full circle (should fill entire circle when angles span 360)
+fillarc(128, 120, 25, 0, 360, 0x2B)   -- Full circle (gray/blue)
+```
+
+##### `drawroundrect(x, y, w, h, radius, color)`
+Draws a rounded rectangle outline (rectangle with rounded corners).
+
+**Parameters:**
+- `x` (integer): Top-left X coordinate (0-255). NES horizontal resolution is 256 pixels.
+- `y` (integer): Top-left Y coordinate (0-239). NES vertical resolution is 240 pixels.
+- `w` (integer): Rectangle width in pixels. Must be positive.
+- `h` (integer): Rectangle height in pixels. Must be positive.
+- `radius` (integer): Corner radius in pixels. Must be non-negative. Automatically clamped to not exceed half the width or height.
+- `color` (integer): Palette color index. Valid range is 0x00-0x3F (automatically mapped to NES palette range).
+
+**Returns:** Nothing
+
+**Notes:**
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- The rectangle is drawn as an outline only (border), not filled.
+- Uses arc segments for rounded corners and straight lines for the edges.
+- When `radius = 0`, draws a regular rectangle (same result as `drawrect()`).
+- The corner radius is automatically clamped to `min(w/2, h/2)` to prevent invalid shapes.
+- Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
+- The overlay is composited on top of the NES frame, so Lua-drawn rounded rectangles appear above game graphics.
+- Useful for drawing modern UI elements, buttons, panels, or decorative borders with rounded corners.
+
+**Example:**
+```lua
+-- Small radius (subtle rounding)
+drawroundrect(10, 10, 60, 40, 5, 0x20)   -- White outline, radius 5
+
+-- Medium radius (moderate rounding)
+drawroundrect(80, 10, 60, 40, 10, 0x26)  -- Orange outline, radius 10
+
+-- Large radius (strong rounding)
+drawroundrect(150, 10, 60, 40, 15, 0x29) -- Green outline, radius 15
+
+-- Very large radius (almost pill-shaped)
+drawroundrect(10, 60, 100, 30, 15, 0x37)  -- Yellow outline, radius 15
+
+-- Square with small rounding
+drawroundrect(120, 60, 50, 50, 8, 0x16)   -- Red outline, radius 8
+
+-- Wide rectangle with medium rounding
+drawroundrect(10, 120, 180, 40, 12, 0x1C) -- Cyan outline, radius 12
+
+-- Tall rectangle with small rounding
+drawroundrect(200, 10, 40, 100, 8, 0x23)  -- Light purple outline, radius 8
+
+-- Radius 0 (should draw as regular rectangle, same as drawrect)
+drawroundrect(10, 170, 80, 30, 0, 0x2B)   -- Gray outline, radius 0
+```
+
+##### `fillroundrect(x, y, w, h, radius, color)`
+Draws a filled rounded rectangle (rectangle with rounded corners, filled interior).
+
+**Parameters:**
+- `x` (integer): Top-left X coordinate (0-255). NES horizontal resolution is 256 pixels.
+- `y` (integer): Top-left Y coordinate (0-239). NES vertical resolution is 240 pixels.
+- `w` (integer): Rectangle width in pixels. Must be positive.
+- `h` (integer): Rectangle height in pixels. Must be positive.
+- `radius` (integer): Corner radius in pixels. Must be non-negative. Automatically clamped to not exceed half the width or height.
+- `color` (integer): Palette color index. Valid range is 0x00-0x3F (automatically mapped to NES palette range).
+
+**Returns:** Nothing
+
+**Notes:**
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- The rectangle is drawn as a filled shape (all interior pixels are colored), including the rounded corners.
+- Uses filled arc segments for rounded corners and fills the center rectangle and edge areas.
+- When `radius = 0`, draws a regular filled rectangle (same result as `fillrect()`).
+- The corner radius is automatically clamped to `min(w/2, h/2)` to prevent invalid shapes.
+- Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
+- The overlay is composited on top of the NES frame, so Lua-drawn filled rounded rectangles appear above game graphics.
+- Useful for drawing modern UI elements, buttons, panels, progress bars, or decorative filled shapes with rounded corners.
+
+**Example:**
+```lua
+-- Small radius (subtle rounding)
+fillroundrect(10, 10, 60, 40, 5, 0x20)   -- White fill, radius 5
+
+-- Medium radius (moderate rounding)
+fillroundrect(80, 10, 60, 40, 10, 0x26)  -- Orange fill, radius 10
+
+-- Large radius (strong rounding)
+fillroundrect(150, 10, 60, 40, 15, 0x29) -- Green fill, radius 15
+
+-- Very large radius (almost pill-shaped)
+fillroundrect(10, 60, 100, 30, 15, 0x37)  -- Yellow fill, radius 15
+
+-- Square with small rounding
+fillroundrect(120, 60, 50, 50, 8, 0x16)   -- Red fill, radius 8
+
+-- Wide rectangle with medium rounding
+fillroundrect(10, 120, 180, 40, 12, 0x1C) -- Cyan fill, radius 12
+
+-- Tall rectangle with small rounding
+fillroundrect(200, 10, 40, 100, 8, 0x23)  -- Light purple fill, radius 8
+
+-- Radius 0 (should fill as regular rectangle, same as fillrect)
+fillroundrect(10, 170, 80, 30, 0, 0x2B)   -- Gray fill, radius 0
+```
+
 ##### `drawtriangle(x1, y1, x2, y2, x3, y3, color)`
 Draws a triangle outline by connecting three vertices with lines.
 
@@ -730,6 +1029,62 @@ filltriangle(128, 160, 148, 120, 108, 120, 0x20)  -- Bottom triangle
 -- Combine outline and filled for effect
 filltriangle(100, 50, 156, 50, 128, 100, 0x16)     -- Filled red triangle
 drawtriangle(100, 50, 156, 50, 128, 100, 0x20)    -- White outline on top
+```
+
+##### `drawpolygon(x1, y1, x2, y2, ..., color)`
+Draws a polygon outline by connecting multiple vertices with lines and automatically closing the shape.
+
+**Parameters:**
+- `x1` (integer): First vertex X coordinate (0-255). NES horizontal resolution is 256 pixels.
+- `y1` (integer): First vertex Y coordinate (0-239). NES vertical resolution is 240 pixels.
+- `x2` (integer): Second vertex X coordinate (0-255).
+- `y2` (integer): Second vertex Y coordinate (0-239).
+- `...` (integer pairs): Additional vertex coordinates as pairs of x, y values. Requires at least 2 points total.
+- `color` (integer): Palette color index. Valid range is 0x00-0x3F (automatically mapped to NES palette range). Must be the last argument.
+
+**Returns:** Nothing
+
+**Notes:**
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- The polygon is drawn as an outline only (connected lines), not filled.
+- Uses Bresenham's line algorithm to draw edges connecting consecutive vertices.
+- The polygon is automatically closed (last vertex connects back to first vertex).
+- Requires an odd number of arguments (pairs of x,y coordinates plus one color argument).
+- Requires at least 2 points (minimum 4 arguments: x1, y1, x2, y2, color).
+- Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
+- The overlay is composited on top of the NES frame, so Lua-drawn polygons appear above game graphics.
+- Useful for drawing complex shapes, stars, hexagons, pentagons, or any multi-sided outline shape.
+- For filled polygons, you would need to decompose them into triangles using `filltriangle()`.
+- For simple 3-point shapes, `drawtriangle()` is more efficient.
+
+**Example:**
+```lua
+-- Draw a square (4 points)
+drawpolygon(50, 50, 100, 50, 100, 100, 50, 100, 0x20)  -- White square outline
+
+-- Draw a pentagon (5 points)
+drawpolygon(128, 30, 148, 60, 128, 90, 108, 60, 118, 30, 0x2E)  -- Yellow/green pentagon
+
+-- Draw a star shape (5 points)
+drawpolygon(128, 20, 132, 50, 160, 50, 138, 70, 148, 100, 128, 80, 108, 100, 118, 70, 96, 50, 124, 50, 0x37)  -- Yellow star
+
+-- Draw a hexagon (6 points)
+local cx, cy, radius = 128, 120, 30
+drawpolygon(
+    cx, cy - radius,                    -- Top
+    cx + radius * 0.866, cy - radius * 0.5,  -- Top-right
+    cx + radius * 0.866, cy + radius * 0.5,  -- Bottom-right
+    cx, cy + radius,                    -- Bottom
+    cx - radius * 0.866, cy + radius * 0.5,  -- Bottom-left
+    cx - radius * 0.866, cy - radius * 0.5,  -- Top-left
+    0x29
+)
+
+-- Draw an irregular polygon
+drawpolygon(50, 30, 80, 20, 100, 40, 90, 70, 60, 80, 40, 60, 0x16)  -- Red irregular shape
+
+-- Draw a triangle using drawpolygon (drawtriangle is more efficient for this)
+drawpolygon(128, 50, 100, 80, 156, 80, 0x20)  -- White triangle
 ```
 
 ### NES Palette Reference for Lua Overlays
