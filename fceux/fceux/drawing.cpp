@@ -402,14 +402,46 @@ static int JoedCharWidth(uint8 ch)
 
 void DrawTextTransWH(uint8 *dest, uint32 width, uint8 *textmsg, uint8 fgcolor, int max_w, int max_h, int border)
 {
+	assert(width == 256);
+	if (max_w > 256) max_w = 256;
+	if (max_h >  64) max_h =  64;
+
+	// === BORDERLESS: draw glyph pixels only; do not touch background ===
+	if (border <= 0)
+	{
+		unsigned beginx = 2, x = beginx, y = 2;
+
+		for (; *textmsg; ++textmsg)
+		{
+			if (*textmsg == '\n') { x = beginx; y += 8; if (y + 7 >= (unsigned)max_h) break; continue; }
+
+			int ch  = FixJoedChar(*textmsg);
+			int wid = JoedCharWidth(*textmsg);
+
+			for (int ny = 0; ny < 7; ++ny)
+			{
+				if ((int)y + ny >= max_h) break;
+				uint8 d = Font6x7[ch * 8 + 1 + ny];
+
+				for (int nx = 0; nx < wid; ++nx)
+				{
+					if ((int)x + nx >= max_w) break;
+					if ((d >> (7 - nx)) & 1)
+						dest[((y + ny) * width) + (x + nx)] = fgcolor; // write glyph pixel only
+				}
+			}
+
+			x += wid;
+			if ((int)x >= max_w) { x = beginx; y += 8; if (y + 7 >= (unsigned)max_h) break; }
+		}
+		return; // done; no background/outline/shadow
+	}
+
+	// === ORIGINAL BORDERED PATH (unchanged) ===
 	unsigned beginx=2, x=beginx;
 	unsigned y=2;
 
 	char target[64][256] = {{0}};
-
-	assert(width==256);
-	if (max_w > 256) max_w = 256;
-	if (max_h >  64) max_h =  64;
 
 	for(; *textmsg; ++textmsg)
 	{
@@ -435,11 +467,11 @@ void DrawTextTransWH(uint8 *dest, uint32 width, uint8 *textmsg, uint8 fgcolor, i
 			}
 		}
 		x += wid;
-		if(x >= width) { x=beginx; y+=8; }
+		if(x >= (unsigned)max_w) { x=beginx; y+=8; }
 	}
 textoverflow:
-	for(y=0; y<62; ++y)			//Max border is 2, so the max safe y is 62 (since 64 is the max for the target array
-		for(x=0; x<width; ++x)
+	for(y=0; y<62; ++y)
+		for(x=0; x<(unsigned)width; ++x)
 		{
 			int offs = y*width+x;
 			int c = 0;
@@ -487,5 +519,6 @@ textoverflow:
 
 void DrawTextTrans(uint8 *dest, uint32 width, uint8 *textmsg, uint8 fgcolor)
 {
-	DrawTextTransWH(dest, width, textmsg, fgcolor, 256, 16, 2);
+	// Borderless glyph-only draw
+	DrawTextTransWH(dest, width, textmsg, fgcolor, 256, 16, 0);
 }
