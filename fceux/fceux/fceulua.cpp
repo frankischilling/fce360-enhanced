@@ -431,6 +431,123 @@ extern "C" void FCEU_SetPendingLua(int mode, const char* scriptUtf8OrNull)
 	 return 0;
  }
 
+ int lua_drawthickline(lua_State *L) {
+	 int n = lua_gettop(L);
+	 if (n < 6) {
+		 return luaL_error(L, "drawthickline(x1, y1, x2, y2, thickness, color) requires 6 arguments");
+	 }
+	 
+	 int x1 = (int)luaL_checkinteger(L, 1);
+	 int y1 = (int)luaL_checkinteger(L, 2);
+	 int x2 = (int)luaL_checkinteger(L, 3);
+	 int y2 = (int)luaL_checkinteger(L, 4);
+	 int thickness = (int)luaL_checkinteger(L, 5);
+	 int color = (int)luaL_checkinteger(L, 6);
+	 
+	 if (!currentXBuf) return 0;
+	 
+	 if (thickness < 1) thickness = 1;
+	 if (thickness > 50) thickness = 50; // Reasonable max to prevent performance issues
+	 
+	 uint8 mappedColor = map_overlay_color(color);
+	 
+	 // Clamp coordinates to safe bounds (auto-adjust if too low/high)
+	 if (x1 < 0) x1 = 0;
+	 if (x1 >= 256) x1 = 255;
+	 if (x2 < 0) x2 = 0;
+	 if (x2 >= 256) x2 = 255;
+	 if (y1 < 0) y1 = 0;
+	 if (y1 >= 232) y1 = 231; // Clamp to safe position
+	 if (y2 < 0) y2 = 0;
+	 if (y2 >= 232) y2 = 231; // Clamp to safe position
+	 
+	 // Calculate line direction
+	 int dx = x2 - x1;
+	 int dy = y2 - y1;
+	 
+	 // For very short lines or same point, just draw a filled circle
+	 if ((dx == 0 && dy == 0) || (abs(dx) <= 1 && abs(dy) <= 1)) {
+		 int radius = (thickness - 1) / 2;
+		 // Draw a filled circle at the point
+		 for (int cy = y1 - radius; cy <= y1 + radius; ++cy) {
+			 if (cy < 0 || cy >= 232) continue;
+			 for (int cx = x1 - radius; cx <= x1 + radius; ++cx) {
+				 if (cx < 0 || cx >= 256) continue;
+				 int distSq = (cx - x1) * (cx - x1) + (cy - y1) * (cy - y1);
+				 if (distSq <= radius * radius) {
+					 uint8 *dest = currentXBuf + cy * 256 + cx;
+					 *dest = mappedColor;
+				 }
+			 }
+		 }
+		 g_overlayDirty = true;
+		 return 0;
+	 }
+	 
+	 // Use Bresenham's line algorithm to draw the line, drawing perpendicular lines at each point
+	 int absDx = (dx > 0) ? dx : -dx;
+	 int absDy = (dy > 0) ? dy : -dy;
+	 int sx = (x1 < x2) ? 1 : -1;
+	 int sy = (y1 < y2) ? 1 : -1;
+	 int err = absDx - absDy;
+	 
+	 int x = x1;
+	 int y = y1;
+	 bool drewSomething = false;
+	 
+	 // Calculate perpendicular direction (normalized)
+	 double lineLen = sqrt((double)(dx * dx + dy * dy));
+	 if (lineLen < 0.1) lineLen = 1.0; // Avoid division by zero
+	 double perpX = -dy / lineLen;
+	 double perpY = dx / lineLen;
+	 
+	 int halfThick = thickness / 2;
+	 int maxSteps = (absDx > absDy ? absDx : absDy) * 3 + 100; // Safety limit
+	 int steps = 0;
+	 
+	 while (steps < maxSteps) {
+		 // Draw a perpendicular line segment at this point
+		 for (int t = -halfThick; t <= halfThick; ++t) {
+			 int px = (int)(x + perpX * t + 0.5);
+			 int py = (int)(y + perpY * t + 0.5);
+			 
+			 if (px >= 0 && px < 256 && py >= 0 && py < 232) {
+				 uint8 *dest = currentXBuf + py * 256 + px;
+				 *dest = mappedColor;
+				 drewSomething = true;
+			 }
+		 }
+		 
+		 // Check if we've reached the end point
+		 if (x == x2 && y == y2) break;
+		 
+		 int e2 = 2 * err;
+		 int oldX = x;
+		 int oldY = y;
+		 
+		 if (e2 > -absDy) {
+			 err -= absDy;
+			 x += sx;
+		 }
+		 
+		 if (e2 < absDx) {
+			 err += absDx;
+			 y += sy;
+		 }
+		 
+		 // Safety: if we didn't move at all, break to prevent infinite loop
+		 if (x == oldX && y == oldY) break;
+		 
+		 steps++;
+	 }
+	 
+	 if (drewSomething) {
+		 g_overlayDirty = true;
+	 }
+	 
+	 return 0;
+ }
+
  // Lua drawing function - allows scripts to draw a polygon outline
  int lua_drawpolygon(lua_State *L) {
 	 int n = lua_gettop(L);
@@ -525,6 +642,231 @@ extern "C" void FCEU_SetPendingLua(int mode, const char* scriptUtf8OrNull)
 			 steps++;
 		 }
 	 }
+	 
+	 if (drewSomething) {
+		 g_overlayDirty = true;
+	 }
+	 
+	 return 0;
+ }
+
+ int lua_drawpolyline(lua_State *L) {
+	 int n = lua_gettop(L);
+	 if (n < 4 || (n % 2) == 0) {
+		 return luaL_error(L, "drawpolyline(x1, y1, x2, y2, ..., color) requires at least 4 arguments (pairs of x,y coordinates plus color)");
+	 }
+	 
+	 if (!currentXBuf) return 0;
+	 
+	 // Last argument is color
+	 int color = (int)luaL_checkinteger(L, n);
+	 uint8 mappedColor = map_overlay_color(color);
+	 
+	 // Number of points (excluding color)
+	 int pointCount = (n - 1) / 2;
+	 if (pointCount < 2) {
+		 return luaL_error(L, "drawpolyline requires at least 2 points");
+	 }
+	 
+	 bool drewSomething = false;
+	 
+	 // Draw lines connecting consecutive points (does NOT close the shape like drawpolygon)
+	 for (int i = 0; i < pointCount - 1; ++i) {
+		 int x1 = (int)luaL_checkinteger(L, i * 2 + 1);
+		 int y1 = (int)luaL_checkinteger(L, i * 2 + 2);
+		 
+		 // Next point (don't wrap around - this is an open path)
+		 int nextIdx = i + 1;
+		 int x2 = (int)luaL_checkinteger(L, nextIdx * 2 + 1);
+		 int y2 = (int)luaL_checkinteger(L, nextIdx * 2 + 2);
+		 
+		 // Clamp coordinates to safe bounds (auto-adjust if too low/high)
+		 if (x1 < 0) x1 = 0;
+		 if (x1 >= 256) x1 = 255;
+		 if (x2 < 0) x2 = 0;
+		 if (x2 >= 256) x2 = 255;
+		 if (y1 < 0) y1 = 0;
+		 if (y1 >= 232) y1 = 231; // Clamp to safe position
+		 if (y2 < 0) y2 = 0;
+		 if (y2 >= 232) y2 = 231; // Clamp to safe position
+		 
+		 // Handle same-point case (degenerate segment)
+		 if (x1 == x2 && y1 == y2) {
+			 if (x1 >= 0 && x1 < 256 && y1 >= 0 && y1 < 232) {
+				 uint8 *dest = currentXBuf + y1 * 256 + x1;
+				 *dest = mappedColor;
+				 drewSomething = true;
+			 }
+			 continue;
+		 }
+		 
+		 // Use Bresenham's line algorithm to draw the line segment (same as drawline)
+		 int dx = (x2 > x1) ? (x2 - x1) : (x1 - x2);
+		 int dy = (y2 > y1) ? (y2 - y1) : (y1 - y2);
+		 int sx = (x1 < x2) ? 1 : -1;
+		 int sy = (y1 < y2) ? 1 : -1;
+		 int err = dx - dy;
+		 
+		 int x = x1;
+		 int y = y1;
+		 int maxSteps = (dx > dy ? dx : dy) * 3 + 100; // Safety limit (generous to prevent infinite loops)
+		 int steps = 0;
+		 
+		 while (steps < maxSteps) {
+			 // Check bounds and draw pixel - never draw past y=232 to avoid buffer overflows
+			 if (x >= 0 && x < 256 && y >= 0 && y < 232) {
+				 uint8 *dest = currentXBuf + y * 256 + x;
+				 *dest = mappedColor;
+				 drewSomething = true;
+			 }
+			 
+			 // Check if we've reached the end point
+			 if (x == x2 && y == y2) break;
+			 
+			 int e2 = 2 * err;
+			 int oldX = x;
+			 int oldY = y;
+			 
+			 if (e2 > -dy) {
+				 err -= dy;
+				 x += sx;
+			 }
+			 
+			 if (e2 < dx) {
+				 err += dx;
+				 y += sy;
+			 }
+			 
+			 // Safety: if we didn't move at all, break to prevent infinite loop
+			 if (x == oldX && y == oldY) break;
+			 
+			 steps++;
+		 }
+	 }
+	 
+	 if (drewSomething) {
+		 g_overlayDirty = true;
+	 }
+	 
+	 return 0;
+ }
+
+ // Lua drawing function - allows scripts to draw a filled polygon
+ int lua_fillpolygon(lua_State *L) {
+	 int n = lua_gettop(L);
+	 if (n < 4 || (n % 2) == 0) {
+		 return luaL_error(L, "fillpolygon(x1, y1, x2, y2, ..., color) requires at least 4 arguments (pairs of x,y coordinates plus color)");
+	 }
+	 
+	 if (!currentXBuf) return 0;
+	 
+	 // Last argument is color
+	 int color = (int)luaL_checkinteger(L, n);
+	 uint8 mappedColor = map_overlay_color(color);
+	 
+	 // Number of points (excluding color)
+	 int pointCount = (n - 1) / 2;
+	 if (pointCount < 3) {
+		 return luaL_error(L, "fillpolygon requires at least 3 points");
+	 }
+	 
+	 // Collect and clamp all vertices
+	 int* xCoords = new int[pointCount];
+	 int* yCoords = new int[pointCount];
+	 
+	 for (int i = 0; i < pointCount; ++i) {
+		 int x = (int)luaL_checkinteger(L, i * 2 + 1);
+		 int y = (int)luaL_checkinteger(L, i * 2 + 2);
+		 
+		 // Clamp coordinates to safe bounds (auto-adjust if too low/high)
+		 if (x < 0) x = 0;
+		 if (x >= 256) x = 255;
+		 if (y < 0) y = 0;
+		 if (y >= 232) y = 231; // Clamp to safe position
+		 
+		 xCoords[i] = x;
+		 yCoords[i] = y;
+	 }
+	 
+	 // Find bounding box
+	 int minY = yCoords[0];
+	 int maxY = yCoords[0];
+	 for (int i = 1; i < pointCount; ++i) {
+		 if (yCoords[i] < minY) minY = yCoords[i];
+		 if (yCoords[i] > maxY) maxY = yCoords[i];
+	 }
+	 
+	 // Clamp to safe bounds
+	 if (minY < 0) minY = 0;
+	 if (maxY >= 232) maxY = 231;
+	 if (minY > maxY || minY >= 232 || maxY < 0) {
+		 delete[] xCoords;
+		 delete[] yCoords;
+		 return 0;
+	 }
+	 
+	 bool drewSomething = false;
+	 
+	 // Scanline fill using even-odd rule
+	 for (int y = minY; y <= maxY; ++y) {
+		 if (y < 0 || y >= 232) continue;
+		 
+		 // Find all intersections with polygon edges at this y
+		 int intersections[256]; // Max 256 intersections (should never need that many)
+		 int intersectionCount = 0;
+		 
+		 for (int i = 0; i < pointCount; ++i) {
+			 int nextIdx = (i + 1) % pointCount;
+			 int y1 = yCoords[i];
+			 int y2 = yCoords[nextIdx];
+			 
+			 // Check if edge crosses this scanline
+			 if ((y1 < y && y2 >= y) || (y2 < y && y1 >= y)) {
+				 if (y1 != y2) {
+					 int x1 = xCoords[i];
+					 int x2 = xCoords[nextIdx];
+					 
+					 // Calculate x intersection using linear interpolation
+					 int x = x1 + ((x2 - x1) * (y - y1)) / (y2 - y1);
+					 
+					 if (x >= 0 && x < 256) {
+						 intersections[intersectionCount++] = x;
+					 }
+				 }
+			 }
+		 }
+		 
+		 // Sort intersections by x
+		 for (int i = 0; i < intersectionCount - 1; ++i) {
+			 for (int j = i + 1; j < intersectionCount; ++j) {
+				 if (intersections[i] > intersections[j]) {
+					 int temp = intersections[i];
+					 intersections[i] = intersections[j];
+					 intersections[j] = temp;
+				 }
+			 }
+		 }
+		 
+		 // Fill between pairs (even-odd rule)
+		 for (int i = 0; i < intersectionCount - 1; i += 2) {
+			 int xStart = intersections[i];
+			 int xEnd = intersections[i + 1];
+			 
+			 if (xStart < 0) xStart = 0;
+			 if (xEnd >= 256) xEnd = 255;
+			 
+			 for (int x = xStart; x <= xEnd; ++x) {
+				 if (x >= 0 && x < 256) {
+					 uint8 *dest = currentXBuf + y * 256 + x;
+					 *dest = mappedColor;
+					 drewSomething = true;
+				 }
+			 }
+		 }
+	 }
+	 
+	 delete[] xCoords;
+	 delete[] yCoords;
 	 
 	 if (drewSomething) {
 		 g_overlayDirty = true;
@@ -1947,7 +2289,10 @@ int lua_getfps(lua_State *L) {
 	 lua_register(luaState, "drawtextwh", lua_drawtextwh);
 	 lua_register(luaState, "drawpixel", lua_drawpixel);
 	 lua_register(luaState, "drawline", lua_drawline);
+	 lua_register(luaState, "drawthickline", lua_drawthickline);
 	 lua_register(luaState, "drawpolygon", lua_drawpolygon);
+	 lua_register(luaState, "drawpolyline", lua_drawpolyline);
+	 lua_register(luaState, "fillpolygon", lua_fillpolygon);
 	 lua_register(luaState, "drawrect", lua_drawrect);
 	 lua_register(luaState, "fillrect", lua_fillrect);
 	 lua_register(luaState, "clearrect", lua_clearrect);
@@ -1985,7 +2330,10 @@ static void EnsureLuaInit() {
 	REG("drawtextwh",     lua_drawtextwh);
 	REG("drawpixel",      lua_drawpixel);
 	REG("drawline",       lua_drawline);
+	REG("drawthickline",  lua_drawthickline);
 	REG("drawpolygon",    lua_drawpolygon);
+	REG("drawpolyline",   lua_drawpolyline);
+	REG("fillpolygon",    lua_fillpolygon);
 	REG("drawrect",       lua_drawrect);
 	REG("fillrect",       lua_fillrect);
 	REG("clearrect",      lua_clearrect);

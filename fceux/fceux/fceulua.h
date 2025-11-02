@@ -100,7 +100,10 @@ void CallRegisteredLuaLoadFunctions(void* state, LuaSaveData& saveData);
  int lua_drawtext(lua_State *L);
  int lua_drawpixel(lua_State *L);
  int lua_drawline(lua_State *L);
+ int lua_drawthickline(lua_State *L);
  int lua_drawpolygon(lua_State *L);
+ int lua_drawpolyline(lua_State *L);
+ int lua_fillpolygon(lua_State *L);
  int lua_getfps(lua_State *L);
  
  #endif // USE_LUA
