@@ -7,7 +7,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.6.2** — *Rewind and fast-forward input fixes: tap=single-step rewind, delayed key-repeat, input caching fix + prior Lua drawing API, favorite games, rewind, recent games, ROM search, screenshot capture, fast forward, in-game OSD, save states/slots, quick reset, + scrolling upgrades*
+* Current release: **v0.6.3** — *Expanded Drawing API + Critical Crash Prevention Fixes: 7 new drawing functions (polygons, ellipses, arcs, rounded rectangles), automatic coordinate clamping on all 18 drawing functions, fixed console freeze bug when drawing near screen boundaries, y=232 boundary enforcement + prior features from v0.6.1 and v0.6.2*
 
 ---
 
@@ -15,6 +15,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.6.3 - Expanded Drawing API and Crash Prevention Fixes](#whats-new-v063)
   - [v0.6.2 - Rewind and Fast-Forward Input Fixes](#whats-new-v062)
   - [v0.6.1 - Lua Drawing API Upgrade](#whats-new-v061)
   - [v0.6.0 - Lua Scripting Support](#whats-new-v060)
@@ -61,6 +62,29 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 📹 **[Watch Fast Scrolling Demo](https://github.com/frankischilling/fce360-enhanced/raw/main/img/fastScrolling.mp4)** (MP4 video)
 
 *Note: Click the link above to view the video demonstration. GitHub README files don't support embedded video playback.*
+
+---
+
+## What's new (v0.6.3)
+
+* **Expanded Drawing API:** Added **7 new drawing functions** for advanced shape rendering!
+  * `drawpolygon()` - Draw polygon outlines with automatic closing (stars, hexagons, pentagons, etc.)
+  * `drawellipse()` / `fillellipse()` - Draw ellipse outlines and filled ellipses with separate horizontal/vertical radii
+  * `drawarc()` / `fillarc()` - Draw circular arc outlines and filled pie slices
+  * `drawroundrect()` / `fillroundrect()` - Draw rounded rectangle outlines and filled rounded rectangles
+  * See **[Lua Scripting API](#lua-scripting-api)** section below for complete documentation!
+
+* **Critical Crash Prevention Fixes:** Fixed console freeze/crash bug when drawing near screen boundaries!
+  * **Automatic Coordinate Clamping:** All 18 drawing functions now auto-adjust invalid coordinates instead of crashing
+  * **Safe Boundary Enforcement:** All drawing APIs now enforce y=232 maximum boundary (down from y=240) to prevent buffer overflows
+  * **Text Safety:** `drawtext()` automatically moves text up if it would draw past safe bounds (text is 8px tall)
+  * **Shape Safety:** Rectangles, circles, ellipses, and polygons automatically adjust size if they would extend past safe bounds
+  * **Before:** Drawing at y=232 would crash the console
+  * **After:** Coordinates are automatically clamped to safe values - no crashes!
+
+* **Includes Previous Features:**
+  * All v0.6.1 features: 8 drawing primitives (rectangles, circles, triangles, advanced text with borders)
+  * All v0.6.2 features: Rewind and fast-forward input fixes with improved precision
 
 ---
 
@@ -302,6 +326,11 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
 - [Script Loading Behavior](#script-loading-behavior)
 - [Technical Details](#technical-details)
   - Lua Version, Update Frequency, Rendering, Coordinate System, Color Palette, Performance
+- [NES Palette Reference for Lua Overlays](#nes-palette-reference-for-lua-overlays)
+  - [General Notes](#general-notes)
+  - [Recommended Defaults](#recommended-defaults)
+  - [Complete Palette Table](#complete-palette-table)
+  - [Example: Displaying the Palette in Lua](#example-displaying-the-palette-in-lua)
 - [Troubleshooting](#troubleshooting-1)
   - Script not loading, Text not appearing, Script errors, Performance issues
 - [Advanced: Multiple Scripts](#advanced-multiple-scripts)
@@ -1543,6 +1572,26 @@ FCEUX360-<version>-xex.zip
 ---
 
 ## Changelog
+
+* **v0.6.3**
+
+  * feat(lua): Added 7 new drawing functions: `drawpolygon()`, `drawellipse()`, `fillellipse()`, `drawarc()`, `fillarc()`, `drawroundrect()`, `fillroundrect()`.
+  * fix(lua): Fixed critical crash bug - all drawing APIs now enforce y=232 maximum boundary to prevent buffer overflows.
+  * fix(lua): Implemented automatic coordinate clamping - all 18 drawing functions now auto-adjust invalid coordinates to safe values.
+  * fix(lua): Fixed `clear_rect()` helper function - updated bounds checking from y=240 to y=232 for safety.
+  * fix(lua): Enhanced safety checks - all pixel drawing operations validate coordinates before writing to prevent crashes.
+  * fix(lua): Fixed text drawing crashes - `drawtext()` now clamps y coordinates to prevent text from extending past screen bounds.
+  * tech(lua): All drawing functions use y < 232 bounds checking instead of y < 240 across the board.
+  * tech(lua): Defensive programming - coordinate clamping prevents buffer overflows that caused console freezes.
+  * tech(lua): Safe drawing area is now y coordinates 0-231 (y=232 is hard limit, no drawing allowed).
+  * tech(lua): Text starting Y maximum is 223 (text is 8px tall, so 223+8=231, safely within bounds).
+  * tech(lua): drawpolygon uses Bresenham's line algorithm to connect vertices and automatically closes the shape.
+  * tech(lua): drawellipse/fillellipse use midpoint ellipse algorithm.
+  * tech(lua): drawarc/fillarc use midpoint circle algorithm with angle filtering.
+  * tech(lua): drawroundrect/fillroundrect use arc segments for corners.
+  * docs(lua): Complete API documentation for all 7 new drawing functions with parameters, notes, and examples in README.md.
+  * docs(lua): Added examples for squares, pentagons, stars, hexagons, ovals, arcs, and rounded rectangles.
+  * docs(lua): Updated table of contents to include all new functions and palette reference section.
 
 * **v0.6.2**
 
