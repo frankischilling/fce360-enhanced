@@ -488,7 +488,7 @@ void FCEUSS_Save(const char *fname)
 	if (!internalSaveLoad)
 	{
 		LuaSaveData saveData;
-		CallRegisteredLuaSaveFunctions(CurrentState, saveData);
+		CallRegisteredLuaSaveFunctions((void*)(intptr_t)CurrentState, saveData);
 
 		char luaSaveFilename [512];
 		strncpy(luaSaveFilename, fn, 512);
@@ -499,13 +499,14 @@ void FCEUSS_Save(const char *fname)
 			FILE* luaSaveFile = fopen(luaSaveFilename, "wb");
 			if(luaSaveFile)
 			{
-				saveData.ExportRecords(luaSaveFile);
+				saveData.ExportRecords((void*)luaSaveFile);
 				fclose(luaSaveFile);
 			}
 		}
 		else
 		{
-			unlink(luaSaveFilename);
+			// Try to delete the file if it exists (using remove from stdio.h)
+			remove(luaSaveFilename);
 		}
 	}
 	#endif
@@ -765,11 +766,11 @@ bool FCEUSS_Load(const char *fname)
 			FILE* luaSaveFile = fopen(luaSaveFilename, "rb");
 			if(luaSaveFile)
 			{
-				saveData.ImportRecords(luaSaveFile);
+				saveData.ImportRecords((void*)luaSaveFile);
 				fclose(luaSaveFile);
 			}
 
-			CallRegisteredLuaLoadFunctions(CurrentState, saveData);
+			CallRegisteredLuaLoadFunctions((void*)(intptr_t)CurrentState, saveData);
 		}
 		#endif
 

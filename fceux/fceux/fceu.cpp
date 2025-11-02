@@ -75,6 +75,11 @@
 #include "driver.h"
 #elif _XBOX
 #include "driver.h"
+#ifdef USE_LUA
+// Include config for Lua mode application after ROM load
+#include "../xbox/config_reader.h"
+extern Config fcecfg;
+#endif
 #else
 #include "drivers/sdl/sdl.h"
 #endif
@@ -447,6 +452,12 @@ FCEUGI *FCEUI_LoadGameVirtual(const char *name, int OverwriteVidMode)
 
 	ResetGameLoaded();
 
+#if defined(USE_LUA) && defined(_XBOX)
+	// Start every game with Lua hard-disabled. Only re-enable if a mode is applied.
+	extern void FCEU_LuaSetDisabled(int);
+	FCEU_LuaSetDisabled(1);
+#endif
+
 	if (!AutosaveStatus)
 		AutosaveStatus = (int*)FCEU_dmalloc(sizeof(int)*AutosaveQty);
 	for (AutosaveIndex=0; AutosaveIndex<AutosaveQty; ++AutosaveIndex)
@@ -525,6 +536,22 @@ endlseq:
 
 #if defined (WIN32) || defined (WIN64)
 	DoDebuggerDataReload(); // Reloads data without reopening window
+#endif
+
+#if defined(USE_LUA) && defined(_XBOX)
+	// CRITICAL: Apply Lua mode after ROM is loaded and NES is powered
+	// This ensures Lua is enabled and scripts are loaded when leaving ROM list
+	extern void FCEU_ApplyLuaMode(int mode, const char* scriptName);
+	extern void FCEU_ApplyPendingLuaForNewGame(void);
+	
+	// Apply Lua mode from pending selection if set
+	// Note: Cemulator::LoadGame() also applies Lua mode, so we need to coordinate
+	// Cemulator will apply from settings after ROM load, so we only need to handle pending here
+	// FCEU_ApplyPendingLuaForNewGame() will clear the pending after applying
+	extern int  g_pendingLuaMode;
+	if (g_pendingLuaMode != -1) {
+		FCEU_ApplyPendingLuaForNewGame();
+	}
 #endif
 
 	return GameInfo;
