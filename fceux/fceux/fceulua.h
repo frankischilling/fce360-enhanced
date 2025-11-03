@@ -104,12 +104,18 @@ void CallRegisteredLuaLoadFunctions(void* state, LuaSaveData& saveData);
  int lua_drawpolygon(lua_State *L);
  int lua_drawpolyline(lua_State *L);
  int lua_fillpolygon(lua_State *L);
+ // Lua memory functions
  int lua_getfps(lua_State *L);
  int lua_readbyte(lua_State *L);
  int lua_readword(lua_State *L);
  int lua_readbytes(lua_State *L);
  int lua_scanbyte(lua_State *L);
  int lua_scanword(lua_State *L);
+ int lua_scanbytes(lua_State *L);
+ int lua_setbit(lua_State *L);
+ int lua_clearbit(lua_State *L);
+ int lua_togglebit(lua_State *L);
+ int lua_testbit(lua_State *L);
  int lua_writebyte(lua_State *L);
  int lua_writeword(lua_State *L);
  int lua_writebytes(lua_State *L);

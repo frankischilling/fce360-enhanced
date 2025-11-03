@@ -16,11 +16,13 @@
 #include <string.h>
 #include <math.h>
 #include <ctype.h>
+#include <vector>
 
 // Minimal Lua API forward declarations (avoid changing symbol mappings)
 extern "C" {
 struct lua_State;
 const char* lua_tolstring(lua_State* L, int idx, size_t* len);
+const char* lua_tostring(lua_State* L, int idx);
 int lua_gettop(lua_State* L);
 void lua_settop(lua_State* L, int idx);
 void lua_pushcfunction(lua_State* L, int (*fn)(lua_State*));
@@ -2459,6 +2461,68 @@ int lua_scanbyte(lua_State *L) {
 	 return 1;
  }
 
+int lua_setbit(lua_State *L) {
+	 int n = lua_gettop(L);
+	 if (n < 2) {
+		 return luaL_error(L, "setbit(address, bit) requires 2 arguments");
+	 }
+	 
+	 unsigned int address = (unsigned int)luaL_checkinteger(L, 1);
+	 int bit = (int)luaL_checkinteger(L, 2);
+	 
+	 // Validate address range (NES address space is 0x0000-0xFFFF)
+	 if (address > 0xFFFF) {
+		 return luaL_error(L, "setbit: address must be in range 0x0000-0xFFFF");
+	 }
+	 
+	 // Validate bit range (must be 0-7)
+	 if (bit < 0 || bit > 7) {
+		 return luaL_error(L, "setbit: bit must be in range 0-7");
+	 }
+	 
+	 // Read current byte value
+	 uint8 currentValue = ARead[address](address);
+	 
+	 // Set the specified bit using bitwise OR
+	 uint8 newValue = currentValue | (1 << bit);
+	 
+	 // Write back using BWrite which handles all memory mapping correctly
+	 BWrite[address](address, newValue);
+	 
+	 return 0;
+ }
+
+int lua_clearbit(lua_State *L) {
+	 int n = lua_gettop(L);
+	 if (n < 2) {
+		 return luaL_error(L, "clearbit(address, bit) requires 2 arguments");
+	 }
+	 
+	 unsigned int address = (unsigned int)luaL_checkinteger(L, 1);
+	 int bit = (int)luaL_checkinteger(L, 2);
+	 
+	 // Validate address range (NES address space is 0x0000-0xFFFF)
+	 if (address > 0xFFFF) {
+		 return luaL_error(L, "clearbit: address must be in range 0x0000-0xFFFF");
+	 }
+	 
+	 // Validate bit range (must be 0-7)
+	 if (bit < 0 || bit > 7) {
+		 return luaL_error(L, "clearbit: bit must be in range 0-7");
+	 }
+	 
+	 // Read current byte value
+	 uint8 currentValue = ARead[address](address);
+	 
+	 // Clear the specified bit using bitwise AND with inverted mask
+	 uint8 newValue = currentValue & ~(1 << bit);
+	 
+	 // Write back using BWrite which handles all memory mapping correctly
+	 BWrite[address](address, newValue);
+	 
+	 return 0;
+ }
+
 int lua_writebyte(lua_State *L) {
 	 int n = lua_gettop(L);
 	 if (n < 2) {
@@ -2611,6 +2675,11 @@ int lua_writebytes(lua_State *L) {
 	 lua_register(luaState, "readbytes", lua_readbytes);
 	 lua_register(luaState, "scanbyte", lua_scanbyte);
      lua_register(luaState, "scanword", lua_scanword);
+	 lua_register(luaState, "scanbytes", lua_scanbytes);
+	 lua_register(luaState, "setbit", lua_setbit);
+	 lua_register(luaState, "clearbit", lua_clearbit);
+	 lua_register(luaState, "togglebit", lua_togglebit);
+	 lua_register(luaState, "testbit", lua_testbit);
 	 lua_register(luaState, "writebyte", lua_writebyte);
 	 lua_register(luaState, "writeword", lua_writeword);
 	 lua_register(luaState, "writebytes", lua_writebytes);
@@ -2667,6 +2736,11 @@ static void EnsureLuaInit() {
 	REG("readbytes",      lua_readbytes);
 	REG("scanbyte",       lua_scanbyte);
  REG("scanword",       lua_scanword);
+REG("scanbytes",      lua_scanbytes);
+REG("setbit",         lua_setbit);
+REG("clearbit",       lua_clearbit);
+REG("togglebit",      lua_togglebit);
+REG("testbit",        lua_testbit);
 	REG("writebyte",      lua_writebyte);
 	REG("writeword",      lua_writeword);
 	REG("writebytes",     lua_writebytes);
@@ -2757,6 +2831,8 @@ REG("getscriptinterval", lua_getscriptinterval);
 	 if (rc != 0) {
 		 const char* err = lua_tostring(luaState, -1);
 		 snprintf(g_luaStatusMsg, sizeof(g_luaStatusMsg), "Lua: ERROR - %s", err ? err : "load failed");
+		 printf("LUA ERROR (load): %s\n", err ? err : "load failed");
+		 if (err && err[0]) LuaConsolePushLine(err);
 		 if (err) lua_pop(luaState, 1);
 		 return 0;
 	 }
@@ -2787,6 +2863,60 @@ REG("getscriptinterval", lua_getscriptinterval);
 static bool file_existsA(const char* path) {
 	DWORD a = GetFileAttributesA(path);
 	return (a != INVALID_FILE_ATTRIBUTES) && !(a & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+int lua_togglebit(lua_State *L) {
+	 int n = lua_gettop(L);
+	 if (n < 2) {
+		 return luaL_error(L, "togglebit(address, bit) requires 2 arguments");
+	 }
+	 
+	 unsigned int address = (unsigned int)luaL_checkinteger(L, 1);
+	 int bit = (int)luaL_checkinteger(L, 2);
+	 
+	 // Validate address range (NES address space is 0x0000-0xFFFF)
+	 if (address > 0xFFFF) {
+		 return luaL_error(L, "togglebit: address must be in range 0x0000-0xFFFF");
+	 }
+	 
+	 // Validate bit range (must be 0-7)
+	 if (bit < 0 || bit > 7) {
+		 return luaL_error(L, "togglebit: bit must be in range 0-7");
+	 }
+	 
+	 // Read current byte value
+	 uint8 currentValue = ARead[address](address);
+	 
+	 // Toggle the specified bit using XOR
+	 uint8 newValue = currentValue ^ (1 << bit);
+	 
+	 // Write back using BWrite which handles all memory mapping correctly
+	 BWrite[address](address, newValue);
+	 
+	 return 0;
+}
+
+int lua_testbit(lua_State *L) {
+	 int n = lua_gettop(L);
+	 if (n < 2) {
+		 return luaL_error(L, "testbit(address, bit) requires 2 arguments");
+	 }
+
+	 unsigned int address = (unsigned int)luaL_checkinteger(L, 1);
+	 int bit = (int)luaL_checkinteger(L, 2);
+
+	 if (address > 0xFFFF) {
+		 return luaL_error(L, "testbit: address must be in range 0x0000-0xFFFF");
+	 }
+	 if (bit < 0 || bit > 7) {
+		 return luaL_error(L, "testbit: bit must be in range 0-7");
+	 }
+
+	 uint8 value = ARead[address](address);
+	 int mask = (1 << bit);
+	 int isSet = ((value & mask) != 0) ? 1 : 0;
+	 lua_pushboolean(L, isSet);
+	 return 1;
 }
 
 int lua_scanword(lua_State *L) {
@@ -2821,6 +2951,107 @@ int lua_scanword(lua_State *L) {
         }
         if (addr == 0xFFFF) break;
     }
+    return 1;
+}
+
+int lua_scanbytes(lua_State *L) {
+    int n = lua_gettop(L);
+    if (n < 3) {
+        return luaL_error(L, "scanbytes requires either (table, startAddr, endAddr) or (b1, b2, ..., startAddr, endAddr)");
+    }
+
+    // Collect pattern bytes
+    unsigned int startAddr = 0;
+    unsigned int endAddr = 0;
+    std::vector<uint8> pattern;
+    pattern.reserve(64);
+
+    if (lua_istable(L, 1)) {
+        // Expect: table, start, end
+        if (n < 3) {
+            return luaL_error(L, "scanbytes(table, startAddr, endAddr) requires 3 arguments");
+        }
+        startAddr = (unsigned int)luaL_checkinteger(L, 2);
+        endAddr   = (unsigned int)luaL_checkinteger(L, 3);
+
+        // Read table entries (1-indexed), Lua 5.1-compatible (no luaL_len)
+        int count = 0;
+        for (int i = 1; i <= 256; ++i) {
+            lua_rawgeti(L, 1, i);
+            if (!lua_isnumber(L, -1)) { lua_pop(L, 1); break; }
+            int v = (int)luaL_checkinteger(L, -1);
+            lua_pop(L, 1);
+            if (v < 0 || v > 255) {
+                return luaL_error(L, "scanbytes: pattern values must be 0-255");
+            }
+            pattern.push_back((uint8)(v & 0xFF));
+            ++count;
+        }
+        if (count <= 0) {
+            return luaL_error(L, "scanbytes: pattern table must contain at least one byte");
+        }
+    } else {
+        // Expect: b1, b2, ..., start, end  (last two args are addresses)
+        if (n < 3) {
+            return luaL_error(L, "scanbytes(b1, b2, ..., startAddr, endAddr) requires at least 3 arguments");
+        }
+        startAddr = (unsigned int)luaL_checkinteger(L, n - 1);
+        endAddr   = (unsigned int)luaL_checkinteger(L, n);
+        int patCount = n - 2;
+        if (patCount <= 0) {
+            return luaL_error(L, "scanbytes: must provide at least one byte in the pattern");
+        }
+        if (patCount > 256) {
+            return luaL_error(L, "scanbytes: pattern length cannot exceed 256 bytes");
+        }
+        for (int i = 1; i <= patCount; ++i) {
+            int v = (int)luaL_checkinteger(L, i);
+            if (v < 0 || v > 255) {
+                return luaL_error(L, "scanbytes: pattern values must be 0-255");
+            }
+            pattern.push_back((uint8)(v & 0xFF));
+        }
+    }
+
+    // Validate addresses
+    if (startAddr > 0xFFFF || endAddr > 0xFFFF) {
+        return luaL_error(L, "scanbytes: addresses must be in range 0x0000-0xFFFF");
+    }
+    if (startAddr > endAddr) { unsigned int t = startAddr; startAddr = endAddr; endAddr = t; }
+
+    // If pattern longer than range, return empty table
+    if (pattern.empty()) {
+        return luaL_error(L, "scanbytes: pattern cannot be empty");
+    }
+
+    lua_createtable(L, 0, 0);
+    int outIndex = 1;
+
+    // Compute last start index inclusive to avoid overflow
+    unsigned int maxStart;
+    if (pattern.size() - 1 > (size_t)0xFFFF) {
+        maxStart = 0; // impossible, but keep compiler happy
+    }
+    if (endAddr < (unsigned int)(pattern.size() - 1)) {
+        maxStart = 0; // will be < startAddr and loop won't run
+    } else {
+        maxStart = endAddr - (unsigned int)(pattern.size() - 1);
+    }
+
+    for (unsigned int addr = startAddr; addr <= endAddr && addr <= maxStart; ++addr) {
+        bool match = true;
+        for (size_t i = 0; i < pattern.size(); ++i) {
+            unsigned int cur = addr + (unsigned int)i;
+            uint8 b = ARead[cur](cur);
+            if (b != pattern[i]) { match = false; break; }
+        }
+        if (match) {
+            lua_pushinteger(L, addr);
+            lua_rawseti(L, -2, outIndex++);
+        }
+        if (addr == 0xFFFF) break;
+    }
+
     return 1;
 }
 
@@ -3342,6 +3573,8 @@ void FCEU_ReloadLuaCode(void) {
 				 } else {
 					 // Lua error - draw a visible error marker
 					 const char* err = lua_tostring(luaState, -1);
+					 printf("LUA ERROR (runtime): %s\n", err ? err : "unknown error");
+					 if (err && err[0]) LuaConsolePushLine(err);
 					 // Draw error indicator on screen so failures are visible
 					 if (s_overlay_back) {
 						 DrawTextTrans(s_overlay_back + 10*256 + 10, 256, (uint8*)"LUA ERR", 0x0F | 0x80);
@@ -3370,9 +3603,9 @@ void FCEU_ReloadLuaCode(void) {
 		 
          // If console visible, draw it now onto back buffer and mark dirty
 		 if (s_consoleVisible && s_overlay_back) {
-			 const int cx = 8, cy = 40;
-			 int maxX = 8 + 240 - 1; if (maxX > 255) maxX = 255;
-			 int maxY = 40 + 176 - 1; if (maxY > 231) maxY = 231;
+			 const int cx = 4, cy = 40;
+			 int maxX = 4 + 248 - 1; if (maxX > 255) maxX = 255;
+			 int maxY = 40 + 180 - 1; if (maxY > 231) maxY = 231;
 			 const uint8 bg = 0x80 | 0x10;
 			 const uint8 bd = 0x80 | 0x2E;
 			 for (int py = cy; py <= maxY; ++py) {
@@ -3385,9 +3618,33 @@ void FCEU_ReloadLuaCode(void) {
 			 int maxLines = (maxY - lineStartY + 1) / lineH;
 			 int toDraw = s_luaConsoleCount < maxLines ? s_luaConsoleCount : maxLines;
 			 int startIdx = s_luaConsoleCount - toDraw;
-			 for (int i = 0; i < toDraw; ++i) {
-				 int y = lineStartY + i*lineH;
-				 DrawTextTrans(s_overlay_back + y*256 + (cx + 4), 256, (uint8*)s_luaConsoleLines[startIdx + i], 0x20 | 0x80);
+			 // Calculate max width for text (pixels) - use almost full console width
+			 int textLeftMargin = cx + 2;
+			 int textRightMargin = 0; // allow text to extend closer to the border
+			 int maxTextWidth = (maxX - textLeftMargin + 1) - textRightMargin;
+			 if (maxTextWidth < 8) maxTextWidth = 8; // Minimum readable width
+			 // Calculate characters that fit (8 pixels per character typically)
+			 // Use ceiling division to allow the last glyph when close to the edge
+			 int maxChars = (maxTextWidth + 7) / 8;
+			 if (maxChars < 1) maxChars = 1;
+			 int row = 0;
+			 for (int i = 0; i < toDraw && row < maxLines; ++i) {
+				 const char* src = s_luaConsoleLines[startIdx + i];
+				 int slen = (int)strlen(src);
+				 int pos = 0;
+				 while (pos < slen && row < maxLines) {
+					 int y = lineStartY + row*lineH;
+					 int remain = slen - pos;
+					 int drawLen = remain < maxChars ? remain : maxChars;
+					 if (drawLen <= 0) break;
+					 char tmp[128];
+					 if (drawLen >= (int)sizeof(tmp)) drawLen = (int)sizeof(tmp) - 1;
+					 memcpy(tmp, src + pos, drawLen);
+					 tmp[drawLen] = '\0';
+					 DrawTextTrans(s_overlay_back + y*256 + textLeftMargin, 256, (uint8*)tmp, 0x20 | 0x80);
+					 pos += drawLen;
+					 row++;
+				 }
 			 }
 			 g_overlayDirty = true;
 			 ok = true; // force publish when console drew
