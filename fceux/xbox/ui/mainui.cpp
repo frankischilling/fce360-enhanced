@@ -665,16 +665,18 @@ public:
 			}
 		}
 		
-		// Check for search trigger (Y button) - use pressed buttons to catch edge
-		bool yJustPressed = (pad->wButtons & XINPUT_GAMEPAD_Y) != 0;
-		static bool yWasPressed = false;
-		
-		if (yJustPressed && !yWasPressed && !m_keyboardPending)
-		{
-			// Y button just pressed - show keyboard
-			ShowSearchKeyboard();
-		}
-		yWasPressed = yJustPressed;
+        // Check for search trigger (Y button) - only in ROM browser (not during emulation)
+        bool yJustPressed = (pad->wButtons & XINPUT_GAMEPAD_Y) != 0;
+        static bool yWasPressed = false;
+        if (!emul.RenderEmulation)
+        {
+            if (yJustPressed && !yWasPressed && !m_keyboardPending)
+            {
+                // Y button just pressed - show keyboard
+                ShowSearchKeyboard();
+            }
+        }
+        yWasPressed = yJustPressed;
 		
 		// Check for favorites toggle (X button) - use pressed buttons to catch edge
 		// Only process if we're in the ROM browser (not during emulation)
