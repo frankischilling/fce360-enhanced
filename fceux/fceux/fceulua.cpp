@@ -2610,6 +2610,7 @@ int lua_writebytes(lua_State *L) {
 	 lua_register(luaState, "readword", lua_readword);
 	 lua_register(luaState, "readbytes", lua_readbytes);
 	 lua_register(luaState, "scanbyte", lua_scanbyte);
+     lua_register(luaState, "scanword", lua_scanword);
 	 lua_register(luaState, "writebyte", lua_writebyte);
 	 lua_register(luaState, "writeword", lua_writeword);
 	 lua_register(luaState, "writebytes", lua_writebytes);
@@ -2665,6 +2666,7 @@ static void EnsureLuaInit() {
 	REG("readword",       lua_readword);
 	REG("readbytes",      lua_readbytes);
 	REG("scanbyte",       lua_scanbyte);
+ REG("scanword",       lua_scanword);
 	REG("writebyte",      lua_writebyte);
 	REG("writeword",      lua_writeword);
 	REG("writebytes",     lua_writebytes);
@@ -2785,6 +2787,41 @@ REG("getscriptinterval", lua_getscriptinterval);
 static bool file_existsA(const char* path) {
 	DWORD a = GetFileAttributesA(path);
 	return (a != INVALID_FILE_ATTRIBUTES) && !(a & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+int lua_scanword(lua_State *L) {
+    int n = lua_gettop(L);
+    if (n < 3) {
+        return luaL_error(L, "scanword(value, startAddr, endAddr) requires 3 arguments");
+    }
+    int value = (int)luaL_checkinteger(L, 1);
+    unsigned int startAddr = (unsigned int)luaL_checkinteger(L, 2);
+    unsigned int endAddr = (unsigned int)luaL_checkinteger(L, 3);
+    if (value < 0 || value > 65535) {
+        return luaL_error(L, "scanword: value must be in range 0-65535");
+    }
+    if (startAddr > 0xFFFF || endAddr > 0xFFFF) {
+        return luaL_error(L, "scanword: addresses must be in range 0x0000-0xFFFF");
+    }
+    if (startAddr > endAddr) { unsigned int t = startAddr; startAddr = endAddr; endAddr = t; }
+    lua_createtable(L, 0, 0);
+    int outIndex = 1;
+    unsigned int target = (unsigned int)(value & 0xFFFF);
+    for (unsigned int addr = startAddr; addr <= endAddr; ++addr) {
+        // Read low then high (little-endian)
+        uint8 low = ARead[addr](addr);
+        uint8 high = 0;
+        if (addr < 0xFFFF) {
+            high = ARead[addr + 1](addr + 1);
+        }
+        unsigned int w = (unsigned int)low | ((unsigned int)high << 8);
+        if (w == target) {
+            lua_pushinteger(L, addr);
+            lua_rawseti(L, -2, outIndex++);
+        }
+        if (addr == 0xFFFF) break;
+    }
+    return 1;
 }
 
 // Helper: Try to run a script in a specific directory
