@@ -357,9 +357,9 @@ extern "C" void FCEU_SetPendingLua(int mode, const char* scriptUtf8OrNull)
 	 if (y >= 232) y = 231; // Clamp to safe position (auto-move up if at/past 232)
 	 
 	 // Draw pixel on the current frame buffer (set by FCEU_LuaGui)
-	 uint8 *dest = currentXBuf + y * 256 + x;
-	 *dest = map_overlay_color(color);
-	 g_overlayDirty = true;  // Mark that something was drawn
+		 uint8 *dest = currentXBuf + y * 256 + x;
+		 *dest = map_overlay_color(color);
+		 g_overlayDirty = true;  // Mark that something was drawn
 	 
 	 return 0;
  }
@@ -2260,6 +2260,199 @@ int lua_getfps(lua_State *L) {
 	 lua_pushnumber(L, currentFPS);
 	 return 1;
  }
+
+int lua_readbyte(lua_State *L) {
+	 int n = lua_gettop(L);
+	 if (n < 1) {
+		 return luaL_error(L, "readbyte(address) requires 1 argument");
+	 }
+	 
+	 unsigned int address = (unsigned int)luaL_checkinteger(L, 1);
+	 
+	 // Validate address range (NES address space is 0x0000-0xFFFF)
+	 if (address > 0xFFFF) {
+		 return luaL_error(L, "readbyte: address must be in range 0x0000-0xFFFF");
+	 }
+	 
+	 // Use ARead which handles all memory mapping correctly
+	 // This reads through the proper memory handlers for RAM, ROM, PPU, etc.
+	 uint8 value = ARead[address](address);
+	 
+	 lua_pushinteger(L, value);
+	 return 1;
+ }
+
+int lua_readword(lua_State *L) {
+	 int n = lua_gettop(L);
+	 if (n < 1) {
+		 return luaL_error(L, "readword(address) requires 1 argument");
+	 }
+	 
+	 unsigned int address = (unsigned int)luaL_checkinteger(L, 1);
+	 
+	 // Validate address range (NES address space is 0x0000-0xFFFF)
+	 if (address > 0xFFFF) {
+		 return luaL_error(L, "readword: address must be in range 0x0000-0xFFFF");
+	 }
+	 
+	 // Read two bytes in little-endian format (low byte first, high byte second)
+	 uint8 lowByte = ARead[address](address);
+	 uint8 highByte = 0;
+	 
+	 if (address + 1 <= 0xFFFF) {
+		 highByte = ARead[address + 1](address + 1);
+	 }
+	 
+	 // Combine into 16-bit value (little-endian)
+	 uint16 value = lowByte + (highByte * 256);
+	 
+	 lua_pushinteger(L, value);
+	 return 1;
+ }
+
+int lua_readbytes(lua_State *L) {
+	 int n = lua_gettop(L);
+	 if (n < 1) {
+		 return luaL_error(L, "readbytes(address, count) requires 2 arguments");
+	 }
+	 
+	 unsigned int address = (unsigned int)luaL_checkinteger(L, 1);
+	 int count = (int)luaL_checkinteger(L, 2);
+	 
+	 // Validate address range
+	 if (address > 0xFFFF) {
+		 return luaL_error(L, "readbytes: address must be in range 0x0000-0xFFFF");
+	 }
+	 
+	 // Validate count
+	 if (count < 1) {
+		 return luaL_error(L, "readbytes: count must be at least 1");
+	 }
+	 if (count > 256) {
+		 return luaL_error(L, "readbytes: count cannot exceed 256");
+	 }
+	 
+	 // Adjust count if it would read past address space
+	 if (address + count > 0x10000) {
+		 count = 0x10000 - address;
+	 }
+	 
+	 // Create Lua table to hold results
+	 lua_createtable(L, count, 0);
+	 
+	 // Read each byte and add to table
+	 for (int i = 0; i < count; ++i) {
+		 unsigned int currentAddr = address + i;
+		 if (currentAddr > 0xFFFF) break;
+		 
+		 uint8 value = ARead[currentAddr](currentAddr);
+		 lua_pushinteger(L, value);
+		 lua_rawseti(L, -2, i + 1);  // Lua tables are 1-indexed
+	 }
+	 
+	 return 1;  // Return the table
+ }
+
+int lua_writebyte(lua_State *L) {
+	 int n = lua_gettop(L);
+	 if (n < 2) {
+		 return luaL_error(L, "writebyte(address, value) requires 2 arguments");
+	 }
+	 
+	 unsigned int address = (unsigned int)luaL_checkinteger(L, 1);
+	 int value = (int)luaL_checkinteger(L, 2);
+	 
+	 // Validate address range (NES address space is 0x0000-0xFFFF)
+	 if (address > 0xFFFF) {
+		 return luaL_error(L, "writebyte: address must be in range 0x0000-0xFFFF");
+	 }
+	 
+	 // Validate value range (byte must be 0-255)
+	 if (value < 0 || value > 255) {
+		 return luaL_error(L, "writebyte: value must be in range 0-255");
+	 }
+	 
+	 uint8 byteValue = (uint8)(value & 0xFF);
+	 
+	 // Use BWrite which handles all memory mapping correctly
+	 // This writes through the proper memory handlers for RAM, PPU, etc.
+	 // Note: Writing to ROM addresses will typically be ignored by the mapper
+	 BWrite[address](address, byteValue);
+	 
+	 return 0;
+ }
+
+int lua_writeword(lua_State *L) {
+	 int n = lua_gettop(L);
+	 if (n < 2) {
+		 return luaL_error(L, "writeword(address, value) requires 2 arguments");
+	 }
+	 
+	 unsigned int address = (unsigned int)luaL_checkinteger(L, 1);
+	 int value = (int)luaL_checkinteger(L, 2);
+	 
+	 // Validate address range (NES address space is 0x0000-0xFFFF)
+	 if (address > 0xFFFF) {
+		 return luaL_error(L, "writeword: address must be in range 0x0000-0xFFFF");
+	 }
+	 
+	 // Validate value range (16-bit word must be 0-65535)
+	 if (value < 0 || value > 65535) {
+		 return luaL_error(L, "writeword: value must be in range 0-65535");
+	 }
+	 
+	 // Write low byte (little-endian: low byte first)
+	 uint8 lowByte = (uint8)(value & 0xFF);
+	 uint8 highByte = (uint8)((value >> 8) & 0xFF);
+	 
+	 // Write both bytes
+	 if (address <= 0xFFFF) {
+		 BWrite[address](address, lowByte);
+	 }
+	 if (address + 1 <= 0xFFFF) {
+		 BWrite[address + 1](address + 1, highByte);
+	 }
+	 
+	 return 0;
+ }
+
+int lua_writebytes(lua_State *L) {
+	 int n = lua_gettop(L);
+	 if (n < 2) {
+		 return luaL_error(L, "writebytes(address, value1, value2, ...) requires at least 2 arguments");
+	 }
+	 
+	 unsigned int address = (unsigned int)luaL_checkinteger(L, 1);
+	 
+	 // Validate address range
+	 if (address > 0xFFFF) {
+		 return luaL_error(L, "writebytes: address must be in range 0x0000-0xFFFF");
+	 }
+	 
+	 // Number of values to write (excluding address)
+	 int count = n - 1;
+	 
+	 // Write each byte
+	 for (int i = 0; i < count; ++i) {
+		 int value = (int)luaL_checkinteger(L, i + 2);
+		 
+		 // Validate value range (byte must be 0-255)
+		 if (value < 0 || value > 255) {
+			 return luaL_error(L, "writebytes: value %d must be in range 0-255", i + 1);
+		 }
+		 
+		 unsigned int currentAddr = address + i;
+		 if (currentAddr > 0xFFFF) {
+			 // Don't write past address space, but don't error - just stop
+			 break;
+		 }
+		 
+		 uint8 byteValue = (uint8)(value & 0xFF);
+		 BWrite[currentAddr](currentAddr, byteValue);
+	 }
+	 
+	 return 0;
+ }
  
  // Initialize Lua (original version - checks disabled state)
  static void InitLua() {
@@ -2307,6 +2500,12 @@ int lua_getfps(lua_State *L) {
 	 lua_register(luaState, "drawroundrect", lua_drawroundrect);
 	 lua_register(luaState, "fillroundrect", lua_fillroundrect);
 	 lua_register(luaState, "getfps", lua_getfps);
+	 lua_register(luaState, "readbyte", lua_readbyte);
+	 lua_register(luaState, "readword", lua_readword);
+	 lua_register(luaState, "readbytes", lua_readbytes);
+	 lua_register(luaState, "writebyte", lua_writebyte);
+	 lua_register(luaState, "writeword", lua_writeword);
+	 lua_register(luaState, "writebytes", lua_writebytes);
 	 
 	 luaInitialized = true;
  }
@@ -2348,6 +2547,12 @@ static void EnsureLuaInit() {
 	REG("drawroundrect",  lua_drawroundrect);
 	REG("fillroundrect",  lua_fillroundrect);
 	REG("getfps",         lua_getfps);
+	REG("readbyte",       lua_readbyte);
+	REG("readword",       lua_readword);
+	REG("readbytes",      lua_readbytes);
+	REG("writebyte",      lua_writebyte);
+	REG("writeword",      lua_writeword);
+	REG("writebytes",     lua_writebytes);
 	#undef REG
 	luaInitialized = true;
 	snprintf(g_luaStatusMsg, sizeof(g_luaStatusMsg), "Lua: init OK");
@@ -2435,7 +2640,12 @@ static void EnsureLuaInit() {
 	 }
 
 	 snprintf(g_luaStatusMsg, sizeof(g_luaStatusMsg), "Lua: Loaded %s", workingPath);
+	 // Check for script() function, fallback to gui() for backward compatibility
+	 lua_getglobal(luaState, "script");
+	 if (!lua_isfunction(luaState, -1)) {
+		 lua_pop(luaState, 1);
 	 lua_getglobal(luaState, "gui");
+	 }
 	 if (!lua_isfunction(luaState, -1)) { lua_pop(luaState, 1); }
 	 else { lua_pop(luaState, 1); }
 	 return 1;
@@ -2962,8 +3172,13 @@ void FCEU_ReloadLuaCode(void) {
 			 // Point Lua draw calls at the back buffer, not the front buffer
 			 currentXBuf = s_overlay_back;
 			 
-			 // Call gui() function if it exists
+		 // Call script() function if it exists (also support legacy gui() for backward compatibility)
+		 lua_getglobal(luaState, "script");
+		 if (!lua_isfunction(luaState, -1)) {
+			 lua_pop(luaState, 1);
+			 // Try legacy gui() function for backward compatibility
 			 lua_getglobal(luaState, "gui");
+		 }
 			 if (lua_isfunction(luaState, -1)) {
 				 if (lua_pcall(luaState, 0, 0, 0) == 0) {
 					 ok = true;  // Script executed successfully
@@ -2979,10 +3194,10 @@ void FCEU_ReloadLuaCode(void) {
 					 // Leave g_overlayDirty as-is (true if error marker drawn)
 				 }
 			 } else {
-				 // gui() function doesn't exist
+			 // script() function doesn't exist
 				 lua_pop(luaState, 1);
 				 if (s_overlay_back) {
-					 DrawTextTrans(s_overlay_back + 10*256 + 10, 256, (uint8*)"NO gui()", 0x0F | 0x80);
+				 DrawTextTrans(s_overlay_back + 10*256 + 10, 256, (uint8*)"NO script()", 0x0F | 0x80);
 					 g_overlayDirty = true;  // Error indicator counts as drawing
 				 }
 			 }

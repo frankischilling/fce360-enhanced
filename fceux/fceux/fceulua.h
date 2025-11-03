@@ -105,6 +105,12 @@ void CallRegisteredLuaLoadFunctions(void* state, LuaSaveData& saveData);
  int lua_drawpolyline(lua_State *L);
  int lua_fillpolygon(lua_State *L);
  int lua_getfps(lua_State *L);
+ int lua_readbyte(lua_State *L);
+ int lua_readword(lua_State *L);
+ int lua_readbytes(lua_State *L);
+ int lua_writebyte(lua_State *L);
+ int lua_writeword(lua_State *L);
+ int lua_writebytes(lua_State *L);
  
  #endif // USE_LUA
  
