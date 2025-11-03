@@ -7,7 +7,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.6.3** — *Expanded Drawing API + Critical Crash Prevention Fixes: 7 new drawing functions (polygons, ellipses, arcs, rounded rectangles), automatic coordinate clamping on all 18 drawing functions, fixed console freeze bug when drawing near screen boundaries, y=232 boundary enforcement + prior features from v0.6.1 and v0.6.2*
+* Current release: **v0.6.4** — *Complete Memory API + Script Callback Rename: 6 new memory functions (readbyte, readword, readbytes, writebyte, writeword, writebytes) for full NES memory access, renamed gui() callback to script() with backward compatibility, comprehensive documentation + all prior features from v0.6.1, v0.6.2, and v0.6.3*
 
 ---
 
@@ -15,6 +15,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.6.4 - Complete Memory API and Script Callback Rename](#whats-new-v064)
   - [v0.6.3 - Expanded Drawing API and Crash Prevention Fixes](#whats-new-v063)
   - [v0.6.2 - Rewind and Fast-Forward Input Fixes](#whats-new-v062)
   - [v0.6.1 - Lua Drawing API Upgrade](#whats-new-v061)
@@ -62,6 +63,41 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 📹 **[Watch Fast Scrolling Demo](https://github.com/frankischilling/fce360-enhanced/raw/main/img/fastScrolling.mp4)** (MP4 video)
 
 *Note: Click the link above to view the video demonstration. GitHub README files don't support embedded video playback.*
+
+---
+
+## What's new (v0.6.4)
+
+* **Complete Memory Access API:** Added **6 new memory functions** for full NES memory reading and writing!
+  * **Memory Reading Functions:**
+    * `readbyte(address)` - Read a single byte (8-bit value) from any NES memory address
+    * `readword(address)` - Read a 16-bit value in little-endian format from consecutive addresses
+    * `readbytes(address, count)` - Read multiple consecutive bytes, returns Lua table
+  * **Memory Writing Functions:**
+    * `writebyte(address, value)` - Write a single byte to any NES memory address
+    * `writeword(address, value)` - Write a 16-bit value in little-endian format
+    * `writebytes(address, value1, value2, ...)` - Write multiple consecutive bytes
+  * **Full NES Memory Space:** All functions work across entire address space (0x0000-0xFFFF) including RAM, PPU, APU, and cartridge memory
+  * **Use Cases:** Create HUD overlays, game cheats, memory analysis, automated gameplay modifications
+  * See **[Lua Scripting API](#lua-scripting-api)** section below for complete documentation!
+
+* **Script Callback Rename:** Improved clarity with better function naming!
+  * **`script()`** - New preferred name for the main callback function (renamed from `gui()`)
+  * **Full Backward Compatibility:** Existing scripts using `gui()` continue to work unchanged
+  * Both `script()` and `gui()` are recognized - no migration required
+  * Documentation updated to recommend `script()` for new scripts
+
+* **Comprehensive Documentation:**
+  * Complete function reference for all 6 memory functions
+  * Parameter descriptions, return values, and detailed notes
+  * Comparison tables showing when to use each function
+  * Multiple practical examples (SMB1 monitoring, cheats, 16-bit values)
+  * Game-specific examples and encoding notes
+
+* **Includes Previous Features:**
+  * All v0.6.3 features: 7 new drawing functions and crash prevention fixes
+  * All v0.6.2 features: Rewind and fast-forward input fixes
+  * All v0.6.1 features: 8 drawing primitives and advanced text
 
 ---
 
@@ -320,9 +356,24 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
   - [Monitoring Functions](#monitoring-functions)
     - [`getfps()`](#getfps)
       - Parameters, Returns, Notes, Basic & Advanced Examples
+  - [Memory Reading Functions](#memory-reading-functions)
+    - [`readbyte(address)`](#readbyteaddress)
+      - Parameters, Returns, Notes, Examples
+    - [`readword(address)`](#readwordaddress)
+      - Parameters, Returns, Notes, Examples
+    - [`readbytes(address, count)`](#readbytesaddress-count)
+      - Parameters, Returns, Notes, Examples
+  - [Memory Functions](#memory-functions)
+    - [`writebyte(address, value)`](#writebyteaddress-value)
+      - Parameters, Returns, Notes, Examples
+    - [`writeword(address, value)`](#writewordaddress-value)
+      - Parameters, Returns, Notes, Examples
+    - [`writebytes(address, value1, value2, ...)`](#writebytesaddress-value1-value2-)
+      - Parameters, Returns, Notes, Examples
 - [Callbacks](#callbacks)
-  - [`gui()`](#gui) - **Required callback**
+  - [`script()`](#script) - **Required callback**
     - When Called, Important Notes, Basic & Advanced Examples
+    - Backward Compatibility: `gui()` is also supported
   - [`joypad(player, buttons)`](#joypadplayer-buttons-optional) - *Optional callback*
     - Button Bitmask Reference, Bitwise Operations, Multiple Examples
 - [Complete Examples](#complete-examples)
@@ -1462,12 +1513,588 @@ function gui()
 end
 ```
 
+##### `readbyte(address)`
+Reads a single byte (8-bit value) from the NES memory address space.
+
+**Parameters:**
+- `address` (integer): Memory address to read from. Valid range is 0x0000-0xFFFF (NES 16-bit address space).
+
+**Returns:**
+- (integer): The byte value at the specified address (0-255).
+
+**Notes:**
+- Reads from the full NES address space, including:
+  - **RAM** (0x0000-0x1FFF): Work RAM (mirrored)
+  - **PPU Registers** (0x2000-0x3FFF): PPU I/O registers (mirrored)
+  - **APU and I/O** (0x4000-0x401F): Audio processing unit and I/O registers
+  - **Expansion ROM** (0x4020-0x5FFF): Expansion area
+  - **Cartridge RAM** (0x6000-0x7FFF): Save RAM
+  - **Cartridge ROM** (0x8000-0xFFFF): Program ROM (PRG)
+- Uses FCEUX's memory mapping system (`ARead`), which handles all memory mapping correctly for different mappers and regions.
+- Address validation: Values outside 0x0000-0xFFFF will return a Lua error.
+- **Game-specific addresses:** Memory addresses vary by game, ROM version, and region (US/PAL/JAP). You may need to find the correct addresses for your specific ROM version.
+- **Value encoding:** Some games store values in non-obvious formats. For example, Super Mario Bros 1 stores lives at 0x075A as (displayed_lives - 1), so reading 0x02 means 3 lives displayed. Always verify the encoding by comparing memory values to on-screen displays.
+- **Common uses:** Reading game state variables like health, score, lives, coins, level, player position, etc.
+- Useful for creating HUD overlays that display game information in real-time.
+- For reading 16-bit values, combine two `readbyte()` calls and use bitwise operations.
+
+**Example:**
+```lua
+-- Read from RAM (always accessible)
+local ramValue = readbyte(0x0000)
+drawtext(4, 4, string.format("RAM[0x0000] = %d", ramValue), 0x20)
+
+-- Super Mario Bros 1 example
+-- Note: SMB1 stores lives as (displayed_lives - 1) at 0x075A
+-- New game = 0x02 (which displays as "×3"), so add 1 to get displayed value
+local livesRaw = readbyte(0x075A)
+local lives = livesRaw + 1  -- Convert to displayed value
+local coins = readbyte(0x075E)
+local worldLevel = readbyte(0x075F)
+
+-- Display game info
+drawtext(4, 12, string.format("Lives: %d", lives), 0x20)
+drawtext(4, 20, string.format("Coins: %d", coins), 0x37)
+
+-- Decode world/level (bits 4-7 = world, bits 0-3 = level)
+local world = (worldLevel >> 4) + 1
+local level = (worldLevel & 0x0F) + 1
+drawtext(4, 28, string.format("World %d-%d", world, level), 0x2E)
+
+-- Read score (multi-byte value)
+local scoreHigh = readbyte(0x07DE)  -- Tens of thousands
+local scoreMid = readbyte(0x07DF)    -- Thousands
+local scoreLow = readbyte(0x07E0)    -- Hundreds
+local score = scoreHigh * 10000 + scoreMid * 100 + scoreLow
+drawtext(4, 36, string.format("Score: %05d", score), 0x29)
+
+-- Health bar example (game-specific address)
+local health = readbyte(0x006A)  -- Example address
+local maxHealth = 100
+local barWidth = 80
+local barHeight = 8
+local barX = 10
+local barY = 100
+
+-- Draw health bar background
+fillrect(barX, barY, barWidth, barHeight, 0x16)  -- Red background
+
+-- Draw health bar fill
+local healthPercent = health / maxHealth
+if healthPercent > 0 then
+    fillrect(barX, barY, math.floor(barWidth * healthPercent), barHeight, 0x28)  -- Green fill
+end
+
+drawtext(barX, barY + 10, string.format("HP: %d/%d", health, maxHealth), 0x20)
+```
+
+### Memory Reading Functions
+
+Functions for reading from NES memory. Use these to monitor game state, create HUD overlays, or analyze game data.
+
+#### `readbyte(address)`
+Reads a single byte (8-bit value) from the NES memory address space.
+
+**Parameters:**
+- `address` (integer): Memory address to read from. Valid range is 0x0000-0xFFFF (NES 16-bit address space).
+
+**Returns:**
+- (integer): The byte value at the specified address (0-255).
+
+**Notes:**
+- Reads from the full NES address space, including:
+  - **RAM** (0x0000-0x1FFF): Work RAM (mirrored)
+  - **PPU Registers** (0x2000-0x3FFF): PPU I/O registers (mirrored)
+  - **APU and I/O** (0x4000-0x401F): Audio processing unit and I/O registers
+  - **Expansion ROM** (0x4020-0x5FFF): Expansion area
+  - **Cartridge RAM** (0x6000-0x7FFF): Save RAM
+  - **Cartridge ROM** (0x8000-0xFFFF): Program ROM (PRG)
+- Uses FCEUX's memory mapping system (`ARead`), which handles all memory mapping correctly for different mappers and regions.
+- Address validation: Values outside 0x0000-0xFFFF will return a Lua error.
+- **Game-specific addresses:** Memory addresses vary by game, ROM version, and region (US/PAL/JAP). You may need to find the correct addresses for your specific ROM version.
+- **Value encoding:** Some games store values in non-obvious formats. For example, Super Mario Bros 1 stores lives at 0x075A as (displayed_lives - 1), so reading 0x02 means 3 lives displayed. Always verify the encoding by comparing memory values to on-screen displays.
+- **Common uses:** Reading game state variables like health, score, lives, coins, level, player position, etc.
+- Useful for creating HUD overlays that display game information in real-time.
+- For reading 16-bit values, use `readword()`. For reading multiple bytes, use `readbytes()`.
+
+**Example:**
+```lua
+-- Read from RAM (always accessible)
+local ramValue = readbyte(0x0000)
+drawtext(4, 4, string.format("RAM[0x0000] = %d", ramValue), 0x20)
+
+-- Super Mario Bros 1 example
+-- Note: SMB1 stores lives as (displayed_lives - 1) at 0x075A
+-- New game = 0x02 (which displays as "×3"), so add 1 to get displayed value
+local livesRaw = readbyte(0x075A)
+local lives = livesRaw + 1  -- Convert to displayed value
+local coins = readbyte(0x075E)
+local worldLevel = readbyte(0x075F)
+
+-- Display game info
+drawtext(4, 12, string.format("Lives: %d", lives), 0x20)
+drawtext(4, 20, string.format("Coins: %d", coins), 0x37)
+
+-- Decode world/level (bits 4-7 = world, bits 0-3 = level)
+local world = (worldLevel >> 4) + 1
+local level = (worldLevel & 0x0F) + 1
+drawtext(4, 28, string.format("World %d-%d", world, level), 0x2E)
+
+-- Read score (multi-byte value)
+local scoreHigh = readbyte(0x07DE)  -- Tens of thousands
+local scoreMid = readbyte(0x07DF)    -- Thousands
+local scoreLow = readbyte(0x07E0)    -- Hundreds
+local score = scoreHigh * 10000 + scoreMid * 100 + scoreLow
+drawtext(4, 36, string.format("Score: %05d", score), 0x29)
+
+-- Health bar example (game-specific address)
+local health = readbyte(0x006A)  -- Example address
+local maxHealth = 100
+local barWidth = 80
+local barHeight = 8
+local barX = 10
+local barY = 100
+
+-- Draw health bar background
+fillrect(barX, barY, barWidth, barHeight, 0x16)  -- Red background
+
+-- Draw health bar fill
+local healthPercent = health / maxHealth
+if healthPercent > 0 then
+    fillrect(barX, barY, math.floor(barWidth * healthPercent), barHeight, 0x28)  -- Green fill
+end
+
+drawtext(barX, barY + 10, string.format("HP: %d/%d", health, maxHealth), 0x20)
+```
+
+#### `readword(address)`
+Reads a 16-bit value (word) from consecutive memory addresses in little-endian format.
+
+**Parameters:**
+- `address` (integer): Starting memory address to read from. Valid range is 0x0000-0xFFFF (NES 16-bit address space).
+
+**Returns:**
+- (integer): The 16-bit value read from `address` and `address + 1` (0-65535).
+
+**Notes:**
+- Reads two consecutive bytes and combines them in **little-endian format** (standard for NES/6502):
+  - Low byte (bits 0-7) is read from `address`
+  - High byte (bits 8-15) is read from `address + 1`
+  - Combined value = low + (high × 256)
+- For example, if address `0x0050` contains `0x34` and `0x0051` contains `0x12`, `readword(0x0050)` returns `0x1234` (0x34 + 0x12 * 256).
+- Address validation: Values outside 0x0000-0xFFFF will return a Lua error.
+- **Address wrapping:** If `address + 1` exceeds 0xFFFF, only the low byte is read and the high byte is 0.
+- Uses FCEUX's memory mapping system (`ARead`), which handles all memory mapping correctly.
+- More efficient than calling `readbyte()` twice and manually combining the values.
+- Useful for reading 16-bit game values like:
+  - Scores stored as 16-bit values
+  - Timers stored as 16-bit values
+  - Coordinates stored as 16-bit values
+  - Any game data that requires two consecutive bytes
+
+**Example:**
+```lua
+-- Read a 16-bit value from RAM
+local value = readword(0x0100)
+drawtext(4, 4, string.format("Value at 0x0100: %d (0x%04X)", value, value), 0x20)
+
+-- Compare with manual read
+local low = readbyte(0x0100)
+local high = readbyte(0x0101)
+local manualValue = low + (high * 256)
+-- value and manualValue should be the same
+
+-- Read a 16-bit timer
+local timer = readword(0x0400)
+drawtext(4, 12, string.format("Timer: %d seconds", timer), 0x2E)
+
+-- Read player position (if stored as 16-bit)
+local playerX = readword(0x0500)
+drawtext(4, 20, string.format("Player X: %d", playerX), 0x20)
+
+-- Display in hex format
+local hexValue = readword(0x0600)
+drawtext(4, 28, string.format("0x0600 = 0x%04X (%d)", hexValue, hexValue), 0x37)
+```
+
+#### `readbytes(address, count)`
+Reads multiple consecutive bytes from memory and returns them as a Lua table.
+
+**Parameters:**
+- `address` (integer): Starting memory address to read from. Valid range is 0x0000-0xFFFF (NES 16-bit address space).
+- `count` (integer): Number of bytes to read. Valid range is 1-256.
+
+**Returns:**
+- (table): A Lua table containing the byte values. Table is 1-indexed (Lua standard), so `result[1]` is the first byte, `result[2]` is the second byte, etc.
+
+**Notes:**
+- Reads bytes sequentially starting from `address`:
+  - `result[1]` = value at `address`
+  - `result[2]` = value at `address + 1`
+  - `result[3]` = value at `address + 2`
+  - And so on...
+- Address validation: Starting address must be in range 0x0000-0xFFFF.
+- Count validation: Count must be 1-256. Values outside this range will return a Lua error.
+- **Address wrapping:** If reading bytes would extend past 0xFFFF, the function will only read up to the address space boundary.
+- Uses FCEUX's memory mapping system (`ARead`), which handles all memory mapping correctly.
+- More efficient than calling `readbyte()` multiple times in a loop.
+- The returned table is standard Lua table, so you can use `#result` to get the count, iterate with `ipairs()`, etc.
+- Useful for:
+  - Reading multi-byte values (scores, timers, coordinates)
+  - Analyzing memory regions
+  - Copying memory blocks
+  - Reading structured game data that spans multiple bytes
+
+**Example:**
+```lua
+-- Read 3 bytes starting at address 0x0060
+local bytes = readbytes(0x0060, 3)
+drawtext(4, 4, string.format("Bytes: %d, %d, %d", bytes[1], bytes[2], bytes[3]), 0x20)
+
+-- Super Mario Bros 1 - Read score (3 bytes)
+local scoreBytes = readbytes(0x07DE, 3)
+local score = scoreBytes[1] * 10000 + scoreBytes[2] * 100 + scoreBytes[3]
+drawtext(4, 12, string.format("Score: %05d", score), 0x29)
+
+-- Read and display multiple bytes
+local data = readbytes(0x0100, 8)
+for i = 1, #data do
+  drawtext(4, 20 + (i * 8), string.format("0x%04X = %d (0x%02X)", 0x0100 + i - 1, data[i], data[i]), 0x20)
+end
+
+-- Read timer bytes (3 bytes: hundreds, tens, ones)
+local timerBytes = readbytes(0x07F8, 3)
+local timer = timerBytes[1] * 100 + timerBytes[2] * 10 + timerBytes[3]
+drawtext(4, 84, string.format("Timer: %03d", timer), 0x26)
+
+-- Iterate through read bytes
+local memoryBlock = readbytes(0x0200, 16)
+for i, value in ipairs(memoryBlock) do
+  if value ~= 0 then  -- Only show non-zero values
+    drawtext(4, 92 + (i * 8), string.format("[%d] = %d", i, value), 0x2E)
+  end
+end
+
+-- Search for a specific value in memory
+local searchArea = readbytes(0x0000, 256)
+for i = 1, #searchArea do
+  if searchArea[i] == 99 then
+    drawtext(4, 100, string.format("Found 99 at address 0x%04X", 0x0000 + i - 1), 0x37)
+    break
+  end
+end
+```
+
+#### Memory Reading Function Comparison
+
+| Function | Purpose | Data Size | Returns |
+|----------|---------|-----------|---------|
+| `readbyte(address)` | Read a single byte | 8-bit (0-255) | Integer |
+| `readword(address)` | Read a 16-bit value | 16-bit (0-65535) | Integer (little-endian) |
+| `readbytes(address, count)` | Read multiple bytes | 8-bit each (0-255) | Table of integers |
+
+**When to use each:**
+- **`readbyte()`**: Single byte values (lives, coins, power-up state, flags, single-byte counters)
+- **`readword()`**: 16-bit values (scores, timers, coordinates, counters stored as 16-bit)
+- **`readbytes()`**: Multi-byte sequences (scores stored across 3+ bytes, arrays, buffers, memory analysis)
+
+**Advanced Reading Examples:**
+```lua
+-- Example 1: Read SMB1 score using readbytes (more efficient)
+function script()
+  local scoreBytes = readbytes(0x07DE, 3)
+  local score = scoreBytes[1] * 10000 + scoreBytes[2] * 100 + scoreBytes[3]
+  drawtext(4, 4, string.format("Score: %05d", score), 0x29)
+end
+
+-- Example 2: Read 16-bit timer
+function script()
+  local timer = readword(0x0400)
+  local minutes = math.floor(timer / 60)
+  local seconds = timer % 60
+  drawtext(4, 12, string.format("Timer: %02d:%02d", minutes, seconds), 0x2E)
+end
+
+-- Example 3: Compare manual vs readword
+function script()
+  -- Manual way (less efficient)
+  local low = readbyte(0x0500)
+  local high = readbyte(0x0501)
+  local manual = low + (high * 256)
+  
+  -- Using readword (more efficient)
+  local word = readword(0x0500)
+  
+  -- They should be the same
+  drawtext(4, 20, string.format("Manual: %d, readword: %d", manual, word), 0x20)
+end
+
+-- Example 4: Read and analyze memory region
+function script()
+  local region = readbytes(0x0700, 64)  -- Read 64 bytes
+  local nonZero = 0
+  for i = 1, #region do
+    if region[i] ~= 0 then
+      nonZero = nonZero + 1
+    end
+  end
+  drawtext(4, 28, string.format("Non-zero bytes: %d/%d", nonZero, #region), 0x37)
+end
+
+-- Example 5: Read structured data
+function script()
+  -- Read player data structure (example: X, Y, health, status)
+  local playerData = readbytes(0x0600, 4)
+  local x = playerData[1]
+  local y = playerData[2]
+  local health = playerData[3]
+  local status = playerData[4]
+  
+  drawtext(4, 36, string.format("Player: (%d, %d) HP:%d Status:%d", x, y, health, status), 0x20)
+end
+
+-- Example 6: Read and verify write operations
+function script()
+  -- Write a value
+  writeword(0x0300, 0xABCD)
+  
+  -- Read it back to verify
+  local readback = readword(0x0300)
+  if readback == 0xABCD then
+    drawtext(4, 44, "Write/Read verification: PASS", 0x28)
+  else
+    drawtext(4, 44, string.format("Write/Read verification: FAIL (got 0x%04X)", readback), 0x16)
+  end
+end
+```
+
+### Memory Functions
+
+Functions for writing to NES memory. Use these to modify game state, create cheats, or manipulate game data.
+
+#### `writebyte(address, value)`
+Writes a single byte (8-bit value) to the specified memory address.
+
+**Parameters:**
+- `address` (integer): Memory address to write to. Valid range is 0x0000-0xFFFF (NES 16-bit address space).
+- `value` (integer): Byte value to write. Valid range is 0-255.
+
+**Returns:** Nothing
+
+**Notes:**
+- Writes to the full NES address space, including RAM, PPU registers, APU registers, and cartridge RAM.
+- Uses FCEUX's memory mapping system (`BWrite`), which handles all memory mapping correctly for different mappers and regions.
+- Address validation: Values outside 0x0000-0xFFFF will return a Lua error.
+- Value validation: Values outside 0-255 will return a Lua error.
+- **Writing to ROM:** Writing to cartridge ROM addresses (0x8000-0xFFFF) typically has no effect, as ROM is read-only. Most mappers will ignore these writes.
+- **Immediate effect:** The write takes effect immediately. The game will see the new value on its next memory read from that address.
+- **Multiple writes:** You can write to the same address multiple times in a single frame - the last write wins.
+- Useful for creating cheats, modifying game state, debugging, or creating automated gameplay modifications.
+- For writing 16-bit values, use `writeword()`. For writing multiple bytes, use `writebytes()`.
+
+**Example:**
+```lua
+-- Write to RAM
+writebyte(0x0000, 42)  -- Write value 42 to address 0x0000
+
+-- Super Mario Bros 1 - Set lives to 99 (stored as 98)
+writebyte(0x075A, 98)  -- Displays as "×99" on screen
+
+-- Set coins to 99
+writebyte(0x075E, 99)
+
+-- Set power-up state (0=Small, 1=Super, 2=Fire)
+writebyte(0x0756, 2)  -- Always Fire Mario
+
+-- Keep lives at 99 (write every frame)
+function script()
+  writebyte(0x075A, 98)
+end
+
+-- Conditional write (only if value is different)
+function script()
+  local current = readbyte(0x075A)
+  if current < 98 then
+    writebyte(0x075A, 98)  -- Restore to 99 lives if it dropped
+  end
+end
+```
+
+#### `writeword(address, value)`
+Writes a 16-bit value (word) to consecutive memory addresses in little-endian format (low byte first, high byte second).
+
+**Parameters:**
+- `address` (integer): Starting memory address to write to. Valid range is 0x0000-0xFFFF (NES 16-bit address space).
+- `value` (integer): 16-bit value to write. Valid range is 0-65535.
+
+**Returns:** Nothing
+
+**Notes:**
+- Writes the value in **little-endian format** (standard for NES/6502):
+  - Low byte (bits 0-7) is written to `address`
+  - High byte (bits 8-15) is written to `address + 1`
+- For example, writing `0x1234` to address `0x0050` will:
+  - Write `0x34` to address `0x0050`
+  - Write `0x12` to address `0x0051`
+- Address validation: Values outside 0x0000-0xFFFF will return a Lua error.
+- Value validation: Values outside 0-65535 will return a Lua error.
+- **Address wrapping:** If `address + 1` exceeds 0xFFFF, only the low byte will be written.
+- Uses FCEUX's memory mapping system (`BWrite`), which handles all memory mapping correctly.
+- **Immediate effect:** Both bytes are written immediately and take effect on the next memory read.
+- Useful for writing 16-bit game values like:
+  - Scores stored as 16-bit values
+  - Timers stored as 16-bit values
+  - Coordinates stored as 16-bit values
+  - Any game data that requires two consecutive bytes
+
+**Example:**
+```lua
+-- Write a 16-bit value to RAM
+writeword(0x0100, 0x1234)
+-- This writes: 0x34 to 0x0100, 0x12 to 0x0101
+
+-- Verify the write (read back)
+local low = readbyte(0x0100)
+local high = readbyte(0x0101)
+local value = low + (high * 256)  -- Reconstruct: 0x34 + (0x12 * 256) = 0x1234
+
+-- Write a simple 16-bit value
+writeword(0x0200, 12345)  -- Writes 12345 as two bytes
+
+-- Write maximum 16-bit value
+writeword(0x0300, 65535)  -- Writes 0xFFFF (0xFF, 0xFF)
+
+-- Example: Write to a 16-bit timer
+writeword(0x0400, 600)  -- Set timer to 600 (10 minutes * 60 seconds)
+
+-- Example: Write player position (if stored as 16-bit)
+writeword(0x0500, 1234)  -- Set X position to 1234
+```
+
+#### `writebytes(address, value1, value2, ...)`
+Writes multiple consecutive bytes to memory starting at the specified address.
+
+**Parameters:**
+- `address` (integer): Starting memory address to write to. Valid range is 0x0000-0xFFFF (NES 16-bit address space).
+- `value1` (integer): First byte value to write (0-255).
+- `value2` (integer): Second byte value to write (0-255).
+- `...` (integer): Additional byte values to write (0-255 each). Can specify any number of values.
+
+**Returns:** Nothing
+
+**Notes:**
+- Writes bytes sequentially starting from `address`:
+  - `value1` is written to `address`
+  - `value2` is written to `address + 1`
+  - `value3` is written to `address + 2`
+  - And so on...
+- Address validation: Starting address must be in range 0x0000-0xFFFF.
+- Value validation: Each value must be in range 0-255. If any value is out of range, a Lua error is returned specifying which value failed.
+- **Address wrapping:** If writing bytes would extend past 0xFFFF, the function will stop writing at the address space boundary without error.
+- Requires at least 2 arguments (address + at least one value).
+- Uses FCEUX's memory mapping system (`BWrite`), which handles all memory mapping correctly.
+- **Immediate effect:** All bytes are written immediately in the order specified.
+- More efficient than calling `writebyte()` multiple times, as it validates inputs once and writes sequentially.
+- Useful for:
+  - Writing multi-byte values (scores, timers, coordinates)
+  - Initializing arrays or buffers
+  - Copying byte sequences
+  - Writing structured game data that spans multiple bytes
+
+**Example:**
+```lua
+-- Write 3 bytes starting at address 0x0060
+writebytes(0x0060, 10, 20, 30)
+-- This writes: 10 to 0x0060, 20 to 0x0061, 30 to 0x0062
+
+-- Super Mario Bros 1 - Set score (3 bytes: high, mid, low)
+-- Score format: (high * 10000) + (mid * 100) + (low)
+writebytes(0x07DE, 0, 0, 50)    -- Score: 50
+writebytes(0x07DE, 0, 1, 23)    -- Score: 123
+writebytes(0x07DE, 5, 0, 0)      -- Score: 50000
+writebytes(0x07DE, 9, 9, 99)     -- Score: 99999 (max)
+
+-- Write a 4-byte sequence
+writebytes(0x0100, 0xFF, 0xFE, 0xFD, 0xFC)
+
+-- Write multiple game values at once
+writebytes(0x0700, 
+  98,   -- Lives (0x075A - 0x0700 = 0x005A, wait that's wrong)
+  -- Actually, let's write to correct addresses:
+)
+-- Better: Write to specific addresses individually or use writebytes if they're consecutive
+
+-- Initialize a buffer with zeros
+writebytes(0x0200, 0, 0, 0, 0, 0, 0, 0, 0)  -- Clear 8 bytes
+
+-- Write a string-like byte sequence (ASCII values)
+writebytes(0x0300, 0x48, 0x45, 0x4C, 0x4C, 0x4F)  -- "HELLO" in ASCII
+```
+
+#### Memory Function Comparison
+
+| Function | Purpose | Data Size | Format |
+|----------|---------|-----------|--------|
+| `readbyte(address)` | Read a single byte | 8-bit (0-255) | Single byte |
+| `writebyte(address, value)` | Write a single byte | 8-bit (0-255) | Single byte |
+| `writeword(address, value)` | Write a 16-bit value | 16-bit (0-65535) | Little-endian (low byte first) |
+| `writebytes(address, ...)` | Write multiple bytes | 8-bit each (0-255) | Sequential bytes |
+
+**When to use each:**
+- **`writebyte()`**: Single byte values (lives, coins, power-up state, flags)
+- **`writeword()`**: 16-bit values (scores, timers, coordinates, counters)
+- **`writebytes()`**: Multi-byte sequences (scores stored across 3+ bytes, arrays, buffers)
+
+**Advanced Usage Examples:**
+```lua
+-- Example 1: Keep SMB1 lives at 99 using conditional write
+function script()
+  local lives = readbyte(0x075A) + 1
+  if lives < 99 then
+    writebyte(0x075A, 98)  -- Restore to 99
+  end
+end
+
+-- Example 2: Set SMB1 score using writebytes
+function script()
+  -- Set score to 50000 (5 * 10000 + 0 * 100 + 0)
+  writebytes(0x07DE, 5, 0, 0)
+end
+
+-- Example 3: Write a 16-bit timer value
+function script()
+  local timerSeconds = 600  -- 10 minutes
+  writeword(0x0400, timerSeconds)
+end
+
+-- Example 4: Initialize multiple game values
+function script()
+  -- Set lives, coins, and power-up in one function
+  writebyte(0x075A, 98)   -- 99 lives
+  writebyte(0x075E, 99)   -- 99 coins
+  writebyte(0x0756, 2)    -- Fire power-up
+end
+
+-- Example 5: Copy a value pattern using writebytes
+function script()
+  -- Write the same value to multiple consecutive addresses
+  writebytes(0x0500, 42, 42, 42, 42, 42)  -- 5 bytes all set to 42
+end
+
+-- Example 6: Write structured data
+function script()
+  -- Write player data structure (example addresses)
+  -- Assuming: X position (byte), Y position (byte), health (byte), status (byte)
+  writebytes(0x0600, 128, 100, 10, 1)  -- X=128, Y=100, Health=10, Status=1
+end
+```
+
 ### Callbacks
 
 Callbacks are functions that your script defines, which the emulator will call automatically at specific times.
 
-#### `gui()`
-**Required callback** - Called every ~33ms (~30Hz) to draw overlay content. This is your main drawing function and must be defined in your script.
+#### `script()`
+**Required callback** - Called every ~33ms (~30Hz) to execute your script logic. This is your main function and must be defined in your script.
 
 **Parameters:** None
 
@@ -1480,14 +2107,15 @@ Callbacks are functions that your script defines, which the emulator will call a
 - Called even when emulation is paused (if a game is loaded)
 
 **Important Notes:**
-- Your script **must** define this function, or nothing will be drawn
+- Your script **must** define this function, or nothing will run
 - Keep this function lightweight - heavy computations can impact emulation performance
-- All drawing functions (`drawtext`, etc.) must be called from within `gui()` to appear on screen
+- All drawing functions (`drawtext`, etc.) must be called from within `script()` to appear on screen
 - The function can be empty if you only use `joypad()` for input modification
+- **Backward Compatibility:** The legacy `gui()` function name is still supported for existing scripts
 
 **Basic Example:**
 ```lua
-function gui()
+function script()
     -- Draw FPS counter
     local fps = getfps()
     drawtext(4, 4, string.format("FPS: %.1f", fps), 0x2E)
@@ -1502,7 +2130,7 @@ end
 local startTime = os.clock()
 local frameCounter = 0
 
-function gui()
+function script()
     frameCounter = frameCounter + 1
     
     -- FPS display
@@ -1752,6 +2380,15 @@ FCEUX360-<version>-xex.zip
 ---
 
 ## Changelog
+
+* **v0.6.4**
+
+  * feat(lua): Added 6 new memory access functions: `readbyte()`, `readword()`, `readbytes()`, `writebyte()`, `writeword()`, `writebytes()`.
+  * feat(lua): Added full NES memory space access (0x0000-0xFFFF) for RAM, PPU, APU, and cartridge memory.
+  * feat(lua): Renamed `gui()` callback to `script()` for improved clarity, with full backward compatibility.
+  * docs(lua): Added comprehensive memory API documentation with examples, comparison tables, and use cases.
+  * feat(lua): Memory functions support little-endian format for 16-bit operations (NES standard).
+  * tech(lua): All memory functions use FCEUX memory mapping system (ARead/BWrite) for proper mapper handling.
 
 * **v0.6.3**
 
