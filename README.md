@@ -7,7 +7,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.6.4** — *Complete Memory API + Script Callback Rename: 6 new memory functions (readbyte, readword, readbytes, writebyte, writeword, writebytes) for full NES memory access, renamed gui() callback to script() with backward compatibility, comprehensive documentation + all prior features from v0.6.1, v0.6.2, and v0.6.3*
+* Current release: **v0.6.5** — *Lua Console + Script Timing Controls: on-screen Lua console (LS+RS toggle), print/log redirection, and new setscriptinterval()/getscriptinterval() for configurable script cadence + all prior features from v0.6.1–v0.6.4*
 
 ---
 
@@ -15,6 +15,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.6.5 - Lua Console and Script Timing Controls](#whats-new-v065)
   - [v0.6.4 - Complete Memory API and Script Callback Rename](#whats-new-v064)
   - [v0.6.3 - Expanded Drawing API and Crash Prevention Fixes](#whats-new-v063)
   - [v0.6.2 - Rewind and Fast-Forward Input Fixes](#whats-new-v062)
@@ -63,6 +64,22 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 📹 **[Watch Fast Scrolling Demo](https://github.com/frankischilling/fce360-enhanced/raw/main/img/fastScrolling.mp4)** (MP4 video)
 
 *Note: Click the link above to view the video demonstration. GitHub README files don't support embedded video playback.*
+
+---
+
+## What's new (v0.6.5)
+
+* **Lua Console:** On-screen console for Lua output.
+  * **Toggle:** Click both sticks (LS+RS) while in-game to show/hide.
+  * **Printing:** `print(...)` is redirected to the console; `log(...)` is also available.
+  * **Safe overlay:** Drawn within the safe area (y < 232) with a rolling buffer.
+
+* **Script Timing Controls:** New API to control how often `script()` runs.
+  * `setscriptinterval(ms)` — clamps 16–1000 ms; default 33 ms (~30 Hz).
+  * `getscriptinterval()` — returns current interval in ms.
+  * Composition remains 60 Hz; only `script()` cadence changes.
+
+* **Docs:** Added “Lua Console” and “Script Timing” sections with usage examples.
 
 ---
 
@@ -370,6 +387,11 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
       - Parameters, Returns, Notes, Examples
     - [`writebytes(address, value1, value2, ...)`](#writebytesaddress-value1-value2-)
       - Parameters, Returns, Notes, Examples
+- [Lua Console](#lua-console)
+  - Overview, Toggle, Printing, Notes
+- [Script Timing](#script-timing)
+  - [`setscriptinterval(ms)`](#setscriptintervalms)
+  - [`getscriptinterval()`](#getscriptinterval)
 - [Callbacks](#callbacks)
   - [`script()`](#script) - **Required callback**
     - When Called, Important Notes, Basic & Advanced Examples
@@ -2089,6 +2111,60 @@ function script()
 end
 ```
 
+### Lua Console
+
+A lightweight on-screen console to view output from your Lua scripts.
+
+**Toggle:** Click both sticks simultaneously (LS + RS) while in-game to show/hide the console.
+
+![Lua Console](img/console.jpg)
+
+**Printing:**
+- `print(...)` is redirected to the console. It is called each time `script()` runs, so guard it if needed (print once, or rate-limit).
+- `log(...)` is provided as an alias to `print(...)` for clarity.
+
+**Notes:**
+- The console draws within the safe overlay area (y < 232).
+- The console shows the most recent lines in a rolling buffer.
+
+### Script Timing
+
+Control how often your `script()` callback runs. The overlay still composites at 60 Hz; this only changes the `script()` cadence.
+
+#### `setscriptinterval(ms)`
+Sets the callback interval for `script()`.
+
+**Parameters:**
+- `ms` (integer): Interval in milliseconds. Clamped to 16–1000 ms.
+
+**Returns:** Nothing
+
+**Notes:**
+- Default is 33 ms (~30 Hz).
+- Heavier scripts can set a slower interval (e.g., 100–250 ms). Lighter scripts can use 16 ms.
+- The interval resets to 33 ms when Lua is (re)initialized.
+
+**Example:**
+```lua
+-- Run script at ~10 Hz
+setscriptinterval(100)
+
+-- Later, restore to default
+setscriptinterval(33)
+```
+
+#### `getscriptinterval()`
+Returns the current `script()` interval in milliseconds.
+
+**Returns:**
+- (integer): Current interval in milliseconds
+
+**Example:**
+```lua
+local ms = getscriptinterval()
+drawtext(4, 4, string.format("Interval: %d ms", ms), 0x2E)
+```
+
 ### Callbacks
 
 Callbacks are functions that your script defines, which the emulator will call automatically at specific times.
@@ -2380,6 +2456,13 @@ FCEUX360-<version>-xex.zip
 ---
 
 ## Changelog
+
+* **v0.6.5**
+
+  * feat(lua): Added on-screen Lua Console with LS+RS toggle; redirected `print(...)` and added `log(...)` alias.
+  * feat(lua): Added script cadence controls: `setscriptinterval(ms)` (16–1000 ms clamp) and `getscriptinterval()`.
+  * ux(lua): Console respects safe overlay area and uses a rolling buffer; status banner hidden while console is visible.
+  * docs(lua): Added “Lua Console” and “Script Timing” sections with examples.
 
 * **v0.6.4**
 
