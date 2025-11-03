@@ -380,6 +380,8 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
       - Parameters, Returns, Notes, Examples
     - [`readbytes(address, count)`](#readbytesaddress-count)
       - Parameters, Returns, Notes, Examples
+    - [`scanbyte(value, startAddr, endAddr)`](#scanbytevalue-startaddr-endaddr)
+      - Parameters, Returns, Notes, Examples
   - [Memory Functions](#memory-functions)
     - [`writebyte(address, value)`](#writebyteaddress-value)
       - Parameters, Returns, Notes, Examples
@@ -1805,6 +1807,34 @@ for i = 1, #searchArea do
     break
   end
 end
+```
+
+#### `scanbyte(value, startAddr, endAddr)`
+Searches for a specific byte value within an address range and returns all matching addresses.
+
+**Parameters:**
+- `value` (integer): Target byte value to search for (0–255).
+- `startAddr` (integer): Start address (inclusive), 0x0000–0xFFFF.
+- `endAddr` (integer): End address (inclusive), 0x0000–0xFFFF. Order is flexible; if `startAddr > endAddr`, they are swapped.
+
+**Returns:**
+- (table): A 1-indexed Lua table of addresses where the byte equals `value`.
+
+**Notes:**
+- Searches using the emulator’s memory mapping (`ARead`), so it works across RAM/PPU/APU/cartridge spaces depending on the range.
+- Value is validated (0–255). Addresses are clamped to the NES 16-bit address space.
+- Stops at 0xFFFF; does not wrap.
+
+**Example:**
+```lua
+-- Find all RAM addresses with value 3
+local hits = scanbyte(3, 0x0000, 0x07FF)
+for i, addr in ipairs(hits) do
+  drawtext(4, 4 + i * 8, string.format("0x%04X", addr), 0x20)
+end
+
+-- Search whole space for a flag value (may be large, use narrow ranges for speed)
+local flags = scanbyte(1, 0x0000, 0xFFFF)
 ```
 
 #### Memory Reading Function Comparison
