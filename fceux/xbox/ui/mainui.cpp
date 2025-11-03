@@ -31,8 +31,12 @@ extern "C" {
 #include "..\Cemulator.h"
 #include "..\config_reader.h"
 #include "..\input.h"
+#ifdef USE_LUA
+#include "fceux\fceulua.h"
+#endif
 
 extern Cemulator emul;//smsplus_pc.cpp
+
 
 std::wstring strtowstr(std::string str)
 {
@@ -45,7 +49,7 @@ std::wstring strtowstr(std::string str)
 class CXuiEmulationScene: public CXuiSceneImpl{
 protected:
 	void EnableTab(bool enable){
-		 // Get the parent tabbed scene.
+		// Get the parent tabbed scene.
 		CXuiTabScene tabbedScene( m_hObj );
 		if( FAILED( tabbedScene.GetParent( &tabbedScene ) ) )
 		{
@@ -58,7 +62,7 @@ protected:
 	}
 	void GoToNext()
 	{
-		 // Get the parent tabbed scene.
+		// Get the parent tabbed scene.
 		CXuiTabScene tabbedScene( m_hObj );
 		if( FAILED( tabbedScene.GetParent( &tabbedScene ) ) )
 		{
@@ -88,7 +92,7 @@ protected:
 	}
 	void GotoPrev()
 	{
-		 // Get the parent tabbed scene.
+		// Get the parent tabbed scene.
 		CXuiTabScene tabbedScene( m_hObj );
 		if( FAILED( tabbedScene.GetParent( &tabbedScene ) ) )
 		{
@@ -116,39 +120,63 @@ class XuiRunner:public CXuiEmulationScene{
 public:
 	XUI_IMPLEMENT_CLASS( XuiRunner, L"XuiRunner", XUI_CLASS_SCENE );
 
-    XUI_BEGIN_MSG_MAP()
-        XUI_ON_XM_INIT( OnInit )
+	XUI_BEGIN_MSG_MAP()
+		XUI_ON_XM_INIT( OnInit )
 		XUI_ON_XM_LEAVE_TAB ( OnLeaveTab )
 		XUI_ON_XM_ENTER_TAB ( OnEnterTab )
-    XUI_END_MSG_MAP()
+	XUI_END_MSG_MAP()
 
-    // Called once per frame from RenderXui()
-    void UpdatePerFrame()
-    {
-        // Only act while we're actually "in game"
-        if (!emul.RenderEmulation) return;
+	// Called once per frame from RenderXui()
+	void UpdatePerFrame()
+	{
+		// Only act while we're actually "in game"
+		if (!emul.RenderEmulation) return;
 
-        Input::GetInput(NULL);
-        GAMEPAD* pad = Input::GetMergedInput(0, NULL);
-        if (!pad) return;
+		Input::GetInput(NULL);
+		GAMEPAD* pad = Input::GetMergedInput(0, NULL);
+		if (!pad) return;
 
-        const bool both =
-            (pad->wButtons & XINPUT_GAMEPAD_START) &&
-            (pad->wButtons & XINPUT_GAMEPAD_BACK); // "select" on 360
+		// Existing OSD combo: START + BACK
+		const bool both =
+			(pad->wButtons & XINPUT_GAMEPAD_START) &&
+			(pad->wButtons & XINPUT_GAMEPAD_BACK); // "select" on 360
 
-        if (both && !m_comboLatch) {
-            m_comboLatch = true;
-            // In your tab order, XuiRunner -> OSD is "next"
-            GoToNext();                 // opens the OSD tab
-            // OSD::OnEnterTab() pauses emulation already
-        }
-        if (!both) {
-            m_comboLatch = false;       // reset latch when released
-        }
-    }
+		if (both && !m_comboLatch) {
+			m_comboLatch = true;
+			// In your tab order, XuiRunner -> OSD is "next"
+			GoToNext();                 // opens the OSD tab
+			// OSD::OnEnterTab() pauses emulation already
+		}
+		if (!both) {
+			m_comboLatch = false;       // reset latch when released
+		}
+
+		// New: Lua Console toggle - both stick clicks (LS+RS)
+		const bool sticks =
+			(pad->wButtons & XINPUT_GAMEPAD_LEFT_THUMB) &&
+			(pad->wButtons & XINPUT_GAMEPAD_RIGHT_THUMB);
+		static bool sticksLatch = false;
+		if (sticks && !sticksLatch) {
+			sticksLatch = true;
+			#ifdef USE_LUA
+			extern void FCEU_ToggleLuaConsole(void);
+			FCEU_ToggleLuaConsole();
+			#endif
+		}
+		if (!sticks) {
+			sticksLatch = false;
+		}
+	}
 	
 	HRESULT OnEnterTab( BOOL &bHandled){
 		emul.RenderEmulation = true;//run emulation
+		
+#ifdef USE_LUA
+		// Auto-load all Lua scripts when entering emulation scene
+		extern void FCEU_ApplyLuaMode(int mode, const char* scriptName);
+		FCEU_ApplyLuaMode(Cemulator::Settings::LUA_AUTO_ALL, NULL);
+#endif
+		
 		return S_OK;
 	}
 
@@ -157,18 +185,18 @@ public:
 		return S_OK;
 	}
 
-    //--------------------------------------------------------------------------------------
-    // Name: OnInit
-    // Desc: Message handler for XM_INIT
-    //--------------------------------------------------------------------------------------
-    HRESULT OnInit( XUIMessageInit* pInitData, BOOL& bHandled )
-    {
+	//--------------------------------------------------------------------------------------
+	// Name: OnInit
+	// Desc: Message handler for XM_INIT
+	//--------------------------------------------------------------------------------------
+	HRESULT OnInit( XUIMessageInit* pInitData, BOOL& bHandled )
+	{
 		EnableTab(false);
 		m_comboLatch = false;  // initialize latch
 		g_EmuSceneInstance = this;              // expose instance
 		
-        return S_OK;
-    }
+		return S_OK;
+	}
 };
 
 typedef struct _LIST_ITEM_INFO {
@@ -216,12 +244,12 @@ private:
 public:
 	XUI_IMPLEMENT_CLASS( Osd, L"Osd", XUI_CLASS_SCENE );
 
-    XUI_BEGIN_MSG_MAP()
-        XUI_ON_XM_INIT( OnInit )
+	XUI_BEGIN_MSG_MAP()
+		XUI_ON_XM_INIT( OnInit )
 		XUI_ON_XM_NOTIFY_PRESS( OnNotifyPress )
-    		XUI_ON_XM_LEAVE_TAB ( OnLeaveTab )
+			XUI_ON_XM_LEAVE_TAB ( OnLeaveTab )
 		XUI_ON_XM_ENTER_TAB ( OnEnterTab )
-    XUI_END_MSG_MAP()
+	XUI_END_MSG_MAP()
 	
 	HRESULT OnEnterTab( BOOL &bHandled){
 		emul.RenderEmulation = true;//run emulation
@@ -243,12 +271,12 @@ public:
 		return S_OK;
 	}
 
-    //--------------------------------------------------------------------------------------
-    // Name: OnInit
-    // Desc: Message handler for XM_INIT
-    //--------------------------------------------------------------------------------------
-    HRESULT OnInit( XUIMessageInit* pInitData, BOOL& bHandled )
-    {
+	//--------------------------------------------------------------------------------------
+	// Name: OnInit
+	// Desc: Message handler for XM_INIT
+	//--------------------------------------------------------------------------------------
+	HRESULT OnInit( XUIMessageInit* pInitData, BOOL& bHandled )
+	{
 		EnableTab(false);
 
 		HRESULT hr = GetChildById( L"XuiSaveStateSlot", &XuiSaveStateSlot );
@@ -275,21 +303,21 @@ public:
 			XuiSwFilter.SetText(i, g_ListData[i].pwszText);
 		};
 		
-        return S_OK;
-    }
+		return S_OK;
+	}
 
 	bool FileExiste(char * filename){
 		HANDLE hFile = CreateFileA(filename,               // file to open
-           GENERIC_READ,          // open for reading
-           FILE_SHARE_READ,       // share for reading
-           NULL,                  // default security
-           OPEN_EXISTING,         // existing file only
-           FILE_ATTRIBUTE_NORMAL, // normal file
-           NULL);                 // no attr. template
+		GENERIC_READ,          // open for reading
+		FILE_SHARE_READ,       // share for reading
+		NULL,                  // default security
+		OPEN_EXISTING,         // existing file only
+		FILE_ATTRIBUTE_NORMAL, // normal file
+		NULL);                 // no attr. template
 
-		bool ret = (hFile != NULL);
+		bool ret = (hFile != INVALID_HANDLE_VALUE);
 
-		CloseHandle(hFile);
+		if (ret) CloseHandle(hFile);
 
 		return ret;
 	};
@@ -431,36 +459,36 @@ private:
 	
 	static const int MAX_RECENT_GAMES = 15;  // Maximum number of recent games to track
 
-    // Scroll state
-    DWORD m_lastMoveTick;
-    DWORD m_holdStartTick;
-    int   m_lastDir; // -1, 0, +1
-    
-    // Tuning
-    int   m_initialDelayMs;    // delay before first repeat when held
-    int   m_repeatIntervalMs;  // cadence while held
-    int   m_minDwellMs;        // hard minimum time between row changes
-    float m_deadzone;          // analog deadzone
-    int   m_pageSize;          // for LB/RB paging
-    
-    // RS time-based acceleration state
-    int   m_rsHoldDir;        // -1, 0, +1
-    DWORD m_rsHoldStartTick;  // when the current RS hold began
-    DWORD m_rsLastInjectTick; // last time we injected a ScrollBy() from RS
-    
-    // LS/DPAD (left stick or dpad) time-based acceleration
-    int   m_navHoldDir;        // -1, 0, +1
-    DWORD m_navHoldStartTick;  // when current LS/DPAD hold began
-    DWORD m_navLastInjectTick; // last injected ScrollBy() from LS/DPAD
+	// Scroll state
+	DWORD m_lastMoveTick;
+	DWORD m_holdStartTick;
+	int   m_lastDir; // -1, 0, +1
+	
+	// Tuning
+	int   m_initialDelayMs;    // delay before first repeat when held
+	int   m_repeatIntervalMs;  // cadence while held
+	int   m_minDwellMs;        // hard minimum time between row changes
+	float m_deadzone;          // analog deadzone
+	int   m_pageSize;          // for LB/RB paging
+	
+	// RS time-based acceleration state
+	int   m_rsHoldDir;        // -1, 0, +1
+	DWORD m_rsHoldStartTick;  // when the current RS hold began
+	DWORD m_rsLastInjectTick; // last time we injected a ScrollBy() from RS
+	
+	// LS/DPAD (left stick or dpad) time-based acceleration
+	int   m_navHoldDir;        // -1, 0, +1
+	DWORD m_navHoldStartTick;  // when current LS/DPAD hold began
+	DWORD m_navLastInjectTick; // last injected ScrollBy() from LS/DPAD
 
 public:
 	XUI_IMPLEMENT_CLASS( LoadGame, L"RomChoose", XUI_CLASS_SCENE );
 
-    XUI_BEGIN_MSG_MAP()
-        XUI_ON_XM_INIT( OnInit )
-        XUI_ON_XM_NOTIFY_PRESS( OnNotifyPress )
-        XUI_ON_XM_ENTER_TAB( OnEnterTab )
-    XUI_END_MSG_MAP()
+	XUI_BEGIN_MSG_MAP()
+		XUI_ON_XM_INIT( OnInit )
+		XUI_ON_XM_NOTIFY_PRESS( OnNotifyPress )
+		XUI_ON_XM_ENTER_TAB( OnEnterTab )
+	XUI_END_MSG_MAP()
 
 	//----------------------------------------------------------------------------------
 	// Name: OnNotifyPress
@@ -469,6 +497,7 @@ public:
 	HRESULT OnNotifyPress( HXUIOBJ hObjPressed, BOOL& bHandled )
 	{
 		HRESULT hr = S_OK;
+		
 		if( hObjPressed == XuiRomList )
 		{
 			int selIndex = XuiRomList.GetCurSel();
@@ -495,21 +524,22 @@ public:
 			AddToRecentGames(sRom, cleanName);
 			
 			emul.LoadGame( sRom ,true);
+			// Note: Lua scripts are auto-loaded inside LoadGame after ROM is loaded/powered
 
 			GoToNext();
 		}
 		return S_OK;
 	}
-    //--------------------------------------------------------------------------------------
-    // Name: OnInit
-    // Desc: Message handler for XM_INIT
-    //--------------------------------------------------------------------------------------
-    HRESULT OnInit( XUIMessageInit* pInitData, BOOL& bHandled )
-    {
+	//--------------------------------------------------------------------------------------
+	// Name: OnInit
+	// Desc: Message handler for XM_INIT
+	//--------------------------------------------------------------------------------------
+	HRESULT OnInit( XUIMessageInit* pInitData, BOOL& bHandled )
+	{
 		EnableTab(false);
 
-        HRESULT hr = GetChildById( L"XuiRomList", &XuiRomList );
-        if( FAILED( hr ) )
+		HRESULT hr = GetChildById( L"XuiRomList", &XuiRomList );
+		if( FAILED( hr ) )
 		{
 			return hr;
 		}
@@ -522,359 +552,358 @@ public:
 			}
 		}
 
-        // init scroll config/state
-        m_lastMoveTick = 0;
-        m_holdStartTick = 0;
-        m_lastDir = 0;
+		// init scroll config/state
+		m_lastMoveTick = 0;
+		m_holdStartTick = 0;
+		m_lastDir = 0;
 
-        // Tuned for "fast but precise"
-        m_initialDelayMs = 180;   // was 220 — faster initial response
-        m_repeatIntervalMs = 70;  // was 85 — quicker repeat cadence
-        m_minDwellMs = 50;        // was 70 — faster but safe minimum
-        m_deadzone = 0.25f;      // was ~0.15 — tiny deflections won't repeat
-        m_pageSize = 12;          // was 8 — bigger page steps
-        
-        // Initialize RS time-based acceleration state
-        m_rsHoldDir        = 0;
-        m_rsHoldStartTick  = 0;
-        m_rsLastInjectTick = 0;
-        
-        // Initialize LS/DPAD time-based acceleration state
-        m_navHoldDir        = 0;
-        m_navHoldStartTick  = 0;
-        m_navLastInjectTick = 0;
-        
-        // Initialize search
-        m_searchFilter = L"";
-        m_searchLatch = false;
-        m_keyboardPending = false;
-        m_keyboardEvent = NULL;
-        memset(&m_keyboardOverlapped, 0, sizeof(XOVERLAPPED));
-        m_keyboardResult[0] = L'\0';
+		// Tuned for "fast but precise"
+		m_initialDelayMs = 180;   // was 220 — faster initial response
+		m_repeatIntervalMs = 70;  // was 85 — quicker repeat cadence
+		m_minDwellMs = 50;        // was 70 — faster but safe minimum
+		m_deadzone = 0.25f;      // was ~0.15 — tiny deflections won't repeat
+		m_pageSize = 12;          // was 8 — bigger page steps
+		
+		// Initialize RS time-based acceleration state
+		m_rsHoldDir        = 0;
+		m_rsHoldStartTick  = 0;
+		m_rsLastInjectTick = 0;
+		
+		// Initialize LS/DPAD time-based acceleration state
+		m_navHoldDir        = 0;
+		m_navHoldStartTick  = 0;
+		m_navLastInjectTick = 0;
+		
+		// Initialize search
+		m_searchFilter = L"";
+		m_searchLatch = false;
+		m_keyboardPending = false;
+		m_keyboardEvent = NULL;
+		memset(&m_keyboardOverlapped, 0, sizeof(XOVERLAPPED));
+		m_keyboardResult[0] = L'\0';
 
-        // Ensure config is loaded before loading recent games and favorites
-        extern Config fcecfg;
-        fcecfg.Load("game:\\fceui.ini");
-        
-        // Load recent games from config
-        LoadRecentGames();
-        
-        // Load favorites from config
-        LoadFavorites();
+		// Ensure config is loaded before loading recent games and favorites
+		extern Config fcecfg;
+		fcecfg.Load("game:\\fceui.ini");
+		
+		// Load recent games from config
+		LoadRecentGames();
+		
+		// Load favorites from config
+		LoadFavorites();
+		
+		// expose instance for per-frame updates from RenderXui
+		g_LoadGameInstance = this;
 
-        // expose instance for per-frame updates from RenderXui
-        g_LoadGameInstance = this;
+		return S_OK;
+	}
+	
+	HRESULT OnEnterTab( BOOL& bHandled )
+	{
+		// Reload config to ensure we have latest saved recent games and favorites
+		extern Config fcecfg;
+		fcecfg.Load("game:\\fceui.ini");
+		
+		// Reload recent games and favorites and refresh the list when returning to this scene
+		LoadRecentGames();
+		LoadFavorites();
+		ApplySearchFilter();  // Refresh the display with updated recent games and favorites
+		bHandled = TRUE;
+		return S_OK;
+	}
+	
+	void Page(int dir /* +1 = up page, -1 = down page */)
+	{
+		int count = XuiRomList.GetItemCount();
+		if (count <= 0) return;
 
-        return S_OK;
-    }
-    
-    HRESULT OnEnterTab( BOOL& bHandled )
-    {
-        // Reload config to ensure we have latest saved recent games and favorites
-        extern Config fcecfg;
-        fcecfg.Load("game:\\fceui.ini");
-        
-        // Reload recent games and favorites and refresh the list when returning to this scene
-        LoadRecentGames();
-        LoadFavorites();
-        ApplySearchFilter();  // Refresh the display with updated recent games and favorites
-        bHandled = TRUE;
-        return S_OK;
-    }
-    
-    void Page(int dir /* +1 = up page, -1 = down page */)
-    {
-        int count = XuiRomList.GetItemCount();
-        if (count <= 0) return;
+		int cur = XuiRomList.GetCurSel();
+		int next = cur + (dir > 0 ? -m_pageSize : +m_pageSize);
+		if (next < 0) next = 0;
+		if (next >= count) next = count - 1;
 
-        int cur = XuiRomList.GetCurSel();
-        int next = cur + (dir > 0 ? -m_pageSize : +m_pageSize);
-        if (next < 0) next = 0;
-        if (next >= count) next = count - 1;
+		if (next != cur)
+		{
+			XuiRomList.SetCurSel(next);
 
-        if (next != cur)
-        {
-            XuiRomList.SetCurSel(next);
+			// keep selection roughly centered
+			int visible = 10;
+			int top = next - (visible / 2);
+			if (top < 0) top = 0;
+			int maxTop = (count > visible) ? (count - visible) : 0;
+			if (top > maxTop) top = maxTop;
+			XuiRomList.SetTopItem(top);
+		}
+	}
 
-            // keep selection roughly centered
-            int visible = 10;
-            int top = next - (visible / 2);
-            if (top < 0) top = 0;
-            int maxTop = (count > visible) ? (count - visible) : 0;
-            if (top > maxTop) top = maxTop;
-            XuiRomList.SetTopItem(top);
-        }
-    }
+	void UpdatePerFrame()
+	{
+		Input::GetInput(NULL);
+		GAMEPAD* pad = Input::GetMergedInput(0, NULL);
+		if (!pad) return;
 
-    void UpdatePerFrame()
-    {
-        Input::GetInput(NULL);
-        GAMEPAD* pad = Input::GetMergedInput(0, NULL);
-        if (!pad) return;
+		DWORD now = GetTickCount();
+		
+		// Check for keyboard completion if one is pending (non-blocking check)
+		if (m_keyboardPending && m_keyboardEvent)
+		{
+			DWORD dwWaitResult = WaitForSingleObject(m_keyboardEvent, 0);  // Non-blocking check
+			if (dwWaitResult == WAIT_OBJECT_0)
+			{
+				// Keyboard input completed - always process the result
+				m_keyboardPending = false;
+				
+				// Get the result text (should already be populated in m_keyboardResult by XShowKeyboardUI)
+				std::wstring newFilter = m_keyboardResult;
+				
+				// Apply the filter (even if empty - empty means show all ROMs)
+				m_searchFilter = newFilter;
+				ApplySearchFilter();
+				
+				CloseHandle(m_keyboardEvent);
+				m_keyboardEvent = NULL;
+			}
+		}
+		
+		// Check for search trigger (Y button) - use pressed buttons to catch edge
+		bool yJustPressed = (pad->wButtons & XINPUT_GAMEPAD_Y) != 0;
+		static bool yWasPressed = false;
+		
+		if (yJustPressed && !yWasPressed && !m_keyboardPending)
+		{
+			// Y button just pressed - show keyboard
+			ShowSearchKeyboard();
+		}
+		yWasPressed = yJustPressed;
+		
+		// Check for favorites toggle (X button) - use pressed buttons to catch edge
+		// Only process if we're in the ROM browser (not during emulation)
+		if (!emul.RenderEmulation)
+		{
+			bool xJustPressed = (pad->wButtons & XINPUT_GAMEPAD_X) != 0;
+			static bool xWasPressed = false;
+			
+			if (xJustPressed && !xWasPressed && !m_keyboardPending)
+			{
+				// X button just pressed - toggle favorite for currently selected ROM
+				int selIndex = XuiRomList.GetCurSel();
+				if (selIndex >= 0 && selIndex < (int)m_rom_list.size())
+				{
+					rom_item selected = m_rom_list.at(selIndex);
+					
+					// Skip separator items (empty filename)
+					if (!selected.filename.empty() && !selected.path.empty())
+					{
+						std::string fullRomPath = selected.path + selected.filename;
+						
+						// Remove [Recent] or [Favorite] prefix from display name
+						std::wstring cleanName = selected.affichage;
+						if (cleanName.find(L"[Recent] ") == 0)
+						{
+							cleanName = cleanName.substr(9); // Remove "[Recent] " prefix
+						}
+						if (cleanName.find(L"[Favorite] ") == 0)
+						{
+							cleanName = cleanName.substr(11); // Remove "[Favorite] " prefix
+						}
+						
+						// Store the selected item's path for restoration after refresh
+						std::string selectedPath = fullRomPath;
+						
+						// Toggle favorite status
+						bool wasFavorite = IsFavorite(fullRomPath);
+						if (wasFavorite)
+						{
+							// Remove from favorites
+							RemoveFromFavorites(fullRomPath);
+						}
+						else
+						{
+							// Add to favorites
+							AddToFavorites(fullRomPath, cleanName);
+						}
+						
+						// Refresh the list to update display (with [Favorite] prefix)
+						ApplySearchFilter();
+						
+						// Restore selection by finding the item again (it might have moved)
+						int newSelIndex = -1;
+						for (size_t i = 0; i < m_rom_list.size(); i++)
+						{
+							std::string itemPath = m_rom_list[i].path + m_rom_list[i].filename;
+							if (selectedPath == itemPath)
+							{
+								newSelIndex = (int)i;
+								break;
+							}
+						}
+						
+						// Restore selection if we found the item
+						if (newSelIndex >= 0 && newSelIndex < (int)m_rom_list.size())
+						{
+							XuiRomList.SetCurSel(newSelIndex);
+						}
+						else if (selIndex < (int)m_rom_list.size())
+						{
+							// Fallback: try original index if item count hasn't changed much
+							XuiRomList.SetCurSel(selIndex);
+						}
+					}
+				}
+			}
+			xWasPressed = xJustPressed;
+		}
 
-        DWORD now = GetTickCount();
-        
-        // Check for keyboard completion if one is pending (non-blocking check)
-        if (m_keyboardPending && m_keyboardEvent)
-        {
-            DWORD dwWaitResult = WaitForSingleObject(m_keyboardEvent, 0);  // Non-blocking check
-            if (dwWaitResult == WAIT_OBJECT_0)
-            {
-                // Keyboard input completed - always process the result
-                m_keyboardPending = false;
-                
-                // Get the result text (should already be populated in m_keyboardResult by XShowKeyboardUI)
-                std::wstring newFilter = m_keyboardResult;
-                
-                // Apply the filter (even if empty - empty means show all ROMs)
-                m_searchFilter = newFilter;
-                ApplySearchFilter();
-                
-                CloseHandle(m_keyboardEvent);
-                m_keyboardEvent = NULL;
-            }
-        }
-        
-        // Check for search trigger (Y button) - use pressed buttons to catch edge
-        bool yJustPressed = (pad->wButtons & XINPUT_GAMEPAD_Y) != 0;
-        static bool yWasPressed = false;
-        
-        if (yJustPressed && !yWasPressed && !m_keyboardPending)
-        {
-            // Y button just pressed - show keyboard
-            ShowSearchKeyboard();
-        }
-        yWasPressed = yJustPressed;
-        
-        // Check for favorites toggle (X button) - use pressed buttons to catch edge
-        // Only process if we're in the ROM browser (not during emulation)
-        if (!emul.RenderEmulation)
-        {
-            bool xJustPressed = (pad->wButtons & XINPUT_GAMEPAD_X) != 0;
-            static bool xWasPressed = false;
-            
-            if (xJustPressed && !xWasPressed && !m_keyboardPending)
-            {
-                // X button just pressed - toggle favorite for currently selected ROM
-                int selIndex = XuiRomList.GetCurSel();
-                if (selIndex >= 0 && selIndex < (int)m_rom_list.size())
-                {
-                    rom_item selected = m_rom_list.at(selIndex);
-                    
-                    // Skip separator items (empty filename)
-                    if (!selected.filename.empty() && !selected.path.empty())
-                    {
-                        std::string fullRomPath = selected.path + selected.filename;
-                        
-                        // Remove [Recent] or [Favorite] prefix from display name
-                        std::wstring cleanName = selected.affichage;
-                        if (cleanName.find(L"[Recent] ") == 0)
-                        {
-                            cleanName = cleanName.substr(9); // Remove "[Recent] " prefix
-                        }
-                        if (cleanName.find(L"[Favorite] ") == 0)
-                        {
-                            cleanName = cleanName.substr(11); // Remove "[Favorite] " prefix
-                        }
-                        
-                        // Store the selected item's path for restoration after refresh
-                        std::string selectedPath = fullRomPath;
-                        
-                        // Toggle favorite status
-                        bool wasFavorite = IsFavorite(fullRomPath);
-                        if (wasFavorite)
-                        {
-                            // Remove from favorites
-                            RemoveFromFavorites(fullRomPath);
-                        }
-                        else
-                        {
-                            // Add to favorites
-                            AddToFavorites(fullRomPath, cleanName);
-                        }
-                        
-                        // Refresh the list to update display (with [Favorite] prefix)
-                        ApplySearchFilter();
-                        
-                        // Restore selection by finding the item again (it might have moved)
-                        int newSelIndex = -1;
-                        for (size_t i = 0; i < m_rom_list.size(); i++)
-                        {
-                            std::string itemPath = m_rom_list[i].path + m_rom_list[i].filename;
-                            if (selectedPath == itemPath)
-                            {
-                                newSelIndex = (int)i;
-                                break;
-                            }
-                        }
-                        
-                        // Restore selection if we found the item
-                        if (newSelIndex >= 0 && newSelIndex < (int)m_rom_list.size())
-                        {
-                            XuiRomList.SetCurSel(newSelIndex);
-                        }
-                        else if (selIndex < (int)m_rom_list.size())
-                        {
-                            // Fallback: try original index if item count hasn't changed much
-                            XuiRomList.SetCurSel(selIndex);
-                        }
-                    }
-                }
-            }
-            xWasPressed = xJustPressed;
-        }
+		// 1) PAGING (LB/RB) — repeats while held
+		static DWORD lastPageTick = 0;
+		const DWORD pageRepeatMs  = 100;
+		if (pad->wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER)
+		{
+			if (now - lastPageTick >= pageRepeatMs) { Page(+1); lastPageTick = now; }
+			return;
+		}
+		if (pad->wButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER)
+		{
+			if (now - lastPageTick >= pageRepeatMs) { Page(-1); lastPageTick = now; }
+			return;
+		}
 
-        // 1) PAGING (LB/RB) — repeats while held
-        static DWORD lastPageTick = 0;
-        const DWORD pageRepeatMs  = 100;
-        if (pad->wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER)
-        {
-            if (now - lastPageTick >= pageRepeatMs) { Page(+1); lastPageTick = now; }
-            return;
-        }
-        if (pad->wButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER)
-        {
-            if (now - lastPageTick >= pageRepeatMs) { Page(-1); lastPageTick = now; }
-            return;
-        }
+		// ---- RIGHT STICK acceleration (selection) ----
+		const float RS_DEADZONE = 0.28f;
+		float rsY = pad->fY2;              // up = +, down = -
+		int   rsDir = 0;
+		if      (rsY >  RS_DEADZONE) rsDir = +1;
+		else if (rsY < -RS_DEADZONE) rsDir = -1;
 
-        // ---- RIGHT STICK acceleration (selection) ----
-        const float RS_DEADZONE = 0.28f;
-        float rsY = pad->fY2;              // up = +, down = -
-        int   rsDir = 0;
-        if      (rsY >  RS_DEADZONE) rsDir = +1;
-        else if (rsY < -RS_DEADZONE) rsDir = -1;
+		if (rsDir == 0)
+		{
+			// Reset RS state if neutral
+			m_rsHoldDir        = 0;
+			m_rsHoldStartTick  = 0;
+			m_rsLastInjectTick = 0;
+		}
+		else
+		{
+			if (m_rsHoldDir != rsDir || m_rsHoldStartTick == 0)
+			{
+				m_rsHoldDir        = rsDir;
+				m_rsHoldStartTick  = now;
+				m_rsLastInjectTick = 0; // allow immediate inject
+			}
 
-        if (rsDir == 0)
-        {
-            // Reset RS state if neutral
-            m_rsHoldDir        = 0;
-            m_rsHoldStartTick  = 0;
-            m_rsLastInjectTick = 0;
-        }
-        else
-        {
-            if (m_rsHoldDir != rsDir || m_rsHoldStartTick == 0)
-            {
-                m_rsHoldDir        = rsDir;
-                m_rsHoldStartTick  = now;
-                m_rsLastInjectTick = 0; // allow immediate inject
-            }
+			DWORD heldMs = now - m_rsHoldStartTick;
 
-            DWORD heldMs = now - m_rsHoldStartTick;
+			DWORD intervalMs;
+			int steps;
 
-            DWORD intervalMs;
-            int steps;
+			// Time → speed tiers (friendly → fast, with hard cap)
+			if      (heldMs < 200)  { intervalMs = 150; steps = 1; }
+			else if (heldMs < 450)  { intervalMs = 115; steps = 1; }
+			else if (heldMs < 800)  { intervalMs =  85; steps = 1; }
+			else if (heldMs < 1200) { intervalMs =  65; steps = 2; }
+			else if (heldMs < 1800) { intervalMs =  50; steps = 2; }
+			else if (heldMs < 2600) { intervalMs =  40; steps = 3; }
+			else                    { intervalMs =  35; steps = 3; } // cap
 
-            // Time → speed tiers (friendly → fast, with hard cap)
-            if      (heldMs < 200)  { intervalMs = 150; steps = 1; }
-            else if (heldMs < 450)  { intervalMs = 115; steps = 1; }
-            else if (heldMs < 800)  { intervalMs =  85; steps = 1; }
-            else if (heldMs < 1200) { intervalMs =  65; steps = 2; }
-            else if (heldMs < 1800) { intervalMs =  50; steps = 2; }
-            else if (heldMs < 2600) { intervalMs =  40; steps = 3; }
-            else                    { intervalMs =  35; steps = 3; } // cap
+			// Fine control by deflection magnitude
+			float mag = fabsf(rsY);
+			if      (mag < 0.55f) steps = 1;
+			else if (mag < 0.80f) steps = (steps > 1 ? 2 : 1);
+			// >= 0.80f keeps computed steps
 
-            // Fine control by deflection magnitude
-            float mag = fabsf(rsY);
-            if      (mag < 0.55f) steps = 1;
-            else if (mag < 0.80f) steps = (steps > 1 ? 2 : 1);
-            // >= 0.80f keeps computed steps
+			if (m_rsLastInjectTick == 0 || (now - m_rsLastInjectTick) >= intervalMs)
+			{
+				ScrollBy(rsDir, steps);
+				m_rsLastInjectTick = now;
+			}
 
-            if (m_rsLastInjectTick == 0 || (now - m_rsLastInjectTick) >= intervalMs)
-            {
-                ScrollBy(rsDir, steps);
-                m_rsLastInjectTick = now;
-            }
+			// RS path owns movement this frame (prevents double-ramp when both sticks used)
+			return;
+		}
 
-            // RS path owns movement this frame (prevents double-ramp when both sticks used)
-            return;
-        }
+		// ---- LS/DPAD acceleration (adds speed on top of XUI's own repeat) ----
+		const float LS_DEADZONE = 0.28f;
+		bool upHeld   = (pad->wButtons & XINPUT_GAMEPAD_DPAD_UP)   || (pad->fY1 >  LS_DEADZONE);
+		bool downHeld = (pad->wButtons & XINPUT_GAMEPAD_DPAD_DOWN) || (pad->fY1 < -LS_DEADZONE);
+		int  navDir   = upHeld ? +1 : (downHeld ? -1 : 0);
 
-        // ---- LS/DPAD acceleration (adds speed on top of XUI's own repeat) ----
-        const float LS_DEADZONE = 0.28f;
-        bool upHeld   = (pad->wButtons & XINPUT_GAMEPAD_DPAD_UP)   || (pad->fY1 >  LS_DEADZONE);
-        bool downHeld = (pad->wButtons & XINPUT_GAMEPAD_DPAD_DOWN) || (pad->fY1 < -LS_DEADZONE);
-        int  navDir   = upHeld ? +1 : (downHeld ? -1 : 0);
+		if (navDir == 0)
+		{
+			m_navHoldDir        = 0;
+			m_navHoldStartTick  = 0;
+			m_navLastInjectTick = 0;
+			return;
+		}
 
-        if (navDir == 0)
-        {
-            m_navHoldDir        = 0;
-            m_navHoldStartTick  = 0;
-            m_navLastInjectTick = 0;
-            return;
-        }
+		if (m_navHoldDir != navDir || m_navHoldStartTick == 0)
+		{
+			m_navHoldDir        = navDir;
+			m_navHoldStartTick  = now;
+			m_navLastInjectTick = 0;
+			// Let XUI do the first few repeats before we start piling on.
+			return;
+		}
 
-        if (m_navHoldDir != navDir || m_navHoldStartTick == 0)
-        {
-            m_navHoldDir        = navDir;
-            m_navHoldStartTick  = now;
-            m_navLastInjectTick = 0;
-            // Let XUI do the first few repeats before we start piling on.
-            return;
-        }
+		DWORD heldMs = now - m_navHoldStartTick;
 
-        DWORD heldMs = now - m_navHoldStartTick;
+		// Wait a short moment so the first moves are precise,
+		// then start injecting extra steps to "go faster the longer you hold".
+		const DWORD accelStartMs = 280; // start adding extra after ~0.28s
+		if (heldMs < accelStartMs) return;
 
-        // Wait a short moment so the first moves are precise,
-        // then start injecting extra steps to "go faster the longer you hold".
-        const DWORD accelStartMs = 280; // start adding extra after ~0.28s
-        if (heldMs < accelStartMs) return;
+		// Time → speed tiers for LS/DPAD (slightly gentler than RS)
+		DWORD intervalMs;
+		int steps;
+		if      (heldMs < 700)   { intervalMs = 120; steps = 1; }
+		else if (heldMs < 1200)  { intervalMs =  90; steps = 2; }
+		else if (heldMs < 2000)  { intervalMs =  65; steps = 2; }
+		else if (heldMs < 3000)  { intervalMs =  50; steps = 3; }
+		else                     { intervalMs =  45; steps = 3; } // cap
 
-        // Time → speed tiers for LS/DPAD (slightly gentler than RS)
-        DWORD intervalMs;
-        int steps;
-        if      (heldMs < 700)   { intervalMs = 120; steps = 1; }
-        else if (heldMs < 1200)  { intervalMs =  90; steps = 2; }
-        else if (heldMs < 2000)  { intervalMs =  65; steps = 2; }
-        else if (heldMs < 3000)  { intervalMs =  50; steps = 3; }
-        else                     { intervalMs =  45; steps = 3; } // cap
+		// Scale a bit by LS magnitude for analog feel
+		float lsMag = fabsf(pad->fY1);
+		if      (lsMag < 0.55f) steps = 1;
+		else if (lsMag < 0.80f) steps = (steps > 1 ? 2 : 1);
 
-        // Scale a bit by LS magnitude for analog feel
-        float lsMag = fabsf(pad->fY1);
-        if      (lsMag < 0.55f) steps = 1;
-        else if (lsMag < 0.80f) steps = (steps > 1 ? 2 : 1);
+		// Minimum dwell to avoid micro-jitter double steps
+		const DWORD minDwell = 40;
+		if (m_navLastInjectTick == 0 || (now - m_navLastInjectTick) >= (std::max)(minDwell, intervalMs))
+		{
+			ScrollBy(navDir, steps);   // extra steps on top of XUI's own repeats
+			m_navLastInjectTick = now;
+		}
+	}
 
-        // Minimum dwell to avoid micro-jitter double steps
-        const DWORD minDwell = 40;
-        if (m_navLastInjectTick == 0 || (now - m_navLastInjectTick) >= (std::max)(minDwell, intervalMs))
-        {
-            ScrollBy(navDir, steps);   // extra steps on top of XUI's own repeats
-            m_navLastInjectTick = now;
-        }
-    }
+	void ScrollBy( int dir, int step )
+	{
+		if( step <= 0 ) return;
+		int count = XuiRomList.GetItemCount();
+		if( count <= 0 ) return;
+		int cur = XuiRomList.GetCurSel();
+		int next = cur + (dir > 0 ? -step : +step); // XUI list: up is smaller index
+		if( next < 0 ) next = 0;
+		if( next >= count ) next = count - 1;
+		if( next != cur )
+		{
+			XuiRomList.SetCurSel( next );
 
-    void ScrollBy( int dir, int step )
-    {
-        if( step <= 0 ) return;
-        int count = XuiRomList.GetItemCount();
-        if( count <= 0 ) return;
-        int cur = XuiRomList.GetCurSel();
-        int next = cur + (dir > 0 ? -step : +step); // XUI list: up is smaller index
-        if( next < 0 ) next = 0;
-        if( next >= count ) next = count - 1;
-        if( next != cur )
-        {
-            XuiRomList.SetCurSel( next );
-
-            // Keep selection in view by adjusting the top item.
-            int visible = 10; // conservative fallback; XUI doesn't expose a query here
-            int top = next - (visible / 2);
-            if( top < 0 ) top = 0;
-            int maxTop = (count > visible) ? (count - visible) : 0;
-            if( top > maxTop ) top = maxTop;
-            XuiRomList.SetTopItem( top );
-        }
-    }
+			// Keep selection in view by adjusting the top item.
+			int visible = 10; // conservative fallback; XUI doesn't expose a query here
+			int top = next - (visible / 2);
+			if( top < 0 ) top = 0;
+			int maxTop = (count > visible) ? (count - visible) : 0;
+			if( top > maxTop ) top = maxTop;
+			XuiRomList.SetTopItem( top );
+		}
+	}
 private:
 	void ApplySearchFilter()
 	{
 		m_rom_list.clear();
 		
-		// First, add recent games if no filter is active
+		// Add recent games at the top with a prefix
 		if (m_searchFilter.empty())
 		{
-			// Add recent games at the top with a prefix
 			for (size_t i = 0; i < m_recent_games.size(); i++)
 			{
 				rom_item recent_item = m_recent_games[i];
@@ -1210,7 +1239,7 @@ private:
 		{
 			std::string existingPath = m_recent_games[i].path + m_recent_games[i].filename;
 			if (romPath == existingPath || 
-			    (newItem.path + newItem.filename) == existingPath)
+				(newItem.path + newItem.filename) == existingPath)
 			{
 				m_recent_games.erase(m_recent_games.begin() + i);
 				break;
@@ -1553,11 +1582,11 @@ class XboxUI : public CXuiModule
 {
 	public:
 		XboxUI()
-        {
-        }
-        ~XboxUI()
-        {
-        }
+		{
+		}
+		~XboxUI()
+		{
+		}
 	protected:
 		HRESULT RegisterXuiClasses(){
 			XuiVideoRegister();
@@ -1588,21 +1617,21 @@ XboxUI gUi;
 HRESULT InitUi(IDirect3DDevice9* pDevice, D3DPRESENT_PARAMETERS d3dpp)
 {
 	HRESULT hr = gUi.InitShared( pDevice, &d3dpp, XuiPNGTextureLoader );
-    if( FAILED( hr ) )
-        return hr;
+	if( FAILED( hr ) )
+		return hr;
 
-	 // Register a default typeface
-    hr = gUi.RegisterDefaultTypeface( L"Arial", L"file://game:/media/xarialuni.ttf" );
-    if( FAILED( hr ) )
-        return hr;
-    hr = gUi.LoadSkin( L"file://game:/media/ui.xzp#media\\xui\\skin_default.xur" );
-    if( FAILED( hr ) )
-        return hr;
+	// Register a default typeface
+	hr = gUi.RegisterDefaultTypeface( L"Arial", L"file://game:/media/xarialuni.ttf" );
+	if( FAILED( hr ) )
+		return hr;
+	hr = gUi.LoadSkin( L"file://game:/media/ui.xzp#media\\xui\\skin_default.xur" );
+	if( FAILED( hr ) )
+		return hr;
 
-    //hr = gUi.LoadFirstScene( L"file://game:/media/ui.xzp#media\\xui\\", L"main.xur" );
+	//hr = gUi.LoadFirstScene( L"file://game:/media/ui.xzp#media\\xui\\", L"main.xur" );
 	hr = gUi.LoadFirstScene( L"file://game:/media/ui.xzp#media\\xui\\", L"LoadGame.xur" );
-    if( FAILED( hr ) )
-        return hr;
+	if( FAILED( hr ) )
+		return hr;
 
 	return S_OK;
 }
@@ -1630,19 +1659,19 @@ HRESULT RenderXui(IDirect3DDevice9* pDevice)
 
 	XuiRenderBegin( gUi.GetDC(), D3DCOLOR_ARGB( 255, 0, 0, 0 ) );
 
-    D3DXMATRIX matOrigView;
-    XuiRenderGetViewTransform( gUi.GetDC(), &matOrigView );
+	D3DXMATRIX matOrigView;
+	XuiRenderGetViewTransform( gUi.GetDC(), &matOrigView );
 
 	XUIMessage msg;
-    XUIMessageRender msgRender;
-    XuiMessageRender( &msg, &msgRender, gUi.GetDC(), 0xffffffff, XUI_BLEND_NORMAL );
-    XuiSendMessage( gUi.GetRootObj(), &msg );
+	XUIMessageRender msgRender;
+	XuiMessageRender( &msg, &msgRender, gUi.GetDC(), 0xffffffff, XUI_BLEND_NORMAL );
+	XuiSendMessage( gUi.GetRootObj(), &msg );
 
-    XuiRenderSetViewTransform( gUi.GetDC(), &matOrigView );
+	XuiRenderSetViewTransform( gUi.GetDC(), &matOrigView );
 
-    XuiRenderEnd( gUi.GetDC() );
+	XuiRenderEnd( gUi.GetDC() );
 	
-    pDevice->SetRenderState( D3DRS_CULLMODE, D3DCULL_CCW );
+	pDevice->SetRenderState( D3DRS_CULLMODE, D3DCULL_CCW );
 
 	return S_OK;
 }

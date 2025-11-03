@@ -1089,10 +1089,12 @@ HRESULT Cemulator::Run()
 #ifndef USE_LUA
 							DrawTextTrans(bitmap + 4*256 + 4, 256, (uint8*)"LUA: N/A", 0x2E | 0x80);
 #else
-							extern int FCEU_LuaIsDisabled(void);
-							const char* luaMsg = FCEU_LuaIsDisabled() ? "LUA: OFF" : "LUA: AUTO";
-							DrawTextTrans(bitmap + 4*256 + 4, 256, (uint8*)luaMsg, 0x2E | 0x80);
-							
+                            extern int FCEU_LuaIsDisabled(void);
+                            extern const char* FCEU_LuaGetStatusMsg(void);
+                            const char* luaMsg = FCEU_LuaIsDisabled() ? "LUA: OFF" : FCEU_LuaGetStatusMsg();
+                            if (!luaMsg || !luaMsg[0]) luaMsg = "LUA: ON";
+                            DrawTextTrans(bitmap + 4*256 + 4, 256, (uint8*)luaMsg, 0x2E | 0x80);
+                            
 							// Run Lua GUI if Lua is enabled (auto-load is always enabled)
 							if (!FCEU_LuaIsDisabled()) {
 								// Throttled Lua GUI (runs at ~30Hz for performance), draws onto XBuf
