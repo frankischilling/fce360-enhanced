@@ -382,7 +382,15 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
       - Parameters, Returns, Notes, Examples
     - [`scanbyte(value, startAddr, endAddr)`](#scanbytevalue-startaddr-endaddr)
       - Parameters, Returns, Notes, Examples
+    - [`scanword(value, startAddr, endAddr)`](#scanwordvalue-startaddr-endaddr)
+      - Parameters, Returns, Notes, Examples
+    - [`scanbytes(pattern, startAddr, endAddr)`](#scanbytespattern-startaddr-endaddr)
+      - Parameters, Returns, Notes, Examples
   - [Memory Functions](#memory-functions)
+    - [`setbit(address, bit)`](#setbitaddress-bit)
+    - [`clearbit(address, bit)`](#clearbitaddress-bit)
+    - [`togglebit(address, bit)`](#togglebitaddress-bit)
+    - [`testbit(address, bit)`](#testbitaddress-bit)
     - [`writebyte(address, value)`](#writebyteaddress-value)
       - Parameters, Returns, Notes, Examples
     - [`writeword(address, value)`](#writewordaddress-value)
@@ -1837,6 +1845,79 @@ end
 local flags = scanbyte(1, 0x0000, 0xFFFF)
 ```
 
+#### `scanword(value, startAddr, endAddr)`
+Searches for a specific 16-bit value (little-endian) within an address range and returns all matching addresses.
+
+**Parameters:**
+- `value` (integer): Target 16-bit value to search for (0–65535). Compared as little-endian: low byte at `addr`, high byte at `addr+1`.
+- `startAddr` (integer): Start address (inclusive), 0x0000–0xFFFF.
+- `endAddr` (integer): End address (inclusive), 0x0000–0xFFFF. Order is flexible; if `startAddr > endAddr`, they are swapped.
+
+**Returns:**
+- (table): A 1-indexed Lua table of addresses where the 16-bit word starting at that address equals `value`.
+
+**Notes:**
+- Little-endian match: `value & 0xFF` must equal byte at `addr`, and `(value >> 8) & 0xFF` must equal byte at `addr+1`.
+- Safe at top of space: when `addr == 0xFFFF`, high byte is treated as 0.
+- Uses emulator memory mapping (`ARead`).
+- For single-byte flags (e.g., SMB1 power-up at 0x0756), use `scanbyte` instead.
+
+**Examples:**
+```lua
+-- Find 16-bit value 0x1234 in RAM
+local hits = scanword(0x1234, 0x0000, 0x07FF)
+for i = 1, math.min(#hits, 10) do
+  print(string.format("[%02d] 0x%04X", i, hits[i]))
+end
+
+-- Check if any address currently holds 600 (e.g., a timer)
+local timerHits = scanword(600, 0x0000, 0xFFFF)
+print("timer matches:", #timerHits)
+```
+
+#### `scanbytes(pattern, startAddr, endAddr)`
+Searches for a sequence of byte values within an address range and returns all starting addresses where the pattern matches.
+
+**Parameters:**
+- `pattern`: Can be either:
+  - (table): A Lua table containing byte values `{value1, value2, ...}` (1-indexed)
+  - (varargs): Individual byte values as arguments `b1, b2, ..., startAddr, endAddr`
+- `startAddr` (integer): Start address (inclusive), 0x0000–0xFFFF.
+- `endAddr` (integer): End address (inclusive), 0x0000–0xFFFF. Order is flexible; if `startAddr > endAddr`, they are swapped.
+
+**Returns:**
+- (table): A 1-indexed Lua table of addresses where the pattern starts (i.e., where all pattern bytes match consecutively).
+
+**Notes:**
+- Pattern length is limited to 256 bytes maximum.
+- All pattern values must be in range 0–255.
+- When using table form: `scanbytes({0xDE, 0xAD}, 0x0000, 0xFFFF)`
+- When using varargs form: `scanbytes(0xDE, 0xAD, 0x0000, 0xFFFF)` (last two args are addresses)
+- Uses emulator memory mapping (`ARead`), so it works across RAM/PPU/APU/cartridge spaces.
+- Addresses are validated to the NES 16-bit address space.
+- Pattern matching stops at address boundaries; no wrapping occurs.
+
+**Examples:**
+```lua
+-- Search for a 4-byte signature using table pattern
+local pattern = {0xDE, 0xAD, 0xBE, 0xEF}
+local hits = scanbytes(pattern, 0x0000, 0x07FF)
+for i, addr in ipairs(hits) do
+  print(string.format("Found pattern at 0x%04X", addr))
+end
+
+-- Search using varargs (same result as above)
+local hits2 = scanbytes(0xDE, 0xAD, 0xBE, 0xEF, 0x0000, 0x07FF)
+
+-- Find a 2-byte sequence in RAM
+local matches = scanbytes({0x03, 0x00}, 0x0200, 0x07FF)
+print("Found", #matches, "matches")
+
+-- Search for a longer data structure (e.g., 8 bytes)
+local structPattern = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07}
+local found = scanbytes(structPattern, 0x0000, 0xFFFF)
+```
+
 #### Memory Reading Function Comparison
 
 | Function | Purpose | Data Size | Returns |
@@ -1923,6 +2004,100 @@ end
 ### Memory Functions
 
 Functions for writing to NES memory. Use these to modify game state, create cheats, or manipulate game data.
+
+#### `setbit(address, bit)`
+Sets a specific bit (0–7) in the byte at `address`.
+
+**Parameters:**
+- `address` (integer): NES address, 0x0000–0xFFFF.
+- `bit` (integer): Bit index to set, 0–7.
+
+**Returns:** Nothing
+
+**Notes:**
+- Reads the current byte via the emulator mapping, sets `1 << bit`, and writes back.
+- Writing to ROM addresses is typically ignored by the mapper.
+
+**Examples:**
+```lua
+-- Set a status flag bit
+setbit(0x0200, 3)
+
+-- SMB1 (example): ensure a power-up bit is set
+setbit(0x0756, 2)
+```
+
+#### `clearbit(address, bit)`
+Clears a specific bit (0–7) in the byte at `address`.
+
+**Parameters:**
+- `address` (integer): NES address, 0x0000–0xFFFF.
+- `bit` (integer): Bit index to clear, 0–7.
+
+**Returns:** Nothing
+
+**Notes:**
+- Reads the current byte via the emulator mapping, clears `1 << bit`, and writes back.
+- Writing to ROM addresses is typically ignored by the mapper.
+
+**Examples:**
+```lua
+-- Clear a status flag bit
+clearbit(0x0200, 3)
+
+-- SMB1 (example): clear a power-up-related bit
+clearbit(0x0756, 2)
+```
+
+#### `togglebit(address, bit)`
+Toggles a specific bit (0–7) in the byte at `address`.
+
+**Parameters:**
+- `address` (integer): NES address, 0x0000–0xFFFF.
+- `bit` (integer): Bit index to toggle, 0–7.
+
+**Returns:** Nothing
+
+**Notes:**
+- Reads the current byte via the emulator mapping, flips `1 << bit` using XOR, and writes back.
+- Writing to ROM addresses is typically ignored by the mapper.
+
+**Examples:**
+```lua
+-- Toggle a status flag bit
+togglebit(0x0200, 3)
+
+-- SMB1 (example): toggle a power-up-related bit
+togglebit(0x0756, 2)
+```
+
+#### `testbit(address, bit)`
+Tests whether a specific bit (0–7) is set in the byte at `address`.
+
+**Parameters:**
+- `address` (integer): NES address, 0x0000–0xFFFF.
+- `bit` (integer): Bit index to test, 0–7.
+
+**Returns:**
+- (boolean): `true` if the bit is set, `false` if it is clear.
+
+**Notes:**
+- Reads the current byte via the emulator mapping and checks `(value & (1 << bit)) != 0`.
+- Safe to call on any mapped address; ROM regions are readable but not writable.
+
+**Examples:**
+```lua
+-- Poll a flag and conditionally act
+if testbit(0x0756, 2) then
+  -- bit is set
+else
+  -- bit is clear
+end
+
+-- Display a status indicator
+local on = testbit(0x0200, 3)
+drawtext(4, 4, on and "Flag: ON" or "Flag: OFF", 0x2E)
+```
 
 #### `writebyte(address, value)`
 Writes a single byte (8-bit value) to the specified memory address.
