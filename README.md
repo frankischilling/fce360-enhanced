@@ -283,6 +283,8 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
       - Parameters, Returns, Notes, Examples
     - [`drawline(x1, y1, x2, y2, color)`](#drawlinex1-y1-x2-y2-color)
       - Parameters, Returns, Notes, Examples
+    - [`drawthickline(x1, y1, x2, y2, thickness, color)`](#drawthicklinex1-y1-x2-y2-thickness-color)
+      - Parameters, Returns, Notes, Examples
     - [`drawrect(x, y, w, h, color)`](#drawrectx-y-w-h-color)
       - Parameters, Returns, Notes, Examples
     - [`fillrect(x, y, w, h, color)`](#fillrectx-y-w-h-color)
@@ -310,6 +312,10 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
     - [`filltriangle(x1, y1, x2, y2, x3, y3, color)`](#filltrianglex1-y1-x2-y2-x3-y3-color)
       - Parameters, Returns, Notes, Examples
     - [`drawpolygon(x1, y1, x2, y2, ..., color)`](#drawpolygonx1-y1-x2-y2--color)
+      - Parameters, Returns, Notes, Examples
+    - [`drawpolyline(x1, y1, x2, y2, ..., color)`](#drawpolylinex1-y1-x2-y2--color)
+      - Parameters, Returns, Notes, Examples
+    - [`fillpolygon(x1, y1, x2, y2, ..., color)`](#fillpolygonx1-y1-x2-y2--color)
       - Parameters, Returns, Notes, Examples
   - [Monitoring Functions](#monitoring-functions)
     - [`getfps()`](#getfps)
@@ -481,6 +487,7 @@ Draws a line between two points using Bresenham's line algorithm.
 - The overlay is composited on top of the NES frame, so Lua-drawn lines appear above game graphics.
 - Supports all line directions: horizontal, vertical, diagonal, and any angle.
 - Uses efficient Bresenham's algorithm for smooth, accurate lines.
+- For lines with thickness greater than 1 pixel, use `drawthickline()`.
 
 **Example:**
 ```lua
@@ -493,6 +500,61 @@ drawline(200, 30, 250, 30, 0x2E)    -- Top
 drawline(250, 30, 250, 80, 0x2E)    -- Right
 drawline(250, 80, 200, 80, 0x2E)    -- Bottom
 drawline(200, 80, 200, 30, 0x2E)    -- Left
+```
+
+##### `drawthickline(x1, y1, x2, y2, thickness, color)`
+Draws a thick line between two points with a specified thickness using perpendicular line segments.
+
+**Parameters:**
+- `x1` (integer): Starting X coordinate (0-255). NES horizontal resolution is 256 pixels.
+- `y1` (integer): Starting Y coordinate (0-239). NES vertical resolution is 240 pixels.
+- `x2` (integer): Ending X coordinate (0-255).
+- `y2` (integer): Ending Y coordinate (0-239).
+- `thickness` (integer): Line thickness in pixels. Automatically clamped to 1-50 range for performance.
+- `color` (integer): Palette color index. Valid range is 0x00-0x3F (automatically mapped to NES palette range).
+
+**Returns:** Nothing
+
+**Notes:**
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- The line thickness is specified in pixels and represents the width of the line perpendicular to its direction.
+- Thickness is automatically clamped to 1-50 range. Values below 1 are set to 1, values above 50 are set to 50.
+- Uses Bresenham's line algorithm for the main line, with perpendicular line segments drawn at each point to create thickness.
+- For very short lines or single points, draws a filled circle instead of a line.
+- Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
+- The overlay is composited on top of the NES frame, so Lua-drawn thick lines appear above game graphics.
+- Supports all line directions: horizontal, vertical, diagonal, and any angle.
+- For thin lines (thickness 1), `drawline()` is more efficient.
+- Useful for drawing borders, arrows, indicators, or any graphics that require visible line width.
+
+**Example:**
+```lua
+-- Draw horizontal thick lines with different thicknesses
+drawthickline(20, 30, 80, 30, 1, 0x20)   -- White, thickness 1 (same as drawline)
+drawthickline(20, 40, 80, 40, 3, 0x2E)   -- Yellow/green, thickness 3
+drawthickline(20, 50, 80, 50, 5, 0x16)   -- Red, thickness 5
+drawthickline(20, 60, 80, 60, 7, 0x29)   -- Green/teal, thickness 7
+
+-- Draw vertical thick lines
+drawthickline(100, 30, 100, 80, 2, 0x20) -- White, thickness 2
+drawthickline(110, 30, 110, 80, 4, 0x2E) -- Yellow/green, thickness 4
+drawthickline(120, 30, 120, 80, 6, 0x16) -- Red, thickness 6
+
+-- Draw diagonal thick lines
+drawthickline(140, 30, 180, 70, 3, 0x20) -- White diagonal, thickness 3
+drawthickline(140, 70, 180, 30, 5, 0x2E) -- Yellow/green diagonal, thickness 5
+
+-- Draw very thick line
+drawthickline(50, 100, 150, 120, 10, 0x37) -- Yellow, very thick (thickness 10)
+
+-- Draw arrows using thick lines
+drawthickline(200, 100, 230, 110, 6, 0x16) -- Red arrow shaft
+drawthickline(225, 105, 230, 110, 4, 0x16) -- Arrow head (left side)
+drawthickline(225, 115, 230, 110, 4, 0x16) -- Arrow head (right side)
+
+-- Draw crosshair with thick lines
+drawthickline(108, 120, 148, 120, 3, 0x3F)  -- Horizontal thick line
+drawthickline(128, 100, 128, 140, 3, 0x3F)  -- Vertical thick line
 ```
 
 ##### `drawrect(x, y, w, h, color)`
@@ -1083,7 +1145,8 @@ Draws a polygon outline by connecting multiple vertices with lines and automatic
 - Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
 - The overlay is composited on top of the NES frame, so Lua-drawn polygons appear above game graphics.
 - Useful for drawing complex shapes, stars, hexagons, pentagons, or any multi-sided outline shape.
-- For filled polygons, you would need to decompose them into triangles using `filltriangle()`.
+- For open paths (non-closed lines), use `drawpolyline()`.
+- For filled polygons, use `fillpolygon()`.
 - For simple 3-point shapes, `drawtriangle()` is more efficient.
 
 **Example:**
@@ -1114,6 +1177,123 @@ drawpolygon(50, 30, 80, 20, 100, 40, 90, 70, 60, 80, 40, 60, 0x16)  -- Red irreg
 
 -- Draw a triangle using drawpolygon (drawtriangle is more efficient for this)
 drawpolygon(128, 50, 100, 80, 156, 80, 0x20)  -- White triangle
+```
+
+##### `drawpolyline(x1, y1, x2, y2, ..., color)`
+Draws an open polyline (connected line segments) by connecting multiple vertices with lines, but does NOT automatically close the shape.
+
+**Parameters:**
+- `x1` (integer): First vertex X coordinate (0-255). NES horizontal resolution is 256 pixels.
+- `y1` (integer): First vertex Y coordinate (0-239). NES vertical resolution is 240 pixels.
+- `x2` (integer): Second vertex X coordinate (0-255).
+- `y2` (integer): Second vertex Y coordinate (0-239).
+- `...` (integer pairs): Additional vertex coordinates as pairs of x, y values. Requires at least 2 points total.
+- `color` (integer): Palette color index. Valid range is 0x00-0x3F (automatically mapped to NES palette range). Must be the last argument.
+
+**Returns:** Nothing
+
+**Notes:**
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- The polyline is drawn as connected line segments (open path), not filled and not closed.
+- Uses Bresenham's line algorithm to draw edges connecting consecutive vertices.
+- The polyline does NOT automatically close (last vertex does NOT connect back to first vertex).
+- This differs from `drawpolygon()` which automatically closes the shape.
+- Requires an odd number of arguments (pairs of x,y coordinates plus one color argument).
+- Requires at least 2 points (minimum 4 arguments: x1, y1, x2, y2, color).
+- Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
+- The overlay is composited on top of the NES frame, so Lua-drawn polylines appear above game graphics.
+- Useful for drawing paths, routes, waveforms, arrows, or any open-line shape that shouldn't be closed.
+- For closed shapes, use `drawpolygon()`.
+- For simple single lines, `drawline()` is more efficient.
+
+**Example:**
+```lua
+-- Draw a simple L-shaped path (doesn't close)
+drawpolyline(20, 40, 60, 40, 60, 80, 0x20)  -- White L-shape
+
+-- Draw a zigzag pattern
+drawpolyline(20, 120, 40, 100, 60, 120, 80, 100, 100, 120, 0x2E)  -- Yellow/green zigzag
+
+-- Draw a curved-looking path (multiple points)
+drawpolyline(130, 40, 140, 50, 150, 45, 160, 55, 170, 50, 180, 60, 0x16)  -- Red curved path
+
+-- Draw an arrow shape (open path)
+drawpolyline(200, 100, 220, 100, 220, 90, 230, 110, 220, 130, 220, 120, 200, 120, 0x29)  -- Green/teal arrow
+
+-- Draw a wave pattern
+drawpolyline(50, 150, 70, 140, 90, 150, 110, 140, 130, 150, 150, 140, 0x37)  -- Yellow wave
+
+-- Draw a simple path between points
+drawpolyline(100, 50, 120, 70, 140, 50, 160, 70, 0x20)  -- White connecting path
+
+-- Note: drawpolyline does NOT close - compare with drawpolygon
+drawpolyline(100, 100, 150, 100, 150, 150, 100, 150, 0x16)  -- Red open square (missing top edge)
+drawpolygon(100, 100, 150, 100, 150, 150, 100, 150, 0x2E)   -- Yellow closed square (complete)
+```
+
+##### `fillpolygon(x1, y1, x2, y2, ..., color)`
+Draws a filled polygon (solid color) by filling the interior area defined by multiple vertices.
+
+**Parameters:**
+- `x1` (integer): First vertex X coordinate (0-255). NES horizontal resolution is 256 pixels.
+- `y1` (integer): First vertex Y coordinate (0-239). NES vertical resolution is 240 pixels.
+- `x2` (integer): Second vertex X coordinate (0-255).
+- `y2` (integer): Second vertex Y coordinate (0-239).
+- `...` (integer pairs): Additional vertex coordinates as pairs of x, y values. Requires at least 3 points total.
+- `color` (integer): Palette color index. Valid range is 0x00-0x3F (automatically mapped to NES palette range). Must be the last argument.
+
+**Returns:** Nothing
+
+**Notes:**
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- The polygon is completely filled with the specified color (solid polygon).
+- Uses scanline fill algorithm with even-odd rule to efficiently fill the polygon interior.
+- The polygon is automatically closed (last vertex connects back to first vertex).
+- Requires an odd number of arguments (pairs of x,y coordinates plus one color argument).
+- Requires at least 3 points (minimum 6 arguments: x1, y1, x2, y2, x3, y3, color).
+- Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
+- The overlay is composited on top of the NES frame, so Lua-drawn polygons appear above game graphics.
+- Useful for drawing solid stars, hexagons, pentagons, or any filled multi-sided shape.
+- Supports complex self-intersecting polygons using even-odd fill rule.
+- For polygon outlines only, use `drawpolygon()`.
+- For simple 3-point shapes, `filltriangle()` is more efficient.
+
+**Example:**
+```lua
+-- Draw a filled square (4 points)
+fillpolygon(50, 50, 100, 50, 100, 100, 50, 100, 0x20)  -- White filled square
+
+-- Draw a filled pentagon (5 points)
+fillpolygon(128, 30, 148, 60, 128, 90, 108, 60, 118, 30, 0x2E)  -- Yellow/green filled pentagon
+
+-- Draw a filled star shape (10 points)
+fillpolygon(
+    128, 20, 132, 50, 160, 50, 138, 70, 148, 100,
+    128, 80, 108, 100, 118, 70, 96, 50, 124, 50,
+    0x37
+)  -- Yellow filled star
+
+-- Draw a filled hexagon (6 points)
+local cx, cy, radius = 128, 120, 30
+fillpolygon(
+    cx, cy - radius,                    -- Top
+    cx + radius * 0.866, cy - radius * 0.5,  -- Top-right
+    cx + radius * 0.866, cy + radius * 0.5,  -- Bottom-right
+    cx, cy + radius,                    -- Bottom
+    cx - radius * 0.866, cy + radius * 0.5,  -- Bottom-left
+    cx - radius * 0.866, cy - radius * 0.5,  -- Top-left
+    0x29
+)
+
+-- Draw a filled irregular polygon
+fillpolygon(50, 30, 80, 20, 100, 40, 90, 70, 60, 80, 40, 60, 0x16)  -- Red filled irregular shape
+
+-- Draw a filled triangle using fillpolygon (filltriangle is more efficient for this)
+fillpolygon(128, 50, 100, 80, 156, 80, 0x20)  -- White filled triangle
+
+-- Combine outline and filled for effect
+fillpolygon(128, 60, 148, 90, 128, 120, 108, 90, 0x16)  -- Red filled pentagon
+drawpolygon(128, 60, 148, 90, 128, 120, 108, 90, 0x20)  -- White outline on top
 ```
 
 ### NES Palette Reference for Lua Overlays
