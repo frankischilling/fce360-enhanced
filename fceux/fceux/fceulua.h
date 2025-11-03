@@ -108,9 +108,16 @@ void CallRegisteredLuaLoadFunctions(void* state, LuaSaveData& saveData);
  int lua_readbyte(lua_State *L);
  int lua_readword(lua_State *L);
  int lua_readbytes(lua_State *L);
+ int lua_scanbyte(lua_State *L);
  int lua_writebyte(lua_State *L);
  int lua_writeword(lua_State *L);
  int lua_writebytes(lua_State *L);
+ 
+ // Lua console controls
+ void FCEU_SetLuaConsoleVisible(int visible);
+ int  FCEU_IsLuaConsoleVisible(void);
+ void FCEU_ToggleLuaConsole(void);
+ void FCEU_LuaLogAppend(const char* msg);
  
  #endif // USE_LUA
  

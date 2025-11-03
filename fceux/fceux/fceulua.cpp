@@ -16,10 +16,25 @@
 #include <string.h>
 #include <math.h>
 #include <ctype.h>
+
+// Minimal Lua API forward declarations (avoid changing symbol mappings)
+extern "C" {
+struct lua_State;
+const char* lua_tolstring(lua_State* L, int idx, size_t* len);
+int lua_gettop(lua_State* L);
+void lua_settop(lua_State* L, int idx);
+void lua_pushcfunction(lua_State* L, int (*fn)(lua_State*));
+void lua_setglobal(lua_State* L, const char* name);
+int luaL_error(lua_State* L, const char* fmt, ...);
+int luaL_checkinteger(lua_State* L, int idx);
+void lua_pushinteger(lua_State* L, int n);
+}
  
 // On-screen status message for debugging (shows last load attempt)
 static char g_luaStatusMsg[128] = "Lua: disabled";
 // stdafx.h already includes xtl.h which provides GetTickCount() and DWORD
+// Script callback interval (ms); default ~33ms (~30 Hz)
+static DWORD s_scriptIntervalMs = 33;
 
 // Mode constants (matching Cemulator::Settings::LuaAutoloadMode enum)
 enum { LUA_AUTO_ALL = 0, LUA_AUTO_ONE = 1, LUA_AUTO_NONE = 2 };
@@ -136,6 +151,68 @@ extern "C" void FCEU_SetPendingLua(int mode, const char* scriptUtf8OrNull)
 	 if (s_overlay_front) memset(s_overlay_front, 0, 256 * 240);
  }
  
+// ---------------- Lua Console (logs + on-screen panel) ----------------
+static bool s_consoleVisible = false;
+static const int LUA_CONSOLE_MAX_LINES = 64;
+static const int LUA_CONSOLE_LINE_CHARS = 112;
+static char s_luaConsoleLines[LUA_CONSOLE_MAX_LINES][LUA_CONSOLE_LINE_CHARS];
+static int s_luaConsoleCount = 0;
+
+static void LuaConsolePushLine(const char* msg) {
+     if (!msg || !msg[0]) return;
+     if (s_luaConsoleCount < LUA_CONSOLE_MAX_LINES) {
+         strncpy(s_luaConsoleLines[s_luaConsoleCount], msg, LUA_CONSOLE_LINE_CHARS - 1);
+         s_luaConsoleLines[s_luaConsoleCount][LUA_CONSOLE_LINE_CHARS - 1] = '\0';
+         s_luaConsoleCount++;
+     } else {
+         for (int i = 1; i < LUA_CONSOLE_MAX_LINES; ++i) {
+             memcpy(s_luaConsoleLines[i - 1], s_luaConsoleLines[i], LUA_CONSOLE_LINE_CHARS);
+         }
+         strncpy(s_luaConsoleLines[LUA_CONSOLE_MAX_LINES - 1], msg, LUA_CONSOLE_LINE_CHARS - 1);
+         s_luaConsoleLines[LUA_CONSOLE_MAX_LINES - 1][LUA_CONSOLE_LINE_CHARS - 1] = '\0';
+     }
+}
+
+void FCEU_SetLuaConsoleVisible(int visible) { s_consoleVisible = (visible != 0); }
+int  FCEU_IsLuaConsoleVisible(void) { return s_consoleVisible ? 1 : 0; }
+void FCEU_ToggleLuaConsole(void) { s_consoleVisible = !s_consoleVisible; }
+
+ static int lua_print_redirect(lua_State* L) {
+	 int n = lua_gettop(L);
+	 if (n == 0) { LuaConsolePushLine(""); return 0; }
+	 char buffer[512]; buffer[0] = '\0';
+	 for (int i = 1; i <= n; ++i) {
+		 size_t slen = 0;
+		 const char* s = lua_tolstring(L, i, &slen);
+		 if (!s) continue; // only append string arguments
+		 if (i > 1 && buffer[0] != '\0') strncat(buffer, "\t", sizeof(buffer) - strlen(buffer) - 1);
+		 strncat(buffer, s, sizeof(buffer) - strlen(buffer) - 1);
+	 }
+	 LuaConsolePushLine(buffer);
+	 return 0;
+ }
+
+static int lua_log(lua_State* L) { return lua_print_redirect(L); }
+
+// setscriptinterval(ms) -- clamp 16..1000 ms
+static int lua_setscriptinterval(lua_State* L) {
+    int n = lua_gettop(L);
+    if (n < 1) {
+        return luaL_error(L, "setscriptinterval(ms) requires 1 argument");
+    }
+    int ms = (int)luaL_checkinteger(L, 1);
+    if (ms < 16) ms = 16;
+    if (ms > 1000) ms = 1000;
+    s_scriptIntervalMs = (DWORD)ms;
+    return 0;
+}
+
+// getscriptinterval() -> ms
+static int lua_getscriptinterval(lua_State* L) {
+    lua_pushinteger(L, (int)s_scriptIntervalMs);
+    return 1;
+}
+ 
  // Helper: Clear a rectangle in the overlay buffer with bounds checking
  static inline void clear_rect(uint8* buf, int x, int y, int w, int h) {
 	 if (!buf) return;
@@ -185,7 +262,7 @@ extern "C" void FCEU_SetPendingLua(int mode, const char* scriptUtf8OrNull)
  
  // Dirty flag: tracks if anything was actually drawn to the overlay
  // Only publish new overlay if Lua succeeded AND drew something
- static bool g_overlayDirty = false;
+static bool g_overlayDirty = false;
  
  // Performance: Disable printf spam in retail builds
  #if !defined(DEBUG) && !defined(_DEBUG)
@@ -2353,6 +2430,35 @@ int lua_readbytes(lua_State *L) {
 	 return 1;  // Return the table
  }
 
+int lua_scanbyte(lua_State *L) {
+	 int n = lua_gettop(L);
+	 if (n < 3) {
+		 return luaL_error(L, "scanbyte(value, startAddr, endAddr) requires 3 arguments");
+	 }
+	 int value = (int)luaL_checkinteger(L, 1);
+	 unsigned int startAddr = (unsigned int)luaL_checkinteger(L, 2);
+	 unsigned int endAddr = (unsigned int)luaL_checkinteger(L, 3);
+	 if (value < 0 || value > 255) {
+		 return luaL_error(L, "scanbyte: value must be in range 0-255");
+	 }
+	 if (startAddr > 0xFFFF || endAddr > 0xFFFF) {
+		 return luaL_error(L, "scanbyte: addresses must be in range 0x0000-0xFFFF");
+	 }
+	 if (startAddr > endAddr) { unsigned int t = startAddr; startAddr = endAddr; endAddr = t; }
+	 lua_createtable(L, 0, 0);
+	 int resultIndex = 1;
+	 uint8 target = (uint8)(value & 0xFF);
+	 for (unsigned int addr = startAddr; addr <= endAddr; ++addr) {
+		 uint8 b = ARead[addr](addr);
+		 if (b == target) {
+			 lua_pushinteger(L, addr);
+			 lua_rawseti(L, -2, resultIndex++);
+		 }
+		 if (addr == 0xFFFF) break;
+	 }
+	 return 1;
+ }
+
 int lua_writebyte(lua_State *L) {
 	 int n = lua_gettop(L);
 	 if (n < 2) {
@@ -2503,9 +2609,17 @@ int lua_writebytes(lua_State *L) {
 	 lua_register(luaState, "readbyte", lua_readbyte);
 	 lua_register(luaState, "readword", lua_readword);
 	 lua_register(luaState, "readbytes", lua_readbytes);
+	 lua_register(luaState, "scanbyte", lua_scanbyte);
 	 lua_register(luaState, "writebyte", lua_writebyte);
 	 lua_register(luaState, "writeword", lua_writeword);
 	 lua_register(luaState, "writebytes", lua_writebytes);
+	 // logging
+	 lua_register(luaState, "log", lua_log);
+	 // Script timing controls
+	 lua_register(luaState, "setscriptinterval", lua_setscriptinterval);
+	 lua_register(luaState, "getscriptinterval", lua_getscriptinterval);
+	 lua_pushcfunction(luaState, lua_print_redirect);
+	 lua_setglobal(luaState, "print");
 	 
 	 luaInitialized = true;
  }
@@ -2550,9 +2664,15 @@ static void EnsureLuaInit() {
 	REG("readbyte",       lua_readbyte);
 	REG("readword",       lua_readword);
 	REG("readbytes",      lua_readbytes);
+	REG("scanbyte",       lua_scanbyte);
 	REG("writebyte",      lua_writebyte);
 	REG("writeword",      lua_writeword);
 	REG("writebytes",     lua_writebytes);
+	REG("log",            lua_log);
+REG("setscriptinterval", lua_setscriptinterval);
+REG("getscriptinterval", lua_getscriptinterval);
+	lua_pushcfunction(luaState, lua_print_redirect);
+	lua_setglobal(luaState, "print");
 	#undef REG
 	luaInitialized = true;
 	snprintf(g_luaStatusMsg, sizeof(g_luaStatusMsg), "Lua: init OK");
@@ -2868,8 +2988,6 @@ extern "C" void FCEU_ApplyLuaMode(int mode, const char* scriptUtf8OrNull)
 		printf("Lua: Apply -> ALL\n");
 		EnsureLuaInit(); // ensure Lua is initialized before loading
 		Lua_LoadAllInKnownFolders();
-		strncpy(g_luaStatusMsg, "Lua: ALL", sizeof(g_luaStatusMsg)-1);
-		g_luaStatusMsg[sizeof(g_luaStatusMsg)-1] = '\0';
 		return;
 	}
 
@@ -3121,9 +3239,10 @@ void FCEU_ReloadLuaCode(void) {
 		 return;
 	 }
 	 
-	 static DWORD lastGuiTime = 0;
-	 DWORD now = GetTickCount();
-	 const DWORD step = 33; // ~30Hz Lua updates (33ms between calls)
+     static DWORD lastGuiTime = 0;
+     static bool prevConsoleVisible = false;
+     DWORD now = GetTickCount();
+     DWORD step = s_scriptIntervalMs; // script()-cadence (default 33ms)
 	 
 	 // Update overlay contents at ~30Hz (only when Lua needs to run)
 	 if (now - lastGuiTime >= step) {
@@ -3148,7 +3267,8 @@ void FCEU_ReloadLuaCode(void) {
 			 statusShown = false;
 		 }
 		 
-		 if (s_overlay_back) {
+         // Suppress status banner while console is visible to avoid duplicate text
+         if (s_overlay_back && !s_consoleVisible) {
 			 // Status message is drawn at y=20 (below "LUA ON" at y=4), x=4
 			 const int statusY = 20;
 			 
@@ -3211,14 +3331,45 @@ void FCEU_ReloadLuaCode(void) {
 			 }
 		 }
 		 
-		 // Only publish the new overlay if Lua succeeded AND actually drew something
-		 if (ok && g_overlayDirty) {
+         // If console visible, draw it now onto back buffer and mark dirty
+		 if (s_consoleVisible && s_overlay_back) {
+			 const int cx = 8, cy = 40;
+			 int maxX = 8 + 240 - 1; if (maxX > 255) maxX = 255;
+			 int maxY = 40 + 176 - 1; if (maxY > 231) maxY = 231;
+			 const uint8 bg = 0x80 | 0x10;
+			 const uint8 bd = 0x80 | 0x2E;
+			 for (int py = cy; py <= maxY; ++py) {
+				 for (int px = cx; px <= maxX; ++px) s_overlay_back[py*256 + px] = bg;
+			 }
+			 for (int px = cx; px <= maxX; ++px) { s_overlay_back[cy*256 + px] = bd; s_overlay_back[maxY*256 + px] = bd; }
+			 for (int py = cy; py <= maxY; ++py) { s_overlay_back[py*256 + cx] = bd; s_overlay_back[py*256 + maxX] = bd; }
+			 DrawTextTrans(s_overlay_back + cy*256 + (cx + 6), 256, (uint8*)"Lua Console (LS+RS)", 0x2E | 0x80);
+			 const int lineStartY = cy + 12; const int lineH = 8;
+			 int maxLines = (maxY - lineStartY + 1) / lineH;
+			 int toDraw = s_luaConsoleCount < maxLines ? s_luaConsoleCount : maxLines;
+			 int startIdx = s_luaConsoleCount - toDraw;
+			 for (int i = 0; i < toDraw; ++i) {
+				 int y = lineStartY + i*lineH;
+				 DrawTextTrans(s_overlay_back + y*256 + (cx + 4), 256, (uint8*)s_luaConsoleLines[startIdx + i], 0x20 | 0x80);
+			 }
+			 g_overlayDirty = true;
+			 ok = true; // force publish when console drew
+         } else if (!s_consoleVisible && prevConsoleVisible && s_overlay_back) {
+             // Console just turned off: push a cleared overlay once to remove it immediately
+             memset(s_overlay_back, 0, 256 * 240);
+             g_overlayDirty = true;
+             ok = true;
+		 }
+		 
+		 // Only publish the new overlay if something was drawn
+         if (g_overlayDirty) {
 			 // Only publish if the back buffer actually differs from the front
 			 // This prevents unnecessary swaps when content hasn't changed
 			 if (!s_overlay_front || overlay_has_changes(s_overlay_back, s_overlay_front)) {
 				 SwapOverlays();
 			 }
 		 }
+         prevConsoleVisible = (s_consoleVisible != 0);
 	 }
 	 
 	 // ALWAYS composite the last published overlay every frame (prevents flicker when Lua runs at 30Hz)
@@ -3279,5 +3430,7 @@ void FCEU_ReloadLuaCode(void) {
 	 
 	 return ret;
  }
+ 
+// (duplicate Lua Console block removed; see definitions earlier in file)
  
  #endif // USE_LUA
