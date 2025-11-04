@@ -18,6 +18,20 @@
 #include <ctype.h>
 #include <vector>
 
+// --- Overlay geometry and font metrics ---
+enum { OVL_W = 256, OVL_H = 240, GLYPH_H = 8 };
+
+static int s_consoleLineGap = 2; // pixels of extra leading between lines
+static inline int CON_LINE_ADV(void) { return GLYPH_H + s_consoleLineGap; }
+
+// Forward declaration for gamepad input (defined in Cemulator.cpp)
+extern struct GAMEPAD {
+	WORD wButtons;
+	float fX1, fY1;
+} Gamepads[];
+#define XINPUT_GAMEPAD_DPAD_UP    0x0001
+#define XINPUT_GAMEPAD_DPAD_DOWN  0x0002
+
 // Minimal Lua API forward declarations (avoid changing symbol mappings)
 extern "C" {
 struct lua_State;
@@ -115,15 +129,15 @@ extern "C" void FCEU_SetPendingLua(int mode, const char* scriptUtf8OrNull)
  
  static void EnsureOverlay() {
 	 if (!s_overlay_front) {
-		 s_overlay_front = (uint8*)malloc(256 * 240);
+		 s_overlay_front = (uint8*)malloc(OVL_W * OVL_H);
 		 if (s_overlay_front) {
-			 memset(s_overlay_front, 0, 256 * 240);
+			 memset(s_overlay_front, 0, OVL_W * OVL_H);
 		 }
 	 }
 	 if (!s_overlay_back) {
-		 s_overlay_back = (uint8*)malloc(256 * 240);
+		 s_overlay_back = (uint8*)malloc(OVL_W * OVL_H);
 		 if (s_overlay_back) {
-			 memset(s_overlay_back, 0, 256 * 240);
+			 memset(s_overlay_back, 0, OVL_W * OVL_H);
 		 }
 	 }
  }
@@ -132,7 +146,7 @@ extern "C" void FCEU_SetPendingLua(int mode, const char* scriptUtf8OrNull)
 	 // Blit the front overlay onto the NES frame every frame (prevents flicker when Lua runs at 30Hz)
 	 if (!s_overlay_front || !XBuf) return;
 	 
-	 const int N = 256 * 240;
+	 const int N = OVL_W * OVL_H;
 	 const uint8* src = s_overlay_front;
 	 for (int i = 0; i < N; ++i) {
 		 uint8 v = src[i];
@@ -149,16 +163,23 @@ extern "C" void FCEU_SetPendingLua(int mode, const char* scriptUtf8OrNull)
  
  static void ClearOverlaysIfAny() {
 	 EnsureOverlay();
-	 if (s_overlay_back)  memset(s_overlay_back,  0, 256 * 240);
-	 if (s_overlay_front) memset(s_overlay_front, 0, 256 * 240);
+	 if (s_overlay_back)  memset(s_overlay_back,  0, OVL_W * OVL_H);
+	 if (s_overlay_front) memset(s_overlay_front, 0, OVL_W * OVL_H);
  }
  
 // ---------------- Lua Console (logs + on-screen panel) ----------------
 static bool s_consoleVisible = false;
-static const int LUA_CONSOLE_MAX_LINES = 64;
-static const int LUA_CONSOLE_LINE_CHARS = 112;
+static const int LUA_CONSOLE_X       = 0;
+static const int LUA_CONSOLE_Y       = 8;      // wherever you draw the console
+static const int LUA_CONSOLE_W_PX    = 256;    // use full width of the overlay
+static const int LUA_CONSOLE_MAX_LINES = 256; // Increased to support more console lines
+static const int LUA_CONSOLE_LINE_CHARS = 256; // storage capacity per line (chars)
 static char s_luaConsoleLines[LUA_CONSOLE_MAX_LINES][LUA_CONSOLE_LINE_CHARS];
 static int s_luaConsoleCount = 0;
+static int s_consoleScrollOffset = 0; // Scroll offset for console (0 = show most recent)
+static bool s_consoleDpadUpLast = false;
+static bool s_consoleDpadDownLast = false;
+static int s_consoleScrollHoldFrames = 0; // Frame counter for continuous scrolling
 
 static void LuaConsolePushLine(const char* msg) {
      if (!msg || !msg[0]) return;
@@ -175,9 +196,27 @@ static void LuaConsolePushLine(const char* msg) {
      }
 }
 
-void FCEU_SetLuaConsoleVisible(int visible) { s_consoleVisible = (visible != 0); }
+void FCEU_SetLuaConsoleVisible(int visible) { 
+	s_consoleVisible = (visible != 0);
+	if (!s_consoleVisible) {
+		s_consoleScrollOffset = 0; // Reset scroll when console is hidden
+	}
+}
 int  FCEU_IsLuaConsoleVisible(void) { return s_consoleVisible ? 1 : 0; }
-void FCEU_ToggleLuaConsole(void) { s_consoleVisible = !s_consoleVisible; }
+
+extern "C" void FCEU_SetLuaConsoleLineGap(int px) {
+	if (px < 0) px = 0;
+	if (px > 8) px = 8;
+	s_consoleLineGap = px;
+}
+extern "C" int FCEU_GetLuaConsoleLineGap(void) { return s_consoleLineGap; }
+
+void FCEU_ToggleLuaConsole(void) { 
+	s_consoleVisible = !s_consoleVisible;
+	if (!s_consoleVisible) {
+		s_consoleScrollOffset = 0; // Reset scroll when console is hidden
+	}
+}
 
  static int lua_print_redirect(lua_State* L) {
 	 int n = lua_gettop(L);
@@ -222,13 +261,13 @@ static int lua_getscriptinterval(lua_State* L) {
 	 // Clamp to valid bounds
 	 if (x < 0) { w += x; x = 0; }
 	 if (y < 0) { h += y; y = 0; }
-	 if (x + w > 256) w = 256 - x;
-	 if (y + h > 240) h = 240 - y;
+	 if (x + w > OVL_W) w = OVL_W - x;
+	 if (y + h > OVL_H) h = OVL_H - y;
 	 if (w <= 0 || h <= 0) return;
 	 
 	 // Clear each row of the rectangle
 	 for (int dy = 0; dy < h; ++dy) {
-		 memset(buf + (y + dy) * 256 + x, 0, w);
+		 memset(buf + (y + dy) * OVL_W + x, 0, w);
 	 }
  }
 
@@ -255,11 +294,11 @@ static int lua_getscriptinterval(lua_State* L) {
  static inline bool overlay_has_changes(const uint8* a, const uint8* b) {
 	 if (!a || !b) return true;  // If either is NULL, consider it changed
 	 // Scan a few stripes first (fast path), then fall back to full compare
-	 const int pitch = 256, h = 240;
+	 const int pitch = OVL_W, h = OVL_H;
 	 for (int y = 0; y < h; y += 16) {
 		 if (memcmp(a + y*pitch, b + y*pitch, pitch) != 0) return true;
 	 }
-	 return memcmp(a, b, 256*240) != 0;
+	 return memcmp(a, b, OVL_W*OVL_H) != 0;
  }
  
  // Dirty flag: tracks if anything was actually drawn to the overlay
@@ -326,6 +365,51 @@ static bool g_overlayDirty = false;
 	 DrawTextTransWH(base, pitch, (uint8*)s, color, max_w, max_h, 0);
  }
 
+static void DrawLuaConsole(uint8* buf) {
+	if (!s_consoleVisible || !buf) return;
+
+	// Draw within the console box (cx=4, cy=40, with text starting at cy+12=52)
+	const int cx = 4, cy = 40;
+	const int textLeftMargin = cx + 2;
+	const int lineStartY = cy + 12;
+	int maxX = 4 + 248 - 1; if (maxX > OVL_W - 1) maxX = OVL_W - 1;
+	int maxY = 40 + 180 - 1; if (maxY > OVL_H - 1) maxY = OVL_H - 1;
+	const uint8 bg = 0x80 | 0x10;
+	const int textWidthPx = (maxX - textLeftMargin + 1);
+	
+	const int adv = CON_LINE_ADV();
+	const int availableHeight = maxY - lineStartY + 1;
+	int maxLines = availableHeight / adv;
+	if (maxLines < 1) return;
+
+	// Calculate which lines to show based on scroll offset
+	// When scrollOffset = 0, show newest lines (highest indices)
+	// When scrollOffset increases, show older lines (lower indices)
+	// last is the highest index we'll show (newest line)
+	int last = s_luaConsoleCount - s_consoleScrollOffset;
+	if (last < 0) last = 0;
+	// first is the lowest index we'll show (oldest line)
+	int first = last - maxLines;
+	if (first < 0) {
+		// We're at the top - show from the oldest available line (index 0)
+		first = 0;
+		// Keep last as is, but ensure we don't exceed available lines
+		if (last > s_luaConsoleCount) last = s_luaConsoleCount;
+	}
+
+	int y = lineStartY;
+	for (int i = first; i < last && y + GLYPH_H <= maxY + 1; ++i, y += adv) {
+		// Clear exactly this line's 8px band within the box area
+		for (int py = y; py < y + GLYPH_H && py <= maxY; ++py) {
+			for (int px = textLeftMargin; px <= maxX; ++px) {
+				buf[py*OVL_W + px] = bg;
+			}
+		}
+		// Use line advance as max_h to ensure full glyph rendering (glyphs are 8px, but give extra space)
+		DrawTextTransWH(buf + y*OVL_W + textLeftMargin, OVL_W, (uint8*)s_luaConsoleLines[i], 0x20 | 0x80, textWidthPx, adv, 0);
+	}
+ }
+
  // Lua drawing function - allows scripts to draw text
  int lua_drawtext(lua_State *L) {
 	 int n = lua_gettop(L);
@@ -340,20 +424,26 @@ static bool g_overlayDirty = false;
 	 
 	 if (!currentXBuf || !text || !*text) return 0;
 	 
-	 // Text is 8 pixels tall - clamp y to prevent drawing past y=232
-	 // Maximum safe y is 224 (224+8=232, well within bounds)
+	 // Text is 8 pixels tall - clamp y to prevent drawing past screen bounds
 	 if (x < 0) x = 0;
-	 if (x >= 256) x = 255;
+	 if (x >= OVL_W) x = OVL_W - 1;
 	 if (y < 0) y = 0;
-	 if (y > 224) y = 224; // Clamp to safe position (auto-move up if too low)
+	 if (y > OVL_H - GLYPH_H) y = OVL_H - GLYPH_H; // Ensure 8-px glyph fits
 	 
-	 // Clear the whole 8-px line to nuke any stale box on that row
-	 // (Ultra-defensive: ensures no ghost rectangles from previous frames)
-	 clear_rect(currentXBuf, 0, y, 256, 8);
+	 // Clear only the text's own bounding box so it never erases a neighboring console line
+	 int wpx = measure_line_px(text, OVL_W - x);
+	 clear_rect(currentXBuf, x, y, wpx, GLYPH_H);
 	 
 	 uint8 mapped = map_overlay_color(color_in);
-	 DrawTextNoBorder(currentXBuf + y * 256 + x, 256, text, mapped); // glyphs only, no bg
+	 DrawTextNoBorder(currentXBuf + y * OVL_W + x, OVL_W, text, mapped); // glyphs only, no bg
 	 g_overlayDirty = true;
+	 return 0;
+ }
+
+ // Lua function to set console line spacing
+ static int lua_setconsolespacing(lua_State* L) {
+	 int px = (int)luaL_checkinteger(L, 1);
+	 FCEU_SetLuaConsoleLineGap(px);
 	 return 0;
  }
 
@@ -376,41 +466,28 @@ static bool g_overlayDirty = false;
 	 
 	 // Clamp coordinates to safe bounds (auto-adjust if too low/high)
 	 if (x < 0) x = 0;
-	 if (x >= 256) x = 255;
+	 if (x >= OVL_W) x = OVL_W - 1;
 	 if (y < 0) y = 0;
 	 
-	 // drawtextwh can draw multi-line text - ensure y + max_h doesn't exceed safe bounds
-	 // Auto-adjust y position if it would draw past y=232
-	 if (y + max_h > 232) {
-		 y = 232 - max_h; // Move text up to fit
-		 if (y < 0) y = 0; // Ensure y doesn't go negative
+	 // ensure requested box stays on-screen
+	 if (max_h <= 0) max_h = GLYPH_H;
+	 if (y + max_h > OVL_H) {
+		 y = OVL_H - max_h;
+		 if (y < 0) { y = 0; max_h = OVL_H; }
 	 }
-	 if (y > 224) y = 224; // Clamp y to safe position (text is 8px tall minimum)
-	 
-	 // Clamp max_h to ensure we don't draw past y=232
-	 if (max_h <= 0) max_h = 8; // Minimum height
-	 if (y + max_h > 232) max_h = 232 - y;
 	 if (max_h <= 0) return 0; // No room to draw
 	 
-	 uint8 *dest = currentXBuf + y * 256 + x;
+	 uint8 *dest = currentXBuf + y * OVL_W + x;
 	 uint8 mapped = map_overlay_color(color);
 	 
 	 // Clamp border and choose the truly borderless path when border == 0
 	 if (border < 0) border = 0;
 	 if (border > 2) border = 2;
 	 
-	 if (border == 0) {
-		 // Borderless: proactively clear the WH region we're going to use,
-		 // so no stale boxed pixels from previous frames peek through.
-		 int cw = max_w; if (cw < 0) cw = 0;
-		 int ch = max_h; if (ch < 0) ch = 0;
-		 if (cw > 0 && ch > 0) clear_rect(currentXBuf, x, y, cw, ch);
-		 
-		 DrawTextTransWH(dest, 256, (uint8*)text, mapped, max_w, max_h, 0); // glyphs only
-	 } else {
-		 // With border: use the WH renderer (it draws the box/outline on purpose)
-		 DrawTextTransWH(dest, 256, (uint8*)text, mapped, max_w, max_h, border);
-	 }
+	 // optional: proactively clear the draw region when border==0
+	 if (border <= 0) clear_rect(currentXBuf, x, y, max_w, max_h);
+	 
+	 DrawTextTransWH(dest, OVL_W, (uint8*)text, mapped, max_w, max_h, border <= 0 ? 0 : border);
 	 
 	 g_overlayDirty = true;
 	 return 0;
@@ -431,12 +508,12 @@ static bool g_overlayDirty = false;
 	 
 	 // Clamp coordinates to safe bounds (auto-adjust if too low/high)
 	 if (x < 0) x = 0;
-	 if (x >= 256) x = 255;
+	 if (x >= OVL_W) x = OVL_W - 1;
 	 if (y < 0) y = 0;
-	 if (y >= 232) y = 231; // Clamp to safe position (auto-move up if at/past 232)
+	 if (y >= OVL_H) y = OVL_H - 1; // Clamp to safe position
 	 
 	 // Draw pixel on the current frame buffer (set by FCEU_LuaGui)
-		 uint8 *dest = currentXBuf + y * 256 + x;
+		 uint8 *dest = currentXBuf + y * OVL_W + x;
 		 *dest = map_overlay_color(color);
 		 g_overlayDirty = true;  // Mark that something was drawn
 	 
@@ -460,13 +537,13 @@ static bool g_overlayDirty = false;
 	 
 	 // Clamp coordinates to safe bounds (auto-adjust if too low/high)
 	 if (x1 < 0) x1 = 0;
-	 if (x1 >= 256) x1 = 255;
+	 if (x1 >= OVL_W) x1 = OVL_W - 1;
 	 if (x2 < 0) x2 = 0;
-	 if (x2 >= 256) x2 = 255;
+	 if (x2 >= OVL_W) x2 = OVL_W - 1;
 	 if (y1 < 0) y1 = 0;
-	 if (y1 >= 232) y1 = 231; // Clamp to safe position
+	 if (y1 >= OVL_H) y1 = OVL_H - 1; // Clamp to safe position
 	 if (y2 < 0) y2 = 0;
-	 if (y2 >= 232) y2 = 231; // Clamp to safe position
+	 if (y2 >= OVL_H) y2 = OVL_H - 1; // Clamp to safe position
 	 
 	 // Use Bresenham's line algorithm to draw the line
 	 int dx = (x2 > x1) ? (x2 - x1) : (x1 - x2);
@@ -480,9 +557,9 @@ static bool g_overlayDirty = false;
 	 bool drewSomething = false;
 	 
 	 while (true) {
-		 // Check bounds and draw pixel - never draw past y=232 to avoid buffer overflows
-		 if (x >= 0 && x < 256 && y >= 0 && y < 232) {
-			 uint8 *dest = currentXBuf + y * 256 + x;
+		 // Check bounds and draw pixel
+		 if (x >= 0 && x < OVL_W && y >= 0 && y < OVL_H) {
+			 uint8 *dest = currentXBuf + y * OVL_W + x;
 			 *dest = map_overlay_color(color);
 			 drewSomething = true;
 		 }
@@ -532,13 +609,13 @@ static bool g_overlayDirty = false;
 	 
 	 // Clamp coordinates to safe bounds (auto-adjust if too low/high)
 	 if (x1 < 0) x1 = 0;
-	 if (x1 >= 256) x1 = 255;
+	 if (x1 >= OVL_W) x1 = OVL_W - 1;
 	 if (x2 < 0) x2 = 0;
-	 if (x2 >= 256) x2 = 255;
+	 if (x2 >= OVL_W) x2 = OVL_W - 1;
 	 if (y1 < 0) y1 = 0;
-	 if (y1 >= 232) y1 = 231; // Clamp to safe position
+	 if (y1 >= OVL_H) y1 = OVL_H - 1; // Clamp to safe position
 	 if (y2 < 0) y2 = 0;
-	 if (y2 >= 232) y2 = 231; // Clamp to safe position
+	 if (y2 >= OVL_H) y2 = OVL_H - 1; // Clamp to safe position
 	 
 	 // Calculate line direction
 	 int dx = x2 - x1;
@@ -549,12 +626,12 @@ static bool g_overlayDirty = false;
 		 int radius = (thickness - 1) / 2;
 		 // Draw a filled circle at the point
 		 for (int cy = y1 - radius; cy <= y1 + radius; ++cy) {
-			 if (cy < 0 || cy >= 232) continue;
+			 if (cy < 0 || cy >= OVL_H) continue;
 			 for (int cx = x1 - radius; cx <= x1 + radius; ++cx) {
-				 if (cx < 0 || cx >= 256) continue;
+				 if (cx < 0 || cx >= OVL_W) continue;
 				 int distSq = (cx - x1) * (cx - x1) + (cy - y1) * (cy - y1);
 				 if (distSq <= radius * radius) {
-					 uint8 *dest = currentXBuf + cy * 256 + cx;
+					 uint8 *dest = currentXBuf + cy * OVL_W + cx;
 					 *dest = mappedColor;
 				 }
 			 }
@@ -590,8 +667,8 @@ static bool g_overlayDirty = false;
 			 int px = (int)(x + perpX * t + 0.5);
 			 int py = (int)(y + perpY * t + 0.5);
 			 
-			 if (px >= 0 && px < 256 && py >= 0 && py < 232) {
-				 uint8 *dest = currentXBuf + py * 256 + px;
+			 if (px >= 0 && px < OVL_W && py >= 0 && py < OVL_H) {
+				 uint8 *dest = currentXBuf + py * OVL_W + px;
 				 *dest = mappedColor;
 				 drewSomething = true;
 			 }
@@ -660,18 +737,18 @@ static bool g_overlayDirty = false;
 		 
 		 // Clamp coordinates to safe bounds (auto-adjust if too low/high)
 		 if (x1 < 0) x1 = 0;
-		 if (x1 >= 256) x1 = 255;
+		 if (x1 >= OVL_W) x1 = OVL_W - 1;
 		 if (x2 < 0) x2 = 0;
-		 if (x2 >= 256) x2 = 255;
+		 if (x2 >= OVL_W) x2 = OVL_W - 1;
 		 if (y1 < 0) y1 = 0;
-		 if (y1 >= 232) y1 = 231; // Clamp to safe position
+		 if (y1 >= OVL_H) y1 = OVL_H - 1; // Clamp to safe position
 		 if (y2 < 0) y2 = 0;
-		 if (y2 >= 232) y2 = 231; // Clamp to safe position
+		 if (y2 >= OVL_H) y2 = OVL_H - 1; // Clamp to safe position
 		 
 		 // Handle same-point case (degenerate segment)
 		 if (x1 == x2 && y1 == y2) {
-			 if (x1 >= 0 && x1 < 256 && y1 >= 0 && y1 < 232) {
-				 uint8 *dest = currentXBuf + y1 * 256 + x1;
+			 if (x1 >= 0 && x1 < OVL_W && y1 >= 0 && y1 < OVL_H) {
+				 uint8 *dest = currentXBuf + y1 * OVL_W + x1;
 				 *dest = mappedColor;
 				 drewSomething = true;
 			 }
@@ -691,9 +768,9 @@ static bool g_overlayDirty = false;
 		 int steps = 0;
 		 
 		 while (steps < maxSteps) {
-			 // Check bounds and draw pixel - never draw past y=232 to avoid buffer overflows
-			 if (x >= 0 && x < 256 && y >= 0 && y < 232) {
-				 uint8 *dest = currentXBuf + y * 256 + x;
+			 // Check bounds and draw pixel
+			 if (x >= 0 && x < OVL_W && y >= 0 && y < OVL_H) {
+				 uint8 *dest = currentXBuf + y * OVL_W + x;
 				 *dest = mappedColor;
 				 drewSomething = true;
 			 }
@@ -761,18 +838,18 @@ static bool g_overlayDirty = false;
 		 
 		 // Clamp coordinates to safe bounds (auto-adjust if too low/high)
 		 if (x1 < 0) x1 = 0;
-		 if (x1 >= 256) x1 = 255;
+		 if (x1 >= OVL_W) x1 = OVL_W - 1;
 		 if (x2 < 0) x2 = 0;
-		 if (x2 >= 256) x2 = 255;
+		 if (x2 >= OVL_W) x2 = OVL_W - 1;
 		 if (y1 < 0) y1 = 0;
-		 if (y1 >= 232) y1 = 231; // Clamp to safe position
+		 if (y1 >= OVL_H) y1 = OVL_H - 1; // Clamp to safe position
 		 if (y2 < 0) y2 = 0;
-		 if (y2 >= 232) y2 = 231; // Clamp to safe position
+		 if (y2 >= OVL_H) y2 = OVL_H - 1; // Clamp to safe position
 		 
 		 // Handle same-point case (degenerate segment)
 		 if (x1 == x2 && y1 == y2) {
-			 if (x1 >= 0 && x1 < 256 && y1 >= 0 && y1 < 232) {
-				 uint8 *dest = currentXBuf + y1 * 256 + x1;
+			 if (x1 >= 0 && x1 < OVL_W && y1 >= 0 && y1 < OVL_H) {
+				 uint8 *dest = currentXBuf + y1 * OVL_W + x1;
 				 *dest = mappedColor;
 				 drewSomething = true;
 			 }
@@ -792,9 +869,9 @@ static bool g_overlayDirty = false;
 		 int steps = 0;
 		 
 		 while (steps < maxSteps) {
-			 // Check bounds and draw pixel - never draw past y=232 to avoid buffer overflows
-			 if (x >= 0 && x < 256 && y >= 0 && y < 232) {
-				 uint8 *dest = currentXBuf + y * 256 + x;
+			 // Check bounds and draw pixel
+			 if (x >= 0 && x < OVL_W && y >= 0 && y < OVL_H) {
+				 uint8 *dest = currentXBuf + y * OVL_W + x;
 				 *dest = mappedColor;
 				 drewSomething = true;
 			 }
@@ -859,9 +936,9 @@ static bool g_overlayDirty = false;
 		 
 		 // Clamp coordinates to safe bounds (auto-adjust if too low/high)
 		 if (x < 0) x = 0;
-		 if (x >= 256) x = 255;
+		 if (x >= OVL_W) x = OVL_W - 1;
 		 if (y < 0) y = 0;
-		 if (y >= 232) y = 231; // Clamp to safe position
+		 if (y >= OVL_H) y = OVL_H - 1; // Clamp to safe position
 		 
 		 xCoords[i] = x;
 		 yCoords[i] = y;
@@ -877,8 +954,8 @@ static bool g_overlayDirty = false;
 	 
 	 // Clamp to safe bounds
 	 if (minY < 0) minY = 0;
-	 if (maxY >= 232) maxY = 231;
-	 if (minY > maxY || minY >= 232 || maxY < 0) {
+	 if (maxY >= OVL_H) maxY = OVL_H - 1;
+	 if (minY > maxY || minY >= OVL_H || maxY < 0) {
 		 delete[] xCoords;
 		 delete[] yCoords;
 		 return 0;
@@ -888,7 +965,7 @@ static bool g_overlayDirty = false;
 	 
 	 // Scanline fill using even-odd rule
 	 for (int y = minY; y <= maxY; ++y) {
-		 if (y < 0 || y >= 232) continue;
+		 if (y < 0 || y >= OVL_H) continue;
 		 
 		 // Find all intersections with polygon edges at this y
 		 int intersections[256]; // Max 256 intersections (should never need that many)
@@ -932,11 +1009,11 @@ static bool g_overlayDirty = false;
 			 int xEnd = intersections[i + 1];
 			 
 			 if (xStart < 0) xStart = 0;
-			 if (xEnd >= 256) xEnd = 255;
+			 if (xEnd >= OVL_W) xEnd = OVL_W - 1;
 			 
 			 for (int x = xStart; x <= xEnd; ++x) {
-				 if (x >= 0 && x < 256) {
-					 uint8 *dest = currentXBuf + y * 256 + x;
+				 if (x >= 0 && x < OVL_W) {
+					 uint8 *dest = currentXBuf + y * OVL_W + x;
 					 *dest = mappedColor;
 					 drewSomething = true;
 				 }
@@ -971,13 +1048,13 @@ static bool g_overlayDirty = false;
 	 
 	 // Clamp coordinates to safe bounds (auto-adjust if too low/high)
 	 if (x < 0) x = 0;
-	 if (x >= 256) x = 255;
+	 if (x >= OVL_W) x = OVL_W - 1;
 	 if (y < 0) y = 0;
-	 if (y >= 232) y = 231; // Clamp to safe position (auto-move up if at/past 232)
+	 if (y >= OVL_H) y = OVL_H - 1; // Clamp to safe position
 	 
-	 // Clamp rectangle to valid bounds and ensure it doesn't extend past y=232
+	 // Clamp rectangle to valid bounds
 	 if (w <= 0 || h <= 0) return 0;
-	 if (y + h > 232) h = 232 - y; // Reduce height to fit
+	 if (y + h > OVL_H) h = OVL_H - y; // Reduce height to fit
 	 if (h <= 0) return 0;
 	 
 	 uint8 mappedColor = map_overlay_color(color);
@@ -989,15 +1066,15 @@ static bool g_overlayDirty = false;
 		 int px = x + dx;
 		 
 		 // Top line
-		 if (px >= 0 && px < 256 && y >= 0 && y < 232) {
-			 uint8 *dest = currentXBuf + y * 256 + px;
+		 if (px >= 0 && px < OVL_W && y >= 0 && y < OVL_H) {
+			 uint8 *dest = currentXBuf + y * OVL_W + px;
 			 *dest = mappedColor;
 			 drewSomething = true;
 		 }
 		 
 		 // Bottom line
-		 if (px >= 0 && px < 256 && (y + h - 1) >= 0 && (y + h - 1) < 240) {
-			 uint8 *dest = currentXBuf + (y + h - 1) * 256 + px;
+		 if (px >= 0 && px < OVL_W && (y + h - 1) >= 0 && (y + h - 1) < OVL_H) {
+			 uint8 *dest = currentXBuf + (y + h - 1) * OVL_W + px;
 			 *dest = mappedColor;
 			 drewSomething = true;
 		 }
@@ -1008,15 +1085,15 @@ static bool g_overlayDirty = false;
 		 int py = y + dy;
 		 
 		 // Left line
-		 if (x >= 0 && x < 256 && py >= 0 && py < 232) {
-			 uint8 *dest = currentXBuf + py * 256 + x;
+		 if (x >= 0 && x < OVL_W && py >= 0 && py < OVL_H) {
+			 uint8 *dest = currentXBuf + py * OVL_W + x;
 			 *dest = mappedColor;
 			 drewSomething = true;
 		 }
 		 
 		 // Right line
-		 if ((x + w - 1) >= 0 && (x + w - 1) < 256 && py >= 0 && py < 232) {
-			 uint8 *dest = currentXBuf + py * 256 + (x + w - 1);
+		 if ((x + w - 1) >= 0 && (x + w - 1) < OVL_W && py >= 0 && py < OVL_H) {
+			 uint8 *dest = currentXBuf + py * OVL_W + (x + w - 1);
 			 *dest = mappedColor;
 			 drewSomething = true;
 		 }
@@ -1046,13 +1123,13 @@ static bool g_overlayDirty = false;
 	 
 	 // Clamp coordinates to safe bounds (auto-adjust if too low/high)
 	 if (x < 0) x = 0;
-	 if (x >= 256) x = 255;
+	 if (x >= OVL_W) x = OVL_W - 1;
 	 if (y < 0) y = 0;
-	 if (y >= 232) y = 231; // Clamp to safe position (auto-move up if at/past 232)
+	 if (y >= OVL_H) y = OVL_H - 1; // Clamp to safe position
 	 
-	 // Clamp rectangle to valid bounds and ensure it doesn't extend past y=232
+	 // Clamp rectangle to valid bounds
 	 if (w <= 0 || h <= 0) return 0;
-	 if (y + h > 232) h = 232 - y; // Reduce height to fit
+	 if (y + h > OVL_H) h = OVL_H - y; // Reduce height to fit
 	 if (h <= 0) return 0;
 	 
 	 uint8 mappedColor = map_overlay_color(color);
@@ -1062,18 +1139,18 @@ static bool g_overlayDirty = false;
 	 // Clamp rectangle to screen bounds
 	 int startX = (x < 0) ? 0 : x;
 	 int startY = (y < 0) ? 0 : y;
-	 int endX = (x + w > 256) ? 256 : (x + w);
-	 int endY = (y + h > 240) ? 240 : (y + h);
+	 int endX = (x + w > OVL_W) ? OVL_W : (x + w);
+	 int endY = (y + h > OVL_H) ? OVL_H : (y + h);
 	 
 	 // Adjust start positions if rectangle is completely off-screen
-	 if (startX >= 256 || startY >= 240 || endX <= 0 || endY <= 0) {
+	 if (startX >= OVL_W || startY >= OVL_H || endX <= 0 || endY <= 0) {
 		 return 0;
 	 }
 	 
 	 // Fill the rectangle row by row
 	 for (int py = startY; py < endY; ++py) {
 		 for (int px = startX; px < endX; ++px) {
-			 uint8 *dest = currentXBuf + py * 256 + px;
+			 uint8 *dest = currentXBuf + py * OVL_W + px;
 			 *dest = mappedColor;
 			 drewSomething = true;
 		 }
@@ -1102,23 +1179,23 @@ static bool g_overlayDirty = false;
 	 
 	 // Clamp coordinates to safe bounds (auto-adjust if too low/high)
 	 if (x < 0) x = 0;
-	 if (x >= 256) x = 255;
+	 if (x >= OVL_W) x = OVL_W - 1;
 	 if (y < 0) y = 0;
-	 if (y >= 232) y = 231; // Clamp to safe position (auto-move up if at/past 232)
+	 if (y >= OVL_H) y = OVL_H - 1; // Clamp to safe position
 	 
-	 // Clamp rectangle to valid bounds and ensure it doesn't extend past y=232
+	 // Clamp rectangle to valid bounds
 	 if (w <= 0 || h <= 0) return 0;
-	 if (y + h > 232) h = 232 - y; // Reduce height to fit
+	 if (y + h > OVL_H) h = OVL_H - y; // Reduce height to fit
 	 if (h <= 0) return 0;
 	 
 	 // Clamp rectangle to screen bounds
 	 int startX = (x < 0) ? 0 : x;
 	 int startY = (y < 0) ? 0 : y;
-	 int endX = (x + w > 256) ? 256 : (x + w);
-	 int endY = (y + h > 240) ? 240 : (y + h);
+	 int endX = (x + w > OVL_W) ? OVL_W : (x + w);
+	 int endY = (y + h > OVL_H) ? OVL_H : (y + h);
 	 
 	 // Adjust start positions if rectangle is completely off-screen
-	 if (startX >= 256 || startY >= 240 || endX <= 0 || endY <= 0) {
+	 if (startX >= OVL_W || startY >= OVL_H || endX <= 0 || endY <= 0) {
 		 return 0;
 	 }
 	 
@@ -1127,7 +1204,7 @@ static bool g_overlayDirty = false;
 	 // Clear the rectangle row by row (set to 0 = transparent)
 	 for (int py = startY; py < endY; ++py) {
 		 for (int px = startX; px < endX; ++px) {
-			 uint8 *dest = currentXBuf + py * 256 + px;
+			 uint8 *dest = currentXBuf + py * OVL_W + px;
 			 *dest = 0;  // 0 means transparent (won't overwrite NES frame)
 			 clearedSomething = true;
 		 }
@@ -1156,9 +1233,9 @@ int lua_drawcircle(lua_State *L) {
 	
 	// Clamp center coordinates to safe bounds (auto-adjust if too low/high)
 	if (cx < 0) cx = 0;
-	if (cx >= 256) cx = 255;
+	if (cx >= OVL_W) cx = OVL_W - 1;
 	if (cy < 0) cy = 0;
-	if (cy >= 232) cy = 231; // Clamp to safe position (auto-move up if at/past 232)
+	if (cy >= OVL_H) cy = OVL_H - 1; // Clamp to safe position
 	
 	// Validate and reduce radius if circle would extend past safe bounds
 	if (radius <= 0) return 0;
@@ -1191,8 +1268,8 @@ int lua_drawcircle(lua_State *L) {
 		for (int i = 0; i < 8; ++i) {
 			int px = points[i][0];
 			int py = points[i][1];
-		 if (px >= 0 && px < 256 && py >= 0 && py < 232) {
-				uint8 *dest = currentXBuf + py * 256 + px;
+		 if (px >= 0 && px < OVL_W && py >= 0 && py < OVL_H) {
+				uint8 *dest = currentXBuf + py * OVL_W + px;
 				*dest = mappedColor;
 				drewSomething = true;
 			}
@@ -1234,9 +1311,9 @@ int lua_fillcircle(lua_State *L) {
 	
 	// Clamp center coordinates to safe bounds (auto-adjust if too low/high)
 	if (cx < 0) cx = 0;
-	if (cx >= 256) cx = 255;
+	if (cx >= OVL_W) cx = OVL_W - 1;
 	if (cy < 0) cy = 0;
-	if (cy >= 232) cy = 231; // Clamp to safe position (auto-move up if at/past 232)
+	if (cy >= OVL_H) cy = OVL_H - 1; // Clamp to safe position
 	
 	// Validate and reduce radius if circle would extend past safe bounds
 	if (radius <= 0) return 0;
@@ -1249,11 +1326,11 @@ int lua_fillcircle(lua_State *L) {
 	
 	// Clamp circle bounds to screen
 	int minX = (cx - radius < 0) ? 0 : (cx - radius);
-	int maxX = (cx + radius >= 256) ? 255 : (cx + radius);
+	int maxX = (cx + radius >= OVL_W) ? OVL_W - 1 : (cx + radius);
 	int minY = (cy - radius < 0) ? 0 : (cy - radius);
-	int maxY = (cy + radius >= 232) ? 231 : (cy + radius);
+	int maxY = (cy + radius >= OVL_H) ? OVL_H - 1 : (cy + radius);
 	
-	if (minX >= 256 || minY >= 232 || maxX < 0 || maxY < 0) return 0;
+	if (minX >= OVL_W || minY >= OVL_H || maxX < 0 || maxY < 0) return 0;
 	
 	// Fill circle by checking if each pixel is inside the circle
 	for (int py = minY; py <= maxY; ++py) {
@@ -1266,8 +1343,8 @@ int lua_fillcircle(lua_State *L) {
 			
 			// If pixel is inside or on the circle, fill it
 			if (distSq <= radiusSq) {
-		 if (px >= 0 && px < 256 && py >= 0 && py < 232) {
-					uint8 *dest = currentXBuf + py * 256 + px;
+		 if (px >= 0 && px < OVL_W && py >= 0 && py < OVL_H) {
+					uint8 *dest = currentXBuf + py * OVL_W + px;
 					*dest = mappedColor;
 					drewSomething = true;
 				}
@@ -1301,17 +1378,17 @@ int lua_drawtriangle(lua_State *L) {
 	
 	// Clamp coordinates to safe bounds (auto-adjust if too low/high)
 	if (x1 < 0) x1 = 0;
-	if (x1 >= 256) x1 = 255;
+	if (x1 >= OVL_W) x1 = OVL_W - 1;
 	if (x2 < 0) x2 = 0;
-	if (x2 >= 256) x2 = 255;
+	if (x2 >= OVL_W) x2 = OVL_W - 1;
 	if (x3 < 0) x3 = 0;
-	if (x3 >= 256) x3 = 255;
+	if (x3 >= OVL_W) x3 = OVL_W - 1;
 	if (y1 < 0) y1 = 0;
-	if (y1 >= 232) y1 = 231; // Clamp to safe position
+	if (y1 >= OVL_H) y1 = OVL_H - 1; // Clamp to safe position
 	if (y2 < 0) y2 = 0;
-	if (y2 >= 232) y2 = 231; // Clamp to safe position
+	if (y2 >= OVL_H) y2 = OVL_H - 1; // Clamp to safe position
 	if (y3 < 0) y3 = 0;
-	if (y3 >= 232) y3 = 231; // Clamp to safe position
+	 if (y3 >= OVL_H) y3 = OVL_H - 1; // Clamp to safe position
 	
 	uint8 mappedColor = map_overlay_color(color);
 	bool drewSomething = false;
@@ -1328,8 +1405,8 @@ int lua_drawtriangle(lua_State *L) {
 	int y = y1;
 	
 	while (true) {
-		 if (x >= 0 && x < 256 && y >= 0 && y < 232) {
-			uint8 *dest = currentXBuf + y * 256 + x;
+			 if (x >= 0 && x < OVL_W && y >= 0 && y < OVL_H) {
+				 uint8 *dest = currentXBuf + y * OVL_W + x;
 			*dest = mappedColor;
 			drewSomething = true;
 		}
@@ -1355,8 +1432,8 @@ int lua_drawtriangle(lua_State *L) {
 	y = y2;
 	
 	while (true) {
-		 if (x >= 0 && x < 256 && y >= 0 && y < 232) {
-			uint8 *dest = currentXBuf + y * 256 + x;
+			 if (x >= 0 && x < OVL_W && y >= 0 && y < OVL_H) {
+				 uint8 *dest = currentXBuf + y * OVL_W + x;
 			*dest = mappedColor;
 			drewSomething = true;
 		}
@@ -1382,8 +1459,8 @@ int lua_drawtriangle(lua_State *L) {
 	y = y3;
 	
 	while (true) {
-		 if (x >= 0 && x < 256 && y >= 0 && y < 232) {
-			uint8 *dest = currentXBuf + y * 256 + x;
+			 if (x >= 0 && x < OVL_W && y >= 0 && y < OVL_H) {
+				 uint8 *dest = currentXBuf + y * OVL_W + x;
 			*dest = mappedColor;
 			drewSomething = true;
 		}
@@ -1425,17 +1502,17 @@ int lua_filltriangle(lua_State *L) {
 	
 	// Clamp coordinates to safe bounds (auto-adjust if too low/high)
 	if (x1 < 0) x1 = 0;
-	if (x1 >= 256) x1 = 255;
+	if (x1 >= OVL_W) x1 = OVL_W - 1;
 	if (x2 < 0) x2 = 0;
-	if (x2 >= 256) x2 = 255;
+	if (x2 >= OVL_W) x2 = OVL_W - 1;
 	if (x3 < 0) x3 = 0;
-	if (x3 >= 256) x3 = 255;
+	if (x3 >= OVL_W) x3 = OVL_W - 1;
 	if (y1 < 0) y1 = 0;
-	if (y1 >= 232) y1 = 231; // Clamp to safe position
+	if (y1 >= OVL_H) y1 = OVL_H - 1; // Clamp to safe position
 	if (y2 < 0) y2 = 0;
-	if (y2 >= 232) y2 = 231; // Clamp to safe position
+	if (y2 >= OVL_H) y2 = OVL_H - 1; // Clamp to safe position
 	if (y3 < 0) y3 = 0;
-	if (y3 >= 232) y3 = 231; // Clamp to safe position
+	 if (y3 >= OVL_H) y3 = OVL_H - 1; // Clamp to safe position
 	
 	uint8 mappedColor = map_overlay_color(color);
 	bool drewSomething = false;
@@ -1529,10 +1606,10 @@ int lua_filltriangle(lua_State *L) {
 		// All points on same line - draw a line
 		int xStart = (topX < midX) ? ((topX < botX) ? topX : botX) : ((midX < botX) ? midX : botX);
 		int xEnd = (topX > midX) ? ((topX > botX) ? topX : botX) : ((midX > botX) ? midX : botX);
-		if (topY >= 0 && topY < 240) {
+		if (topY >= 0 && topY < OVL_H) {
 			for (int x = xStart; x <= xEnd; ++x) {
-				if (x >= 0 && x < 256) {
-					uint8 *dest = currentXBuf + topY * 256 + x;
+				if (x >= 0 && x < OVL_W) {
+					uint8 *dest = currentXBuf + topY * OVL_W + x;
 					*dest = mappedColor;
 					drewSomething = true;
 				}
@@ -1564,9 +1641,9 @@ int lua_drawellipse(lua_State *L) {
 	
 	// Clamp center coordinates to safe bounds (auto-adjust if too low/high)
 	if (cx < 0) cx = 0;
-	if (cx >= 256) cx = 255;
+	if (cx >= OVL_W) cx = OVL_W - 1;
 	if (cy < 0) cy = 0;
-	if (cy >= 232) cy = 231; // Clamp to safe position (auto-move up if at/past 232)
+	if (cy >= OVL_H) cy = OVL_H - 1; // Clamp to safe position
 	
 	// Validate and reduce radii if ellipse would extend past safe bounds
 	if (rx <= 0 || ry <= 0) return 0;
@@ -1592,20 +1669,20 @@ int lua_drawellipse(lua_State *L) {
 	// Draw first region
 	while (rx2y < ry2x) {
 		// Draw 4 symmetric points
-		if (cx + x >= 0 && cx + x < 256 && cy + y >= 0 && cy + y < 232) {
-			currentXBuf[(cy + y) * 256 + (cx + x)] = mappedColor;
+		if (cx + x >= 0 && cx + x < OVL_W && cy + y >= 0 && cy + y < OVL_H) {
+			currentXBuf[(cy + y) * OVL_W + (cx + x)] = mappedColor;
 			drewSomething = true;
 		}
-		if (cx - x >= 0 && cx - x < 256 && cy + y >= 0 && cy + y < 232) {
-			currentXBuf[(cy + y) * 256 + (cx - x)] = mappedColor;
+		if (cx - x >= 0 && cx - x < OVL_W && cy + y >= 0 && cy + y < OVL_H) {
+			currentXBuf[(cy + y) * OVL_W + (cx - x)] = mappedColor;
 			drewSomething = true;
 		}
-		if (cx + x >= 0 && cx + x < 256 && cy - y >= 0 && cy - y < 232) {
-			currentXBuf[(cy - y) * 256 + (cx + x)] = mappedColor;
+		if (cx + x >= 0 && cx + x < OVL_W && cy - y >= 0 && cy - y < OVL_H) {
+			currentXBuf[(cy - y) * OVL_W + (cx + x)] = mappedColor;
 			drewSomething = true;
 		}
-		if (cx - x >= 0 && cx - x < 256 && cy - y >= 0 && cy - y < 232) {
-			currentXBuf[(cy - y) * 256 + (cx - x)] = mappedColor;
+		if (cx - x >= 0 && cx - x < OVL_W && cy - y >= 0 && cy - y < OVL_H) {
+			currentXBuf[(cy - y) * OVL_W + (cx - x)] = mappedColor;
 			drewSomething = true;
 		}
 		
@@ -1630,20 +1707,20 @@ int lua_drawellipse(lua_State *L) {
 	// Draw second region
 	while (y >= 0) {
 		// Draw 4 symmetric points
-		if (cx + x >= 0 && cx + x < 256 && cy + y >= 0 && cy + y < 232) {
-			currentXBuf[(cy + y) * 256 + (cx + x)] = mappedColor;
+		if (cx + x >= 0 && cx + x < OVL_W && cy + y >= 0 && cy + y < OVL_H) {
+			currentXBuf[(cy + y) * OVL_W + (cx + x)] = mappedColor;
 			drewSomething = true;
 		}
-		if (cx - x >= 0 && cx - x < 256 && cy + y >= 0 && cy + y < 232) {
-			currentXBuf[(cy + y) * 256 + (cx - x)] = mappedColor;
+		if (cx - x >= 0 && cx - x < OVL_W && cy + y >= 0 && cy + y < OVL_H) {
+			currentXBuf[(cy + y) * OVL_W + (cx - x)] = mappedColor;
 			drewSomething = true;
 		}
-		if (cx + x >= 0 && cx + x < 256 && cy - y >= 0 && cy - y < 232) {
-			currentXBuf[(cy - y) * 256 + (cx + x)] = mappedColor;
+		if (cx + x >= 0 && cx + x < OVL_W && cy - y >= 0 && cy - y < OVL_H) {
+			currentXBuf[(cy - y) * OVL_W + (cx + x)] = mappedColor;
 			drewSomething = true;
 		}
-		if (cx - x >= 0 && cx - x < 256 && cy - y >= 0 && cy - y < 232) {
-			currentXBuf[(cy - y) * 256 + (cx - x)] = mappedColor;
+		if (cx - x >= 0 && cx - x < OVL_W && cy - y >= 0 && cy - y < OVL_H) {
+			currentXBuf[(cy - y) * OVL_W + (cx - x)] = mappedColor;
 			drewSomething = true;
 		}
 		
@@ -1684,9 +1761,9 @@ int lua_fillellipse(lua_State *L) {
 	
 	// Clamp center coordinates to safe bounds (auto-adjust if too low/high)
 	if (cx < 0) cx = 0;
-	if (cx >= 256) cx = 255;
+	if (cx >= OVL_W) cx = OVL_W - 1;
 	if (cy < 0) cy = 0;
-	if (cy >= 232) cy = 231; // Clamp to safe position (auto-move up if at/past 232)
+	if (cy >= OVL_H) cy = OVL_H - 1; // Clamp to safe position
 	
 	// Validate and reduce radii if ellipse would extend past safe bounds
 	if (rx <= 0 || ry <= 0) return 0;
@@ -1699,11 +1776,11 @@ int lua_fillellipse(lua_State *L) {
 	
 	// Calculate bounding box for filled ellipse
 	int minX = (cx - rx < 0) ? 0 : (cx - rx);
-	int maxX = (cx + rx >= 256) ? 255 : (cx + rx);
+	int maxX = (cx + rx >= OVL_W) ? OVL_W - 1 : (cx + rx);
 	int minY = (cy - ry < 0) ? 0 : (cy - ry);
-	int maxY = (cy + ry >= 232) ? 231 : (cy + ry);
+	int maxY = (cy + ry >= OVL_H) ? OVL_H - 1 : (cy + ry);
 	
-	if (minX >= 256 || minY >= 232 || maxX < 0 || maxY < 0) return 0;
+	if (minX >= OVL_W || minY >= OVL_H || maxX < 0 || maxY < 0) return 0;
 	
 	// Pre-calculate squared values for efficiency
 	int rx2 = rx * rx;
@@ -1722,8 +1799,8 @@ int lua_fillellipse(lua_State *L) {
 			int distSq = (dx * dx * ry2) + (dy * dy * rx2);
 			
 			if (distSq <= rx2ry2) {
-		 if (px >= 0 && px < 256 && py >= 0 && py < 232) {
-					uint8 *dest = currentXBuf + py * 256 + px;
+		 if (px >= 0 && px < OVL_W && py >= 0 && py < OVL_H) {
+					uint8 *dest = currentXBuf + py * OVL_W + px;
 					*dest = mappedColor;
 					drewSomething = true;
 				}
@@ -1756,9 +1833,9 @@ int lua_drawarc(lua_State *L) {
 	
 	// Clamp center coordinates to safe bounds (auto-adjust if too low/high)
 	if (cx < 0) cx = 0;
-	if (cx >= 256) cx = 255;
+	if (cx >= OVL_W) cx = OVL_W - 1;
 	if (cy < 0) cy = 0;
-	if (cy >= 232) cy = 231; // Clamp to safe position (auto-move up if at/past 232)
+	if (cy >= OVL_H) cy = OVL_H - 1; // Clamp to safe position
 	
 	// Validate and reduce radius if arc would extend past safe bounds
 	if (radius <= 0) return 0;
@@ -1796,7 +1873,7 @@ int lua_drawarc(lua_State *L) {
 			int py = points[i][1];
 			
 			// Check bounds
-		 if (px >= 0 && px < 256 && py >= 0 && py < 232) {
+		 if (px >= 0 && px < OVL_W && py >= 0 && py < OVL_H) {
 				// Calculate angle of point relative to center
 				int dx = px - cx;
 				int dy = py - cy;
@@ -1814,7 +1891,7 @@ int lua_drawarc(lua_State *L) {
 				}
 				
 				if (inRange) {
-					uint8 *dest = currentXBuf + py * 256 + px;
+					uint8 *dest = currentXBuf + py * OVL_W + px;
 					*dest = mappedColor;
 					drewSomething = true;
 				}
@@ -1856,9 +1933,9 @@ int lua_fillarc(lua_State *L) {
 	
 	// Clamp center coordinates to safe bounds (auto-adjust if too low/high)
 	if (cx < 0) cx = 0;
-	if (cx >= 256) cx = 255;
+	if (cx >= OVL_W) cx = OVL_W - 1;
 	if (cy < 0) cy = 0;
-	if (cy >= 232) cy = 231; // Clamp to safe position (auto-move up if at/past 232)
+	if (cy >= OVL_H) cy = OVL_H - 1; // Clamp to safe position
 	
 	// Validate and reduce radius if arc would extend past safe bounds
 	if (radius <= 0) return 0;
@@ -1875,11 +1952,11 @@ int lua_fillarc(lua_State *L) {
 	
 	// Calculate bounding box for filled arc
 	int minX = (cx - radius < 0) ? 0 : (cx - radius);
-	int maxX = (cx + radius >= 256) ? 255 : (cx + radius);
+	int maxX = (cx + radius >= OVL_W) ? OVL_W - 1 : (cx + radius);
 	int minY = (cy - radius < 0) ? 0 : (cy - radius);
-	int maxY = (cy + radius >= 232) ? 231 : (cy + radius);
+	int maxY = (cy + radius >= OVL_H) ? OVL_H - 1 : (cy + radius);
 	
-	if (minX >= 256 || minY >= 232 || maxX < 0 || maxY < 0) return 0;
+	if (minX >= OVL_W || minY >= OVL_H || maxX < 0 || maxY < 0) return 0;
 	
 	// Fill arc by checking if each pixel is inside the arc
 	for (int py = minY; py <= maxY; ++py) {
@@ -1907,8 +1984,8 @@ int lua_fillarc(lua_State *L) {
 				}
 				
 				if (inRange) {
-		 if (px >= 0 && px < 256 && py >= 0 && py < 232) {
-						uint8 *dest = currentXBuf + py * 256 + px;
+		 if (px >= 0 && px < OVL_W && py >= 0 && py < OVL_H) {
+						uint8 *dest = currentXBuf + py * OVL_W + px;
 						*dest = mappedColor;
 						drewSomething = true;
 					}
@@ -1944,7 +2021,7 @@ static void draw_rounded_corner(uint8* buf, int cx, int cy, int radius, int star
 		for (int i = 0; i < 8; ++i) {
 			int px = points[i][0];
 			int py = points[i][1];
-		 if (px >= 0 && px < 256 && py >= 0 && py < 232) {
+		 if (px >= 0 && px < OVL_W && py >= 0 && py < OVL_H) {
 				int dx = px - cx;
 				int dy = py - cy;
 				double angleRad = atan2((double)dy, (double)dx);
@@ -1957,7 +2034,7 @@ static void draw_rounded_corner(uint8* buf, int cx, int cy, int radius, int star
 					inRange = (a >= startAngle || a <= endAngle);
 				}
 				if (inRange) {
-					buf[py * 256 + px] = color;
+					buf[py * OVL_W + px] = color;
 				}
 			}
 		}
@@ -1989,13 +2066,13 @@ int lua_drawroundrect(lua_State *L) {
 	
 	// Clamp coordinates to safe bounds (auto-adjust if too low/high)
 	if (x < 0) x = 0;
-	if (x >= 256) x = 255;
+	if (x >= OVL_W) x = OVL_W - 1;
 	if (y < 0) y = 0;
-	if (y >= 232) y = 231; // Clamp to safe position (auto-move up if at/past 232)
+	if (y >= OVL_H) y = OVL_H - 1; // Clamp to safe position
 	
-	// Clamp rectangle to valid bounds and ensure it doesn't extend past y=232
+	// Clamp rectangle to valid bounds
 	if (w <= 0 || h <= 0) return 0;
-	if (y + h > 232) h = 232 - y; // Reduce height to fit
+	if (y + h > OVL_H) h = OVL_H - y; // Reduce height to fit
 	if (h <= 0) return 0;
 	
 	// Validate dimensions
@@ -2033,8 +2110,8 @@ int lua_drawroundrect(lua_State *L) {
 		int topStartX = x + radius;
 		int topEndX = x2 - radius;
 		for (int px = topStartX; px <= topEndX; ++px) {
-			if (px >= 0 && px < 256 && y >= 0 && y < 232) {
-				currentXBuf[y * 256 + px] = mappedColor;
+			if (px >= 0 && px < OVL_W && y >= 0 && y < OVL_H) {
+				currentXBuf[y * OVL_W + px] = mappedColor;
 				drewSomething = true;
 			}
 		}
@@ -2045,8 +2122,8 @@ int lua_drawroundrect(lua_State *L) {
 		int botStartX = x + radius;
 		int botEndX = x2 - radius;
 		for (int px = botStartX; px <= botEndX; ++px) {
-			if (px >= 0 && px < 256 && y2 >= 0 && y2 < 232) {
-				currentXBuf[y2 * 256 + px] = mappedColor;
+			if (px >= 0 && px < OVL_W && y2 >= 0 && y2 < OVL_H) {
+				currentXBuf[y2 * OVL_W + px] = mappedColor;
 				drewSomething = true;
 			}
 		}
@@ -2057,8 +2134,8 @@ int lua_drawroundrect(lua_State *L) {
 		int leftStartY = y + radius;
 		int leftEndY = y2 - radius;
 		for (int py = leftStartY; py <= leftEndY; ++py) {
-			if (x >= 0 && x < 256 && py >= 0 && py < 232) {
-				currentXBuf[py * 256 + x] = mappedColor;
+			if (x >= 0 && x < OVL_W && py >= 0 && py < OVL_H) {
+				currentXBuf[py * OVL_W + x] = mappedColor;
 				drewSomething = true;
 			}
 		}
@@ -2069,8 +2146,8 @@ int lua_drawroundrect(lua_State *L) {
 		int rightStartY = y + radius;
 		int rightEndY = y2 - radius;
 		for (int py = rightStartY; py <= rightEndY; ++py) {
-			if (x2 >= 0 && x2 < 256 && py >= 0 && py < 232) {
-				currentXBuf[py * 256 + x2] = mappedColor;
+			if (x2 >= 0 && x2 < OVL_W && py >= 0 && py < OVL_H) {
+				currentXBuf[py * OVL_W + x2] = mappedColor;
 				drewSomething = true;
 			}
 		}
@@ -2080,22 +2157,22 @@ int lua_drawroundrect(lua_State *L) {
 	if (radius == 0 || (radius >= w / 2 && radius >= h / 2)) {
 		// Draw all four edges
 		for (int px = x; px <= x2; ++px) {
-			if (px >= 0 && px < 256 && y >= 0 && y < 232) {
-				currentXBuf[y * 256 + px] = mappedColor;
+			if (px >= 0 && px < OVL_W && y >= 0 && y < OVL_H) {
+				currentXBuf[y * OVL_W + px] = mappedColor;
 				drewSomething = true;
 			}
-			if (px >= 0 && px < 256 && y2 >= 0 && y2 < 232) {
-				currentXBuf[y2 * 256 + px] = mappedColor;
+			if (px >= 0 && px < OVL_W && y2 >= 0 && y2 < OVL_H) {
+				currentXBuf[y2 * OVL_W + px] = mappedColor;
 				drewSomething = true;
 			}
 		}
 		for (int py = y; py <= y2; ++py) {
-			if (x >= 0 && x < 256 && py >= 0 && py < 232) {
-				currentXBuf[py * 256 + x] = mappedColor;
+			if (x >= 0 && x < OVL_W && py >= 0 && py < OVL_H) {
+				currentXBuf[py * OVL_W + x] = mappedColor;
 				drewSomething = true;
 			}
-			if (x2 >= 0 && x2 < 256 && py >= 0 && py < 232) {
-				currentXBuf[py * 256 + x2] = mappedColor;
+			if (x2 >= 0 && x2 < OVL_W && py >= 0 && py < OVL_H) {
+				currentXBuf[py * OVL_W + x2] = mappedColor;
 				drewSomething = true;
 			}
 		}
@@ -2126,13 +2203,13 @@ int lua_fillroundrect(lua_State *L) {
 	
 	// Clamp coordinates to safe bounds (auto-adjust if too low/high)
 	if (x < 0) x = 0;
-	if (x >= 256) x = 255;
+	if (x >= OVL_W) x = OVL_W - 1;
 	if (y < 0) y = 0;
-	if (y >= 232) y = 231; // Clamp to safe position (auto-move up if at/past 232)
+	if (y >= OVL_H) y = OVL_H - 1; // Clamp to safe position
 	
-	// Clamp rectangle to valid bounds and ensure it doesn't extend past y=232
+	// Clamp rectangle to valid bounds
 	if (w <= 0 || h <= 0) return 0;
-	if (y + h > 232) h = 232 - y; // Reduce height to fit
+	if (y + h > OVL_H) h = OVL_H - y; // Reduce height to fit
 	if (h <= 0) return 0;
 	
 	// Validate dimensions
@@ -2151,11 +2228,11 @@ int lua_fillroundrect(lua_State *L) {
 	
 	// Fill the rounded rectangle by checking each pixel
 	int minX = (x < 0) ? 0 : x;
-	int maxX = (x2 >= 256) ? 255 : x2;
+	int maxX = (x2 >= OVL_W) ? OVL_W - 1 : x2;
 	int minY = (y < 0) ? 0 : y;
-	int maxY = (y2 >= 232) ? 231 : y2;
+	int maxY = (y2 >= OVL_H) ? OVL_H - 1 : y2;
 	
-	if (minX >= 256 || minY >= 232 || maxX < 0 || maxY < 0) return 0;
+	if (minX >= OVL_W || minY >= OVL_H || maxX < 0 || maxY < 0) return 0;
 	
 	// Fill center rectangle (if there's a center area)
 	if (radius < w / 2 && radius < h / 2) {
@@ -2165,8 +2242,8 @@ int lua_fillroundrect(lua_State *L) {
 		int centerY2 = y2 - radius;
 		for (int py = centerY1; py <= centerY2; ++py) {
 			for (int px = centerX1; px <= centerX2; ++px) {
-		 if (px >= 0 && px < 256 && py >= 0 && py < 232) {
-					currentXBuf[py * 256 + px] = mappedColor;
+		 if (px >= 0 && px < OVL_W && py >= 0 && py < OVL_H) {
+					currentXBuf[py * OVL_W + px] = mappedColor;
 					drewSomething = true;
 				}
 			}
@@ -2189,8 +2266,8 @@ int lua_fillroundrect(lua_State *L) {
 					int angleDeg = (int)(angleRad * 180.0 / 3.14159265358979323846);
 					int a = ((angleDeg % 360) + 360) % 360;
 					if (a >= 180 && a <= 270) {
-		 if (px >= 0 && px < 256 && py >= 0 && py < 232) {
-							currentXBuf[py * 256 + px] = mappedColor;
+		 if (px >= 0 && px < OVL_W && py >= 0 && py < OVL_H) {
+							currentXBuf[py * OVL_W + px] = mappedColor;
 							drewSomething = true;
 						}
 					}
@@ -2212,8 +2289,8 @@ int lua_fillroundrect(lua_State *L) {
 					int angleDeg = (int)(angleRad * 180.0 / 3.14159265358979323846);
 					int a = ((angleDeg % 360) + 360) % 360;
 					if (a >= 270 || a <= 0) {
-		 if (px >= 0 && px < 256 && py >= 0 && py < 232) {
-							currentXBuf[py * 256 + px] = mappedColor;
+		 if (px >= 0 && px < OVL_W && py >= 0 && py < OVL_H) {
+							currentXBuf[py * OVL_W + px] = mappedColor;
 							drewSomething = true;
 						}
 					}
@@ -2235,8 +2312,8 @@ int lua_fillroundrect(lua_State *L) {
 					int angleDeg = (int)(angleRad * 180.0 / 3.14159265358979323846);
 					int a = ((angleDeg % 360) + 360) % 360;
 					if (a >= 0 && a <= 90) {
-		 if (px >= 0 && px < 256 && py >= 0 && py < 232) {
-							currentXBuf[py * 256 + px] = mappedColor;
+		 if (px >= 0 && px < OVL_W && py >= 0 && py < OVL_H) {
+							currentXBuf[py * OVL_W + px] = mappedColor;
 							drewSomething = true;
 						}
 					}
@@ -2258,8 +2335,8 @@ int lua_fillroundrect(lua_State *L) {
 					int angleDeg = (int)(angleRad * 180.0 / 3.14159265358979323846);
 					int a = ((angleDeg % 360) + 360) % 360;
 					if (a >= 90 && a <= 180) {
-		 if (px >= 0 && px < 256 && py >= 0 && py < 232) {
-							currentXBuf[py * 256 + px] = mappedColor;
+		 if (px >= 0 && px < OVL_W && py >= 0 && py < OVL_H) {
+							currentXBuf[py * OVL_W + px] = mappedColor;
 							drewSomething = true;
 						}
 					}
@@ -2272,8 +2349,8 @@ int lua_fillroundrect(lua_State *L) {
 		if (radius < w / 2) {
 			for (int py = minY; py < y + radius; ++py) {
 				for (int px = x + radius; px <= x2 - radius; ++px) {
-		 if (px >= 0 && px < 256 && py >= 0 && py < 232) {
-						currentXBuf[py * 256 + px] = mappedColor;
+		 if (px >= 0 && px < OVL_W && py >= 0 && py < OVL_H) {
+						currentXBuf[py * OVL_W + px] = mappedColor;
 						drewSomething = true;
 					}
 				}
@@ -2284,8 +2361,8 @@ int lua_fillroundrect(lua_State *L) {
 		if (radius < w / 2) {
 			for (int py = y2 - radius + 1; py <= maxY; ++py) {
 				for (int px = x + radius; px <= x2 - radius; ++px) {
-		 if (px >= 0 && px < 256 && py >= 0 && py < 232) {
-						currentXBuf[py * 256 + px] = mappedColor;
+		 if (px >= 0 && px < OVL_W && py >= 0 && py < OVL_H) {
+						currentXBuf[py * OVL_W + px] = mappedColor;
 						drewSomething = true;
 					}
 				}
@@ -2296,8 +2373,8 @@ int lua_fillroundrect(lua_State *L) {
 		if (radius < h / 2) {
 			for (int py = y + radius; py <= y2 - radius; ++py) {
 				for (int px = minX; px < x + radius; ++px) {
-		 if (px >= 0 && px < 256 && py >= 0 && py < 232) {
-						currentXBuf[py * 256 + px] = mappedColor;
+		 if (px >= 0 && px < OVL_W && py >= 0 && py < OVL_H) {
+						currentXBuf[py * OVL_W + px] = mappedColor;
 						drewSomething = true;
 					}
 				}
@@ -2308,8 +2385,8 @@ int lua_fillroundrect(lua_State *L) {
 		if (radius < h / 2) {
 			for (int py = y + radius; py <= y2 - radius; ++py) {
 				for (int px = x2 - radius + 1; px <= maxX; ++px) {
-		 if (px >= 0 && px < 256 && py >= 0 && py < 232) {
-						currentXBuf[py * 256 + px] = mappedColor;
+		 if (px >= 0 && px < OVL_W && py >= 0 && py < OVL_H) {
+						currentXBuf[py * OVL_W + px] = mappedColor;
 						drewSomething = true;
 					}
 				}
@@ -2319,8 +2396,8 @@ int lua_fillroundrect(lua_State *L) {
 		// No rounding: fill entire rectangle (same as fillrect)
 		for (int py = minY; py <= maxY; ++py) {
 			for (int px = minX; px <= maxX; ++px) {
-		 if (px >= 0 && px < 256 && py >= 0 && py < 232) {
-					currentXBuf[py * 256 + px] = mappedColor;
+		 if (px >= 0 && px < OVL_W && py >= 0 && py < OVL_H) {
+					currentXBuf[py * OVL_W + px] = mappedColor;
 					drewSomething = true;
 				}
 			}
@@ -2685,6 +2762,8 @@ int lua_writebytes(lua_State *L) {
 	 lua_register(luaState, "writebytes", lua_writebytes);
 	 // logging
 	 lua_register(luaState, "log", lua_log);
+	 // Console spacing control
+	 lua_register(luaState, "setconsolespacing", lua_setconsolespacing);
 	 // Script timing controls
 	 lua_register(luaState, "setscriptinterval", lua_setscriptinterval);
 	 lua_register(luaState, "getscriptinterval", lua_getscriptinterval);
@@ -2745,6 +2824,7 @@ REG("testbit",        lua_testbit);
 	REG("writeword",      lua_writeword);
 	REG("writebytes",     lua_writebytes);
 	REG("log",            lua_log);
+	REG("setconsolespacing", lua_setconsolespacing);
 REG("setscriptinterval", lua_setscriptinterval);
 REG("getscriptinterval", lua_getscriptinterval);
 	lua_pushcfunction(luaState, lua_print_redirect);
@@ -3518,7 +3598,7 @@ void FCEU_ReloadLuaCode(void) {
 		 
 		 // Always start fresh to avoid "ghost" rectangles from prior frames
 		 if (s_overlay_back) {
-			 memset(s_overlay_back, 0, 256 * 240);
+			 memset(s_overlay_back, 0, OVL_W * OVL_H);
 		 }
 		 
 		 // Optional status message for a few seconds - clears automatically after timeout
@@ -3542,8 +3622,8 @@ void FCEU_ReloadLuaCode(void) {
 			 
 			 if (statusTicks < 180) {  // ~6s @ 30Hz
 				 // Draw status message below "LUA ON"
-				 if (statusY >= 0 && statusY < 232 && g_luaStatusMsg[0] != '\0') {
-					 DrawTextTrans(s_overlay_back + statusY*256 + 4, 256, (uint8*)g_luaStatusMsg, 0x2E | 0x80);
+				 if (statusY >= 0 && statusY < OVL_H && g_luaStatusMsg[0] != '\0') {
+					 DrawTextTrans(s_overlay_back + statusY*OVL_W + 4, OVL_W, (uint8*)g_luaStatusMsg, 0x2E | 0x80);
 				 }
 				 statusTicks++;
 				 statusShown = true;
@@ -3577,7 +3657,7 @@ void FCEU_ReloadLuaCode(void) {
 					 if (err && err[0]) LuaConsolePushLine(err);
 					 // Draw error indicator on screen so failures are visible
 					 if (s_overlay_back) {
-						 DrawTextTrans(s_overlay_back + 10*256 + 10, 256, (uint8*)"LUA ERR", 0x0F | 0x80);
+						 DrawTextTrans(s_overlay_back + 10*OVL_W + 10, OVL_W, (uint8*)"LUA ERR", 0x0F | 0x80);
 						 g_overlayDirty = true;  // Error marker counts as drawing
 					 }
 					 lua_pop(luaState, 1);
@@ -3587,7 +3667,7 @@ void FCEU_ReloadLuaCode(void) {
 			 // script() function doesn't exist
 				 lua_pop(luaState, 1);
 				 if (s_overlay_back) {
-				 DrawTextTrans(s_overlay_back + 10*256 + 10, 256, (uint8*)"NO script()", 0x0F | 0x80);
+				 DrawTextTrans(s_overlay_back + 10*OVL_W + 10, OVL_W, (uint8*)"NO script()", 0x0F | 0x80);
 					 g_overlayDirty = true;  // Error indicator counts as drawing
 				 }
 			 }
@@ -3596,56 +3676,82 @@ void FCEU_ReloadLuaCode(void) {
 		 } else {
 			 // Lua not initialized
 			 if (s_overlay_back) {
-				 DrawTextTrans(s_overlay_back + 10*256 + 10, 256, (uint8*)"LUA OFF", 0x0F | 0x80);
+				 DrawTextTrans(s_overlay_back + 10*OVL_W + 10, OVL_W, (uint8*)"LUA OFF", 0x0F | 0x80);
 				 g_overlayDirty = true;  // Status indicator counts as drawing
 			 }
 		 }
 		 
          // If console visible, draw it now onto back buffer and mark dirty
 		 if (s_consoleVisible && s_overlay_back) {
+			 // Handle D-pad scrolling
+			 bool dpadUp = (Gamepads[0].wButtons & XINPUT_GAMEPAD_DPAD_UP) != 0;
+			 bool dpadDown = (Gamepads[0].wButtons & XINPUT_GAMEPAD_DPAD_DOWN) != 0;
+			 
+			 // Scroll on button press (immediate) or hold (throttled)
+			 if (dpadUp) {
+				 if (!s_consoleDpadUpLast) {
+					 // First press - scroll immediately
+					 s_consoleScrollOffset++;
+					 s_consoleScrollHoldFrames = 0;
+				 } else {
+					 // Holding - scroll every 3 frames for smooth but controlled speed
+					 s_consoleScrollHoldFrames++;
+					 if (s_consoleScrollHoldFrames >= 3) {
+						 s_consoleScrollOffset++;
+						 s_consoleScrollHoldFrames = 0;
+					 }
+				 }
+			 }
+			 if (dpadDown) {
+				 if (!s_consoleDpadDownLast) {
+					 // First press - scroll immediately
+				 if (s_consoleScrollOffset > 0) {
+					 s_consoleScrollOffset--;
+				 }
+					 s_consoleScrollHoldFrames = 0;
+				 } else {
+					 // Holding - scroll every 3 frames for smooth but controlled speed
+					 s_consoleScrollHoldFrames++;
+					 if (s_consoleScrollHoldFrames >= 3) {
+						 if (s_consoleScrollOffset > 0) {
+							 s_consoleScrollOffset--;
+						 }
+						 s_consoleScrollHoldFrames = 0;
+					 }
+				 }
+			 }
+			 
+			 // Reset hold counter when button is released
+			 if (!dpadUp && !dpadDown) {
+				 s_consoleScrollHoldFrames = 0;
+			 }
+			 
+			 s_consoleDpadUpLast = dpadUp;
+			 s_consoleDpadDownLast = dpadDown;
+			 
 			 const int cx = 4, cy = 40;
-			 int maxX = 4 + 248 - 1; if (maxX > 255) maxX = 255;
-			 int maxY = 40 + 180 - 1; if (maxY > 231) maxY = 231;
+			 int maxX = 4 + 248 - 1; if (maxX > OVL_W - 1) maxX = OVL_W - 1;
+			 int maxY = 40 + 180 - 1; if (maxY > OVL_H - 1) maxY = OVL_H - 1;
 			 const uint8 bg = 0x80 | 0x10;
 			 const uint8 bd = 0x80 | 0x2E;
 			 for (int py = cy; py <= maxY; ++py) {
-				 for (int px = cx; px <= maxX; ++px) s_overlay_back[py*256 + px] = bg;
+				 for (int px = cx; px <= maxX; ++px) s_overlay_back[py*OVL_W + px] = bg;
 			 }
-			 for (int px = cx; px <= maxX; ++px) { s_overlay_back[cy*256 + px] = bd; s_overlay_back[maxY*256 + px] = bd; }
-			 for (int py = cy; py <= maxY; ++py) { s_overlay_back[py*256 + cx] = bd; s_overlay_back[py*256 + maxX] = bd; }
-			 DrawTextTrans(s_overlay_back + cy*256 + (cx + 6), 256, (uint8*)"Lua Console (LS+RS)", 0x2E | 0x80);
-			 const int lineStartY = cy + 12; const int lineH = 8;
-			 int maxLines = (maxY - lineStartY + 1) / lineH;
-			 int toDraw = s_luaConsoleCount < maxLines ? s_luaConsoleCount : maxLines;
-			 int startIdx = s_luaConsoleCount - toDraw;
-			 // Calculate max width for text (pixels) - use almost full console width
-			 int textLeftMargin = cx + 2;
-			 int textRightMargin = 0; // allow text to extend closer to the border
-			 int maxTextWidth = (maxX - textLeftMargin + 1) - textRightMargin;
-			 if (maxTextWidth < 8) maxTextWidth = 8; // Minimum readable width
-			 // Calculate characters that fit (8 pixels per character typically)
-			 // Use ceiling division to allow the last glyph when close to the edge
-			 int maxChars = (maxTextWidth + 7) / 8;
-			 if (maxChars < 1) maxChars = 1;
-			 int row = 0;
-			 for (int i = 0; i < toDraw && row < maxLines; ++i) {
-				 const char* src = s_luaConsoleLines[startIdx + i];
-				 int slen = (int)strlen(src);
-				 int pos = 0;
-				 while (pos < slen && row < maxLines) {
-					 int y = lineStartY + row*lineH;
-					 int remain = slen - pos;
-					 int drawLen = remain < maxChars ? remain : maxChars;
-					 if (drawLen <= 0) break;
-					 char tmp[128];
-					 if (drawLen >= (int)sizeof(tmp)) drawLen = (int)sizeof(tmp) - 1;
-					 memcpy(tmp, src + pos, drawLen);
-					 tmp[drawLen] = '\0';
-					 DrawTextTrans(s_overlay_back + y*256 + textLeftMargin, 256, (uint8*)tmp, 0x20 | 0x80);
-					 pos += drawLen;
-					 row++;
-				 }
-			 }
+			 for (int px = cx; px <= maxX; ++px) { s_overlay_back[cy*OVL_W + px] = bd; s_overlay_back[maxY*OVL_W + px] = bd; }
+			 DrawTextTrans(s_overlay_back + cy*OVL_W + (cx + 6), OVL_W, (uint8*)"Lua Console (LS+RS)", 0x2E | 0x80);
+			 
+			 // Clamp scroll offset (using new line advance) - DrawLuaConsole will handle the actual drawing
+			 const int lineStartY = cy + 12;
+			 const int adv = CON_LINE_ADV();
+			 const int availableHeight = maxY - lineStartY + 1;
+			 int maxLines = availableHeight / adv;
+			 if (maxLines < 1) maxLines = 1;
+			 // Allow scrolling to see all lines, including the oldest (line 0)
+			 // maxScroll should allow viewing from line 0 to line (count - maxLines)
+			 int maxScroll = (s_luaConsoleCount > maxLines) ? (s_luaConsoleCount - maxLines) : 0;
+			 if (s_consoleScrollOffset > maxScroll) s_consoleScrollOffset = maxScroll;
+			 if (s_consoleScrollOffset < 0) s_consoleScrollOffset = 0;
+			 
 			 g_overlayDirty = true;
 			 ok = true; // force publish when console drew
          } else if (!s_consoleVisible && prevConsoleVisible && s_overlay_back) {
@@ -3654,6 +3760,9 @@ void FCEU_ReloadLuaCode(void) {
              g_overlayDirty = true;
              ok = true;
 		 }
+		 
+		 // Draw console using the new drawer with proper line spacing
+		 DrawLuaConsole(s_overlay_back);
 		 
 		 // Only publish the new overlay if something was drawn
          if (g_overlayDirty) {
