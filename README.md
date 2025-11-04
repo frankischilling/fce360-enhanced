@@ -416,6 +416,14 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
       - Parameters, Returns, Notes, Examples
     - [`clearrect(x, y, w, h)`](#clearrectx-y-w-h)
       - Parameters, Returns, Notes, Examples
+    - [`drawimage(x, y, imageData, width, height)`](#drawimagex-y-imagedata-width-height)
+      - Parameters, Returns, Notes, Examples
+    - [`drawimageindexed(x, y, imageData, palette, width, height)`](#drawimageindexedx-y-imagedata-palette-width-height)
+      - Parameters, Returns, Notes, Examples
+    - [`drawtile(x, y, tileIndex, paletteIndex)`](#drawtilex-y-tileindex-paletteindex)
+      - Parameters, Returns, Notes, Examples
+    - [`drawchrtile(x, y, tileIndex, paletteIndex)`](#drawchrtilex-y-tileindex-paletteindex)
+      - Parameters, Returns, Notes, Examples
     - [`drawcircle(x, y, radius, color)`](#drawcirclex-y-radius-color)
       - Parameters, Returns, Notes, Examples
     - [`fillcircle(x, y, radius, color)`](#fillcirclex-y-radius-color)
@@ -572,7 +580,7 @@ Draws **borderless** text on the screen overlay using FCEUX's built-in font rend
 **Example:**
 ```lua
 drawtext(4, 4, "Hello World!", 0x20)        -- White text at top-left (no border)
-drawtext(100, 120, "Score: 1000", 0x2E)     -- Yellow/green text centered (no border)
+drawtext(100, 120, "Score: 1000", 0x39)     -- Yellow-green text centered (no border)
 drawtext(4, 232, "Bottom text", 0x0F)       -- Near bottom of screen (no border)
 ```
 
@@ -606,7 +614,7 @@ Draws text on the screen overlay with width/height clipping, multi-line support,
 **Example:**
 ```lua
 -- Borderless text (same as drawtext but with size limits)
-drawtextwh(4, 4, "FPS: 60.0", 0x2E, 200, 16, 0)
+drawtextwh(4, 4, "FPS: 60.0", 0x39, 200, 16, 0)
 
 -- Multi-line text with thin border for better visibility
 drawtextwh(10, 50, "Line 1\nLine 2\nLine 3", 0x20, 150, 32, 1)
@@ -617,7 +625,7 @@ drawtextwh(10, 100, "IMPORTANT!", 0x0F, 200, 16, 2)
 -- Wrapped text with border in a panel
 fillrect(5, 115, 120, 60, 0x10)           -- Dark background panel
 drawrect(5, 115, 120, 60, 0x20)           -- White border
-drawtextwh(10, 120, "Status:\nHealth: 100\nScore: 5000", 0x2E, 110, 50, 1)
+drawtextwh(10, 120, "Status:\nHealth: 100\nScore: 5000", 0x39, 110, 50, 1)
 ```
 
 **Border Style Comparison:**
@@ -645,7 +653,7 @@ Draws a single pixel at the specified coordinates.
 ```lua
 -- Draw a diagonal line of pixels
 for i = 0, 20 do
-  drawpixel(10 + i, 10 + i, 0x2E)  -- Yellow/green diagonal line
+  drawpixel(10 + i, 10 + i, 0x39)  -- Yellow-green diagonal line
 end
 
 -- Draw a single pixel
@@ -679,10 +687,10 @@ drawline(108, 120, 148, 120, 0x3F)  -- Horizontal line
 drawline(128, 100, 128, 140, 0x3F)  -- Vertical line
 
 -- Draw a box using lines
-drawline(200, 30, 250, 30, 0x2E)    -- Top
-drawline(250, 30, 250, 80, 0x2E)    -- Right
-drawline(250, 80, 200, 80, 0x2E)    -- Bottom
-drawline(200, 80, 200, 30, 0x2E)    -- Left
+drawline(200, 30, 250, 30, 0x39)    -- Top
+drawline(250, 30, 250, 80, 0x39)    -- Right
+drawline(250, 80, 200, 80, 0x39)    -- Bottom
+drawline(200, 80, 200, 30, 0x39)    -- Left
 ```
 
 ##### `drawthickline(x1, y1, x2, y2, thickness, color)`
@@ -714,18 +722,18 @@ Draws a thick line between two points with a specified thickness using perpendic
 ```lua
 -- Draw horizontal thick lines with different thicknesses
 drawthickline(20, 30, 80, 30, 1, 0x20)   -- White, thickness 1 (same as drawline)
-drawthickline(20, 40, 80, 40, 3, 0x2E)   -- Yellow/green, thickness 3
+drawthickline(20, 40, 80, 40, 3, 0x39)   -- Yellow-green, thickness 3
 drawthickline(20, 50, 80, 50, 5, 0x16)   -- Red, thickness 5
 drawthickline(20, 60, 80, 60, 7, 0x29)   -- Green/teal, thickness 7
 
 -- Draw vertical thick lines
 drawthickline(100, 30, 100, 80, 2, 0x20) -- White, thickness 2
-drawthickline(110, 30, 110, 80, 4, 0x2E) -- Yellow/green, thickness 4
+drawthickline(110, 30, 110, 80, 4, 0x39) -- Yellow-green, thickness 4
 drawthickline(120, 30, 120, 80, 6, 0x16) -- Red, thickness 6
 
 -- Draw diagonal thick lines
 drawthickline(140, 30, 180, 70, 3, 0x20) -- White diagonal, thickness 3
-drawthickline(140, 70, 180, 30, 5, 0x2E) -- Yellow/green diagonal, thickness 5
+drawthickline(140, 70, 180, 30, 5, 0x39) -- Yellow-green diagonal, thickness 5
 
 -- Draw very thick line
 drawthickline(50, 100, 150, 120, 10, 0x37) -- Yellow, very thick (thickness 10)
@@ -767,7 +775,7 @@ drawrect(10, 50, 60, 40, 0x20)  -- White outline rectangle
 
 -- Draw multiple rectangles with different colors
 drawrect(10, 50, 60, 40, 0x20)   -- White outline
-drawrect(80, 50, 60, 40, 0x2E)   -- Yellow/green outline
+drawrect(80, 50, 60, 40, 0x39)   -- Yellow-green outline
 drawrect(150, 50, 50, 30, 0x3F)  -- Bright outline
 
 -- Draw a border around an area (you can use multiple drawrect calls for nested borders)
@@ -801,7 +809,7 @@ fillrect(10, 50, 60, 40, 0x10)  -- Dark gray filled rectangle
 
 -- Draw a progress bar
 local barWidth = 100  -- Progress percentage
-fillrect(10, 100, barWidth, 8, 0x2E)  -- Filled progress bar
+fillrect(10, 100, barWidth, 8, 0x39)  -- Filled progress bar
 drawrect(10, 100, 100, 8, 0x3F)        -- Border around progress bar
 
 -- Draw a background panel with border
@@ -848,12 +856,238 @@ drawrect(5, 115, 120, 60, 0x20)
 
 -- Clear text area before updating (prevents ghosting)
 clearrect(6, 170, 80, 8)  -- Clear FPS text area
-drawtext(6, 170, string.format("FPS: %.1f", fps), 0x2E)
+drawtext(6, 170, string.format("FPS: %.1f", fps), 0x39)
 
 -- Clear a region that changes size
 local barWidth = math.floor(progress * 100)
 clearrect(10, 100, 100, 8)  -- Clear entire bar area
-fillrect(10, 100, barWidth, 8, 0x2E)  -- Redraw with new width
+fillrect(10, 100, barWidth, 8, 0x39)  -- Redraw with new width
+```
+
+##### `drawimage(x, y, imageData, width, height)`
+Draws an image from a table of color values (byte data).
+
+**Parameters:**
+- `x` (integer): X coordinate of top-left corner (0-255). NES horizontal resolution is 256 pixels.
+- `y` (integer): Y coordinate of top-left corner (0-239). NES vertical resolution is 240 pixels.
+- `imageData` (table): Table containing color values in row-major order. Each value must be a palette color index (0x00-0x3F). The table must contain at least `width * height` elements.
+- `width` (integer): Width of the image in pixels. Must be positive.
+- `height` (integer): Height of the image in pixels. Must be positive.
+
+**Returns:** Nothing
+
+**Notes:**
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- The image data table is read in row-major order: pixels are arranged left-to-right, top-to-bottom.
+- Color values are automatically clamped to the valid range (0x00-0x3F) and mapped to the NES palette.
+- Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
+- The overlay is composited on top of the NES frame, so Lua-drawn images appear above game graphics.
+- Useful for drawing custom sprites, icons, logos, or game-specific graphics.
+- The function validates that the imageData table contains sufficient data (at least `width * height` elements).
+
+**Example:**
+```lua
+-- Draw an 8x8 sprite (64 pixels total)
+local spriteData = {
+    0x20, 0x39, 0x20, 0x39, 0x20, 0x39, 0x20, 0x39,  -- Row 1
+    0x39, 0x20, 0x39, 0x20, 0x39, 0x20, 0x39, 0x20,  -- Row 2
+    0x20, 0x39, 0x20, 0x39, 0x20, 0x39, 0x20, 0x39,  -- Row 3
+    0x39, 0x20, 0x39, 0x20, 0x39, 0x20, 0x39, 0x20,  -- Row 4
+    0x20, 0x39, 0x20, 0x39, 0x20, 0x39, 0x20, 0x39,  -- Row 5
+    0x39, 0x20, 0x39, 0x20, 0x39, 0x20, 0x39, 0x20,  -- Row 6
+    0x20, 0x39, 0x20, 0x39, 0x20, 0x39, 0x20, 0x39,  -- Row 7
+    0x39, 0x20, 0x39, 0x20, 0x39, 0x20, 0x39, 0x20   -- Row 8
+}
+drawimage(10, 10, spriteData, 8, 8)
+
+-- Draw a dynamically generated sprite
+local largeSprite = {}
+for i = 1, 256 do  -- 16x16 = 256 pixels
+    if i % 3 == 0 then
+        largeSprite[i] = 0x3F  -- Bright color
+    elseif i % 3 == 1 then
+        largeSprite[i] = 0x39  -- Yellow-green
+    else
+        largeSprite[i] = 0x16  -- Red/orange
+    end
+end
+drawimage(150, 100, largeSprite, 16, 16)
+
+-- Draw multiple sprites at different positions
+local icon = {0x20, 0x39, 0x39, 0x20}  -- 2x2 icon
+drawimage(50, 50, icon, 2, 2)
+drawimage(60, 50, icon, 2, 2)
+drawimage(70, 50, icon, 2, 2)
+```
+
+##### `drawimageindexed(x, y, imageData, palette, width, height)`
+Draws an image using indexed palette mapping. The image data contains palette indices that are looked up in a separate palette table to get the actual color values.
+
+**Parameters:**
+- `x` (integer): X coordinate of top-left corner (0-255). NES horizontal resolution is 256 pixels.
+- `y` (integer): Y coordinate of top-left corner (0-239). NES vertical resolution is 240 pixels.
+- `imageData` (table): Table containing palette indices (1-based) in row-major order. Each value is an index into the `palette` table. The table must contain at least `width * height` elements.
+- `palette` (table): Table containing color values. Each value must be a palette color index (0x00-0x3F). The palette table can contain up to 256 colors. Palette indices in `imageData` reference this table (1 = first color, 2 = second color, etc.).
+- `width` (integer): Width of the image in pixels. Must be positive.
+- `height` (integer): Height of the image in pixels. Must be positive.
+
+**Returns:** Nothing
+
+**Notes:**
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- The image data table is read in row-major order: pixels are arranged left-to-right, top-to-bottom.
+- Palette indices in `imageData` use 1-based indexing (1, 2, 3...) to match Lua's table indexing convention.
+- Color values in the palette table are automatically clamped to the valid range (0x00-0x3F) and mapped to the NES palette.
+- Palette indices that are out of range are automatically clamped to valid palette entries.
+- Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
+- The overlay is composited on top of the NES frame, so Lua-drawn images appear above game graphics.
+- Useful for efficient sprite drawing where the same sprite data can be reused with different palettes.
+- This is more memory-efficient than `drawimage()` when you have multiple color variations of the same sprite.
+
+**Example:**
+```lua
+-- Define a 4-color palette
+local palette1 = {0x20, 0x39, 0x16, 0x3F}  -- White, Yellow-green, Red/orange, Bright
+
+-- 8x8 sprite data using palette indices (1-4, Lua 1-based)
+-- Index 1 = white, Index 2 = yellow-green, Index 3 = red/orange, Index 4 = bright
+local spriteData = {
+    1, 2, 1, 2, 1, 2, 1, 2,  -- Row 1
+    2, 1, 2, 1, 2, 1, 2, 1,  -- Row 2
+    1, 2, 1, 2, 1, 2, 1, 2,  -- Row 3
+    2, 1, 2, 1, 2, 1, 2, 1,  -- Row 4
+    1, 2, 1, 2, 1, 2, 1, 2,  -- Row 5
+    2, 1, 2, 1, 2, 1, 2, 1,  -- Row 6
+    1, 2, 1, 2, 1, 2, 1, 2,  -- Row 7
+    2, 1, 2, 1, 2, 1, 2, 1   -- Row 8
+}
+
+-- Draw sprite with palette1
+drawimageindexed(10, 10, spriteData, palette1, 8, 8)
+
+-- Reuse the same sprite data with a different palette
+local palette2 = {0x0F, 0x16, 0x26, 0x37}  -- Different color scheme
+drawimageindexed(100, 10, spriteData, palette2, 8, 8)
+
+-- Another palette variation
+local palette3 = {0x00, 0x10, 0x20, 0x3F}
+drawimageindexed(190, 10, spriteData, palette3, 8, 8)
+
+-- Example with a 2-color palette
+local smallPalette = {0x20, 0x16}  -- White and Red/orange
+local smallSprite = {
+    1, 2, 1, 2,
+    2, 1, 2, 1,
+    1, 2, 1, 2,
+    2, 1, 2, 1
+}
+drawimageindexed(10, 100, smallSprite, smallPalette, 4, 4)
+```
+
+##### `drawtile(x, y, tileIndex, paletteIndex)`
+Draws a single NES tile (8x8 pixels) directly from the PPU pattern table.
+
+**Parameters:**
+- `x` (integer): X coordinate of top-left corner (0-255). NES horizontal resolution is 256 pixels.
+- `y` (integer): Y coordinate of top-left corner (0-239). NES vertical resolution is 240 pixels.
+- `tileIndex` (integer): Index of the tile in the pattern table (0-255). Each tile is 16 bytes (8x8 pixels with 2 bits per pixel).
+- `paletteIndex` (integer): Background palette index (0-3). The NES has 4 background palettes, each with 3 colors plus a universal background color.
+
+**Returns:** Nothing
+
+**Notes:**
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- Tile data is read directly from the NES PPU pattern table memory.
+- The pattern table used depends on PPU register 0 bit 4 (BGAdrHI): $0000 if bit is 0, $1000 if bit is 1.
+- Each tile is 8x8 pixels with 2-bit color depth (4 possible colors per tile).
+- Transparent pixels (color index 0) are skipped and not drawn.
+- Palette colors are read from the current NES palette RAM (PALRAM).
+- Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
+- The overlay is composited on top of the NES frame, so Lua-drawn tiles appear above game graphics.
+- Useful for drawing game tiles directly, creating tile editors, level viewers, or displaying pattern table contents.
+- This function reads actual NES tile data from PPU memory, so it will show whatever tiles are currently loaded in the pattern table.
+
+**Example:**
+```lua
+-- Draw tile 0 with palette 0
+drawtile(10, 10, 0, 0)
+
+-- Draw tile 1 with palette 1
+drawtile(26, 10, 1, 1)
+
+-- Draw tile 2 with palette 2
+drawtile(42, 10, 2, 2)
+
+-- Draw tile 3 with palette 3
+drawtile(58, 10, 3, 3)
+
+-- Draw a row of tiles
+for i = 0, 15 do
+    drawtile(10 + (i * 18), 26, i, i % 4)
+end
+
+-- Draw tiles in a grid pattern
+for y = 0, 7 do
+    for x = 0, 7 do
+        local tileIdx = (y * 8) + x
+        if tileIdx < 256 then
+            drawtile(10 + (x * 18), 50 + (y * 18), tileIdx, (x + y) % 4)
+        end
+    end
+end
+```
+
+##### `drawchrtile(x, y, tileIndex, paletteIndex)`
+Draws a single NES tile (8x8 pixels) directly from the cartridge CHR-ROM data.
+
+**Parameters:**
+- `x` (integer): X coordinate of top-left corner (0-255). NES horizontal resolution is 256 pixels.
+- `y` (integer): Y coordinate of top-left corner (0-239). NES vertical resolution is 240 pixels.
+- `tileIndex` (integer): Index of the tile in CHR-ROM (0-255). Each tile is 16 bytes (8x8 pixels with 2 bits per pixel).
+- `paletteIndex` (integer): Background palette index (0-3). The NES has 4 background palettes, each with 3 colors plus a universal background color.
+
+**Returns:** Nothing
+
+**Notes:**
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- Tile data is read directly from the cartridge's CHR-ROM memory, showing the original cartridge graphics data.
+- Unlike `drawtile()`, this function reads from the raw cartridge CHR-ROM data rather than the PPU pattern table (which may be modified at runtime).
+- Each tile is 8x8 pixels with 2-bit color depth (4 possible colors per tile).
+- Transparent pixels (color index 0) are skipped and not drawn.
+- Palette colors are read from the current NES palette RAM (PALRAM).
+- Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
+- The overlay is composited on top of the NES frame, so Lua-drawn tiles appear above game graphics.
+- Useful for displaying cartridge graphics, creating tile viewers, or examining CHR-ROM data.
+- This function shows the original cartridge tile data, which is useful for tile editors and graphics viewers.
+
+**Example:**
+```lua
+-- Draw CHR-ROM tile 0 with palette 0
+drawchrtile(10, 10, 0, 0)
+
+-- Draw CHR-ROM tile 1 with palette 1
+drawchrtile(26, 10, 1, 1)
+
+-- Draw CHR-ROM tile 2 with palette 2
+drawchrtile(42, 10, 2, 2)
+
+-- Draw CHR-ROM tile 3 with palette 3
+drawchrtile(58, 10, 3, 3)
+
+-- Draw a row of CHR-ROM tiles
+for i = 0, 15 do
+    drawchrtile(10 + (i * 18), 26, i, i % 4)
+end
+
+-- Draw CHR-ROM tiles in a grid pattern
+for y = 0, 7 do
+    for x = 0, 7 do
+        local tileIdx = (y * 8) + x
+        if tileIdx < 256 then
+            drawchrtile(10 + (x * 18), 50 + (y * 18), tileIdx, (x + y) % 4)
+        end
+    end
+end
 ```
 
 ##### `drawcircle(x, y, radius, color)`
@@ -878,7 +1112,7 @@ Draws a circle outline at the specified center position and radius.
 **Example:**
 ```lua
 -- Draw circles at different positions
-drawcircle(128, 120, 30, 0x2E)    -- Yellow/Green circle at center
+drawcircle(128, 120, 30, 0x39)    -- Yellow-green circle at center
 drawcircle(50, 50, 10, 0x29)      -- Green/Teal circle
 drawcircle(200, 180, 20, 0x16)    -- Red circle
 drawcircle(90, 180, 12, 0x37)     -- Yellow circle
@@ -912,7 +1146,7 @@ Draws a filled circle (solid color) at the specified center position and radius.
 **Example:**
 ```lua
 -- Draw filled circles at different positions
-fillcircle(128, 120, 30, 0x2E)    -- Filled yellow/green circle at center
+fillcircle(128, 120, 30, 0x39)    -- Filled yellow-green circle at center
 fillcircle(50, 50, 10, 0x29)      -- Filled green/teal circle
 fillcircle(200, 180, 20, 0x16)    -- Filled red circle
 fillcircle(90, 180, 12, 0x37)     -- Filled yellow circle
@@ -962,7 +1196,7 @@ drawellipse(50, 120, 20, 40, 0x29)     -- Tall green ellipse
 drawellipse(50, 180, 15, 35, 0x37)     -- Tall yellow ellipse
 
 -- Draw a circle (rx == ry, same as drawcircle)
-drawellipse(128, 120, 30, 30, 0x2E)    -- Circle (yellow/green)
+drawellipse(128, 120, 30, 30, 0x39)    -- Circle (yellow-green)
 
 -- Draw ellipses of different sizes
 drawellipse(100, 100, 25, 15, 0x16)    -- Small horizontal ellipse (red)
@@ -1004,7 +1238,7 @@ fillellipse(50, 120, 20, 40, 0x29)     -- Filled tall green ellipse
 fillellipse(50, 180, 15, 35, 0x37)     -- Filled tall yellow ellipse
 
 -- Draw a filled circle (rx == ry, same as fillcircle)
-fillellipse(128, 120, 30, 30, 0x2E)    -- Filled circle (yellow/green)
+fillellipse(128, 120, 30, 30, 0x39)    -- Filled circle (yellow-green)
 
 -- Draw filled ellipses of different sizes
 fillellipse(100, 100, 25, 15, 0x16)    -- Small horizontal filled ellipse (red)
@@ -1053,7 +1287,7 @@ drawarc(128, 60, 25, 0, 180, 0x16)     -- Top half circle
 drawarc(128, 180, 25, 180, 0, 0x1C)    -- Bottom half circle (crosses 0° boundary)
 
 -- Progress indicator (75% of circle)
-drawarc(128, 120, 40, 0, 270, 0x2E)    -- Large arc covering 270 degrees
+drawarc(128, 120, 40, 0, 270, 0x39)    -- Large arc covering 270 degrees
 
 -- Small diagonal arcs
 drawarc(128, 120, 20, 45, 135, 0x20)   -- Small arc at diagonal angle
@@ -1101,7 +1335,7 @@ fillarc(128, 40, 35, 0, 180, 0x16)     -- Top half (red)
 fillarc(128, 200, 35, 180, 360, 0x1C)  -- Bottom half (cyan)
 
 -- Progress indicators (different percentages)
-fillarc(50, 120, 30, 0, 90, 0x2E)     -- 25% progress (black)
+fillarc(50, 120, 30, 0, 90, 0x39)     -- 25% progress (yellow-green)
 fillarc(206, 120, 30, 0, 180, 0x21)    -- 50% progress (light blue)
 fillarc(128, 120, 30, 0, 270, 0x28)    -- 75% progress (yellow)
 
@@ -1240,7 +1474,7 @@ Draws a triangle outline by connecting three vertices with lines.
 ```lua
 -- Draw triangles pointing in different directions
 drawtriangle(128, 50, 100, 80, 156, 80, 0x20)    -- Pointing up (white)
-drawtriangle(128, 190, 100, 160, 156, 160, 0x2E) -- Pointing down (yellow/green)
+drawtriangle(128, 190, 100, 160, 156, 160, 0x39) -- Pointing down (yellow-green)
 drawtriangle(50, 120, 80, 100, 80, 140, 0x16)     -- Pointing right (red)
 drawtriangle(206, 120, 176, 100, 176, 140, 0x29)  -- Pointing left (green/teal)
 
@@ -1285,7 +1519,7 @@ Draws a filled triangle (solid color) by filling the interior area defined by th
 ```lua
 -- Draw filled triangles pointing in different directions
 filltriangle(128, 50, 100, 80, 156, 80, 0x20)    -- Pointing up (white)
-filltriangle(128, 190, 100, 160, 156, 160, 0x2E) -- Pointing down (yellow/green)
+filltriangle(128, 190, 100, 160, 156, 160, 0x39) -- Pointing down (yellow-green)
 filltriangle(50, 120, 80, 100, 80, 140, 0x16)     -- Pointing right (red)
 filltriangle(206, 120, 176, 100, 176, 140, 0x29)  -- Pointing left (green/teal)
 
@@ -1338,7 +1572,7 @@ Draws a polygon outline by connecting multiple vertices with lines and automatic
 drawpolygon(50, 50, 100, 50, 100, 100, 50, 100, 0x20)  -- White square outline
 
 -- Draw a pentagon (5 points)
-drawpolygon(128, 30, 148, 60, 128, 90, 108, 60, 118, 30, 0x2E)  -- Yellow/green pentagon
+drawpolygon(128, 30, 148, 60, 128, 90, 108, 60, 118, 30, 0x39)  -- Yellow-green pentagon
 
 -- Draw a star shape (5 points)
 drawpolygon(128, 20, 132, 50, 160, 50, 138, 70, 148, 100, 128, 80, 108, 100, 118, 70, 96, 50, 124, 50, 0x37)  -- Yellow star
@@ -1395,7 +1629,7 @@ Draws an open polyline (connected line segments) by connecting multiple vertices
 drawpolyline(20, 40, 60, 40, 60, 80, 0x20)  -- White L-shape
 
 -- Draw a zigzag pattern
-drawpolyline(20, 120, 40, 100, 60, 120, 80, 100, 100, 120, 0x2E)  -- Yellow/green zigzag
+drawpolyline(20, 120, 40, 100, 60, 120, 80, 100, 100, 120, 0x39)  -- Yellow-green zigzag
 
 -- Draw a curved-looking path (multiple points)
 drawpolyline(130, 40, 140, 50, 150, 45, 160, 55, 170, 50, 180, 60, 0x16)  -- Red curved path
@@ -1411,7 +1645,7 @@ drawpolyline(100, 50, 120, 70, 140, 50, 160, 70, 0x20)  -- White connecting path
 
 -- Note: drawpolyline does NOT close - compare with drawpolygon
 drawpolyline(100, 100, 150, 100, 150, 150, 100, 150, 0x16)  -- Red open square (missing top edge)
-drawpolygon(100, 100, 150, 100, 150, 150, 100, 150, 0x2E)   -- Yellow closed square (complete)
+drawpolygon(100, 100, 150, 100, 150, 150, 100, 150, 0x39)   -- Yellow-green closed square (complete)
 ```
 
 ##### `fillpolygon(x1, y1, x2, y2, ..., color)`
@@ -1447,7 +1681,7 @@ Draws a filled polygon (solid color) by filling the interior area defined by mul
 fillpolygon(50, 50, 100, 50, 100, 100, 50, 100, 0x20)  -- White filled square
 
 -- Draw a filled pentagon (5 points)
-fillpolygon(128, 30, 148, 60, 128, 90, 108, 60, 118, 30, 0x2E)  -- Yellow/green filled pentagon
+fillpolygon(128, 30, 148, 60, 128, 90, 108, 60, 118, 30, 0x39)  -- Yellow-green filled pentagon
 
 -- Draw a filled star shape (10 points)
 fillpolygon(
@@ -1495,7 +1729,7 @@ FCE360 Enhanced exposes the full NES 64-color palette (`0x00`–`0x3F`) to Lua f
 
 | Use Case                   | Suggested Colors                                             |
 | -------------------------- | ------------------------------------------------------------ |
-| **Text / HUD**             | `0x20` (bright white), `0x2E` (yellow-green), `0x3F` (bright white) |
+| **Text / HUD**             | `0x20` (bright white), `0x39` (yellow-green), `0x3F` (bright white) |
 | **Panels / Backgrounds**   | `0x10` (medium-dark gray), `0x2D` (light gray)                     |
 | **Outlines / Borders**     | `0x3F` (bright white)                                        |
 | **Warnings / Alerts**      | `0x16` (red-orange), `0x26` (orange-red), `0x37` (bright yellow)    |
@@ -1616,7 +1850,7 @@ Returns the current frame rate as a floating-point number. The FPS is recalculat
 **Example:**
 ```lua
 local fps = getfps()
-drawtext(4, 4, string.format("FPS: %.1f", fps), 0x2E)
+drawtext(4, 4, string.format("FPS: %.1f", fps), 0x39)
 ```
 
 **Advanced Example:**
@@ -1640,7 +1874,7 @@ function gui()
     end
     local avgFPS = sum / #fpsHistory
     
-    drawtext(4, 4, string.format("FPS: %.1f", fps), 0x2E)
+    drawtext(4, 4, string.format("FPS: %.1f", fps), 0x39)
     drawtext(4, 12, string.format("Avg: %.1f", avgFPS), 0x30)
 end
 ```
@@ -1691,7 +1925,7 @@ drawtext(4, 20, string.format("Coins: %d", coins), 0x37)
 -- Decode world/level (bits 4-7 = world, bits 0-3 = level)
 local world = (worldLevel >> 4) + 1
 local level = (worldLevel & 0x0F) + 1
-drawtext(4, 28, string.format("World %d-%d", world, level), 0x2E)
+drawtext(4, 28, string.format("World %d-%d", world, level), 0x39)
 
 -- Read score (multi-byte value)
 local scoreHigh = readbyte(0x07DE)  -- Tens of thousands
@@ -1770,7 +2004,7 @@ drawtext(4, 20, string.format("Coins: %d", coins), 0x37)
 -- Decode world/level (bits 4-7 = world, bits 0-3 = level)
 local world = (worldLevel >> 4) + 1
 local level = (worldLevel & 0x0F) + 1
-drawtext(4, 28, string.format("World %d-%d", world, level), 0x2E)
+drawtext(4, 28, string.format("World %d-%d", world, level), 0x39)
 
 -- Read score (multi-byte value)
 local scoreHigh = readbyte(0x07DE)  -- Tens of thousands
@@ -1838,7 +2072,7 @@ local manualValue = low + (high * 256)
 
 -- Read a 16-bit timer
 local timer = readword(0x0400)
-drawtext(4, 12, string.format("Timer: %d seconds", timer), 0x2E)
+drawtext(4, 12, string.format("Timer: %d seconds", timer), 0x39)
 
 -- Read player position (if stored as 16-bit)
 local playerX = readword(0x0500)
@@ -1903,7 +2137,7 @@ drawtext(4, 84, string.format("Timer: %03d", timer), 0x26)
 local memoryBlock = readbytes(0x0200, 16)
 for i, value in ipairs(memoryBlock) do
   if value ~= 0 then  -- Only show non-zero values
-    drawtext(4, 92 + (i * 8), string.format("[%d] = %d", i, value), 0x2E)
+    drawtext(4, 92 + (i * 8), string.format("[%d] = %d", i, value), 0x39)
   end
 end
 
@@ -2652,7 +2886,7 @@ function script()
   local timer = readword(0x0400)
   local minutes = math.floor(timer / 60)
   local seconds = timer % 60
-  drawtext(4, 12, string.format("Timer: %02d:%02d", minutes, seconds), 0x2E)
+  drawtext(4, 12, string.format("Timer: %02d:%02d", minutes, seconds), 0x39)
 end
 
 -- Example 4: Compare manual vs readword
@@ -2678,7 +2912,7 @@ function script()
     -- Safe to read/write
     local value = readbyte(addr)
     writebyte(addr, value + 1)
-    drawtext(4, 28, string.format("0x%04X (%s): %d", addr, memType, value), 0x2E)
+    drawtext(4, 28, string.format("0x%04X (%s): %d", addr, memType, value), 0x39)
   else
     drawtext(4, 28, string.format("0x%04X is %s, not RAM!", addr, memType), 0x26)
   end
@@ -2818,7 +3052,7 @@ end
 
 -- Display a status indicator
 local on = testbit(0x0200, 3)
-drawtext(4, 4, on and "Flag: ON" or "Flag: OFF", 0x2E)
+drawtext(4, 4, on and "Flag: ON" or "Flag: OFF", 0x39)
 ```
 
 #### `writebyte(address, value)`
@@ -3613,7 +3847,7 @@ Returns the current `script()` interval in milliseconds.
 **Example:**
 ```lua
 local ms = getscriptinterval()
-drawtext(4, 4, string.format("Interval: %d ms", ms), 0x2E)
+drawtext(4, 4, string.format("Interval: %d ms", ms), 0x39)
 ```
 
 ### Callbacks
@@ -3645,7 +3879,7 @@ Callbacks are functions that your script defines, which the emulator will call a
 function script()
     -- Draw FPS counter
     local fps = getfps()
-    drawtext(4, 4, string.format("FPS: %.1f", fps), 0x2E)
+    drawtext(4, 4, string.format("FPS: %.1f", fps), 0x39)
     
     -- Draw a status message
     drawtext(4, 12, "Lua Active", 0x20)
@@ -3662,7 +3896,7 @@ function script()
     
     -- FPS display
     local fps = getfps()
-    drawtext(4, 4, string.format("FPS: %.1f", fps), 0x2E)
+    drawtext(4, 4, string.format("FPS: %.1f", fps), 0x39)
     
     -- Frame counter
     drawtext(4, 12, string.format("Frames: %d", frameCounter), 0x30)
@@ -3770,7 +4004,7 @@ end
 ```lua
 function gui()
     local fps = getfps()
-    drawtext(2, 2, string.format("FPS: %.1f", fps), 0x2E)
+    drawtext(2, 2, string.format("FPS: %.1f", fps), 0x39)
 end
 ```
 
@@ -3784,7 +4018,7 @@ function gui()
         local elapsed = getfps() * (os.clock() - startTime)  -- Approximate
         local minutes = math.floor(elapsed / 3600)
         local seconds = math.floor((elapsed % 3600) / 60)
-        drawtext(4, 4, string.format("Time: %02d:%02d", minutes, seconds), 0x2E)
+        drawtext(4, 4, string.format("Time: %02d:%02d", minutes, seconds), 0x39)
     end
 end
 ```
@@ -3795,7 +4029,7 @@ function gui()
     local fps = getfps()
     local lineHeight = 10
     
-    drawtext(4, 4, string.format("FPS: %.1f", fps), 0x2E)
+    drawtext(4, 4, string.format("FPS: %.1f", fps), 0x39)
     drawtext(4, 4 + lineHeight, "Status: Running", 0x20)
     drawtext(4, 4 + lineHeight * 2, "Press LT to rewind", 0x0F)
 end
@@ -3817,7 +4051,7 @@ end
   - Origin (0, 0) is top-left
   - X increases rightward (0-255)
   - Y increases downward (0-239)
-- **Color Palette:** Uses FCEUX's NES palette system. Color index 0x2E is typically yellow/green, 0x20 is white.
+- **Color Palette:** Uses FCEUX's NES palette system. Color index 0x39 is yellow-green, 0x20 is bright white, 0x2E is black (transparent).
 - **Performance:** Scripts run on the main emulation thread. Keep `gui()` functions fast to maintain 60 FPS.
 
 ### Troubleshooting
@@ -3831,7 +4065,7 @@ end
 **Text not appearing:**
 - Verify `gui()` function is defined in your script
 - Check coordinates are within bounds (0-255, 0-239)
-- Try a simple test: `drawtext(4, 4, "TEST", 0x2E)`
+- Try a simple test: `drawtext(4, 4, "TEST", 0x39)`
 - Ensure script loaded successfully (check debug output)
 
 **Script errors:**
