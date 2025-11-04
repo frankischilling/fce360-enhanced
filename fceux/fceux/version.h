@@ -1,6 +1,13 @@
 /* FCE Ultra - NES/Famicom Emulator
  *
- * Copyright notice for this file:
+ * Enhanced for fce360-enhanced
+ * GitHub: https://github.com/frankischilling/fce360-enhanced
+ * 
+ * Contributors:
+ * @frankischilling
+ * Ced2911 (original Xbox 360 port)
+ *
+ * [OLD COPYRIGHT] Copyright notice for this file:
  *  Copyright (C) 2001 Aaron Oneal
  *  Copyright (C) 2002 Xodnizel
  *
@@ -45,7 +52,11 @@
 #define FCEU_SUBVERSION_STRING "-interim svn" SVN_REV_STR
 #endif
 
+// Xbox build override - only redefine if not already set
+#ifdef _XBOX
+#undef FCEU_SUBVERSION_STRING
 #define FCEU_SUBVERSION_STRING "XbBuild"
+#endif
 
 #if defined(_MSC_VER)
 #define FCEU_COMPILER ""

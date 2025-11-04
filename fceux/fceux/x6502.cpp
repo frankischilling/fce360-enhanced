@@ -1,6 +1,13 @@
 /* FCE Ultra - NES/Famicom Emulator
  *
- * Copyright notice for this file:
+ * Enhanced for fce360-enhanced
+ * GitHub: https://github.com/frankischilling/fce360-enhanced
+ * 
+ * Contributors:
+ * @frankischilling
+ * Ced2911 (original Xbox 360 port)
+ *
+ * [OLD COPYRIGHT] Copyright notice for this file:
  *  Copyright (C) 2002 Xodnizel
  *
  * This program is free software; you can redistribute it and/or modify
