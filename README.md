@@ -7,7 +7,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.6.5** — *Lua Console + Script Timing Controls: on-screen Lua console (LS+RS toggle), print/log redirection, and new setscriptinterval()/getscriptinterval() for configurable script cadence + all prior features from v0.6.1–v0.6.4*
+* Current release: **v0.6.6** — *Enhanced Lua Console Scrolling: configurable line spacing, fixed glyph rendering, increased buffer (256 lines), improved D-pad scrolling with continuous hold support + all prior features from v0.6.1–v0.6.5*
 
 ---
 
@@ -15,6 +15,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.6.6 - Enhanced Lua Console Scrolling](#whats-new-v066)
   - [v0.6.5 - Lua Console and Script Timing Controls](#whats-new-v065)
   - [v0.6.4 - Complete Memory API and Script Callback Rename](#whats-new-v064)
   - [v0.6.3 - Expanded Drawing API and Crash Prevention Fixes](#whats-new-v063)
@@ -64,6 +65,25 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 📹 **[Watch Fast Scrolling Demo](https://github.com/frankischilling/fce360-enhanced/raw/main/img/fastScrolling.mp4)** (MP4 video)
 
 *Note: Click the link above to view the video demonstration. GitHub README files don't support embedded video playback.*
+
+---
+
+## What's new (v0.6.6)
+
+* **Enhanced Console Scrolling:** Improved Lua console with better line spacing and navigation.
+  * **Configurable Line Spacing:** Default 2px gap between lines (adjustable 0-8px via `setconsolespacing(pixels)`).
+  * **Fixed Glyph Rendering:** Bottom pixels of text glyphs now render correctly (was being clipped).
+  * **Increased Buffer Capacity:** Console buffer increased from 64 to 256 lines - can store much more output.
+  * **Improved D-Pad Controls:**
+    * Fixed inverted controls (up now scrolls up, down scrolls down).
+    * Continuous scrolling when holding D-pad buttons - first press scrolls immediately, holding scrolls every 3 frames (~20 lines/sec).
+  * **Better Visual Spacing:** Lines advance by `GLYPH_H + gap` instead of just glyph height, preventing cramped appearance.
+
+* **API Changes:**
+  * New Lua function: `setconsolespacing(pixels)` - Adjusts line spacing at runtime (0-8 pixels).
+  * New C functions: `FCEU_SetLuaConsoleLineGap(int px)`, `FCEU_GetLuaConsoleLineGap(void)`.
+
+* **All v0.6.5 features:** Lua console with print/log redirection, script timing controls, and all prior features.
 
 ---
 
