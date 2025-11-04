@@ -1,6 +1,26 @@
 /* FCE Ultra Lua Integration for Xbox 360
  * Implementation
- * frankischilling - Ced2911 
+ * 
+ * Enhanced for fce360-enhanced
+ * GitHub: https://github.com/frankischilling/fce360-enhanced
+ * 
+ * Contributors:
+ * @frankischilling
+ * Ced2911 (original Xbox 360 port)
+ * 
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
  #include "../stdafx.h"
@@ -17,6 +37,7 @@
 #include <math.h>
 #include <ctype.h>
 #include <vector>
+#include <map>
 
 // --- Overlay geometry and font metrics ---
 enum { OVL_W = 256, OVL_H = 240, GLYPH_H = 8 };
@@ -71,6 +92,9 @@ static char s_pendingScript[256] = {0};
 int g_pendingLuaMode = -1;
 char g_pendingLuaScript[256] = {0};
 
+// ---- Memory watchpoint system ----
+static std::map<unsigned int, uint8> s_watchedAddresses;  // address -> previous value
+
 // Public accessor
 extern "C" int FCEU_LuaIsDisabled(void) { 
 	return s_luaDisabled; 
@@ -93,6 +117,7 @@ extern "C" void FCEU_LuaSetDisabled(int disabled) {
 // Kill all Lua scripts (stops and clears everything)
 extern "C" void FCEU_LuaKillAll(void) {
 	FCEU_LuaStop();  // This already stops Lua and clears overlays
+	s_watchedAddresses.clear();  // Clear all watchpoints
 }
 
 // Status message accessor
@@ -419,23 +444,88 @@ static void DrawLuaConsole(uint8* buf) {
 	 
 	 int x = (int)luaL_checkinteger(L, 1);
 	 int y = (int)luaL_checkinteger(L, 2);
+	 
+	 // CRITICAL FIRST CHECK: If y is too large, text cannot fit - skip drawing immediately
+	 // This MUST be checked before any other processing to prevent crashes
+	 // Check if y itself is at or past the bottom edge
+	 if (y >= OVL_H) return 0;
+	 // Check if text would extend below screen (y + 8 pixels tall)
+	 if (y + GLYPH_H > OVL_H) return 0;
+	 // Additional safety: if y is negative after this point, something is wrong
+	 if (y < 0) {
+		 y = 0; // Clamp to top, but verify it still fits
+		 if (y + GLYPH_H > OVL_H) return 0;
+	 }
+	 
 	 const char* text = luaL_checkstring(L, 3);
 	 int color_in = (n >= 4) ? (int)luaL_optinteger(L, 4, 0x20) : 0x20;
 	 
 	 if (!currentXBuf || !text || !*text) return 0;
 	 
-	 // Text is 8 pixels tall - clamp y to prevent drawing past screen bounds
+	 // Text is 8 pixels tall - clamp coordinates to prevent drawing past screen bounds
+	 // Clamp x to valid range
 	 if (x < 0) x = 0;
-	 if (x >= OVL_W) x = OVL_W - 1;
+	 if (x >= OVL_W) return 0; // Completely off-screen to the right, skip drawing
+	 
+	 // Strict clamping for y to ensure text NEVER goes below screen
 	 if (y < 0) y = 0;
-	 if (y > OVL_H - GLYPH_H) y = OVL_H - GLYPH_H; // Ensure 8-px glyph fits
+	 // Critical: Ensure y + GLYPH_H never exceeds OVL_H (text must fit completely on screen)
+	 // Note: This check should already be passed due to early exit above, but keep for safety
+	 if (y + GLYPH_H > OVL_H) {
+		 // Text would go below screen - skip drawing entirely (no clamping, just abort)
+		 return 0;
+	 }
+	 
+	 // Verify final coordinates are still valid (defensive check)
+	 if (x < 0 || x >= OVL_W || y < 0 || y >= OVL_H) return 0;
+	 // Critical check: text must fit completely within screen bounds
+	 if (y + GLYPH_H > OVL_H) return 0; // This should never happen after clamping, but double-check
+	 if (y >= OVL_H) return 0; // y itself must be on-screen
+	 
+	 // Calculate text width and clamp to remaining screen space
+	 int maxWidth = OVL_W - x;
+	 if (maxWidth <= 0) return 0; // No space to draw
+	 
+	 int wpx = measure_line_px(text, maxWidth);
+	 if (wpx <= 0) return 0; // No text to draw
+	 
+	 // CRITICAL: Final validation before any drawing operations
+	 // Ensure text will not draw below screen under any circumstances
+	 if (y < 0 || y >= OVL_H) return 0;
+	 if (y + GLYPH_H > OVL_H) return 0; // Text must fit completely on screen
+	 if (x < 0 || x >= OVL_W) return 0;
+	 if (wpx <= 0) return 0;
+	 if (x + wpx > OVL_W) {
+		 // Clamp width if it exceeds remaining space
+		 wpx = OVL_W - x;
+		 if (wpx <= 0) return 0;
+	 }
+	 
+	 // Verify buffer pointer calculation is safe (prevent integer overflow)
+	 int bufferOffset = y * OVL_W + x;
+	 if (bufferOffset < 0 || bufferOffset >= OVL_W * OVL_H) return 0;
+	 
+	 // Verify the entire text area (including all pixels) is within bounds
+	 int maxY = y + GLYPH_H - 1;
+	 if (maxY >= OVL_H) return 0; // This should never happen, but double-check
+	 int maxX = x + wpx - 1;
+	 if (maxX >= OVL_W) {
+		 wpx = OVL_W - x; // Clamp width
+		 if (wpx <= 0) return 0;
+	 }
 	 
 	 // Clear only the text's own bounding box so it never erases a neighboring console line
-	 int wpx = measure_line_px(text, OVL_W - x);
 	 clear_rect(currentXBuf, x, y, wpx, GLYPH_H);
 	 
+	 // Final buffer pointer validation before drawing
+	 if (y * OVL_W + x < 0 || y * OVL_W + x >= OVL_W * OVL_H) return 0;
+	 
+	 // Additional safety check: ensure we're not drawing past the buffer
+	 uint8 *dest = currentXBuf + y * OVL_W + x;
+	 if (dest < currentXBuf || dest >= currentXBuf + OVL_W * OVL_H) return 0;
+	 
 	 uint8 mapped = map_overlay_color(color_in);
-	 DrawTextNoBorder(currentXBuf + y * OVL_W + x, OVL_W, text, mapped); // glyphs only, no bg
+	 DrawTextNoBorder(dest, OVL_W, text, mapped); // glyphs only, no bg
 	 g_overlayDirty = true;
 	 return 0;
  }
@@ -462,20 +552,42 @@ static void DrawLuaConsole(uint8* buf) {
 	 int max_h = (int)luaL_checkinteger(L, 6);
 	 int border = (int)luaL_checkinteger(L, 7);
 	 
-	 if (!currentXBuf) return 0;
+	 if (!currentXBuf || !text || !*text) return 0;
+	 
+	 // Early return if completely off-screen to the right
+	 if (x >= OVL_W) return 0;
 	 
 	 // Clamp coordinates to safe bounds (auto-adjust if too low/high)
 	 if (x < 0) x = 0;
-	 if (x >= OVL_W) x = OVL_W - 1;
 	 if (y < 0) y = 0;
 	 
-	 // ensure requested box stays on-screen
+	 // Ensure requested box stays on-screen
 	 if (max_h <= 0) max_h = GLYPH_H;
+	 if (max_w <= 0) return 0; // No width to draw
+	 
 	 if (y + max_h > OVL_H) {
 		 y = OVL_H - max_h;
-		 if (y < 0) { y = 0; max_h = OVL_H; }
+		 if (y < 0) { 
+			 y = 0; 
+			 max_h = OVL_H; 
+			 if (max_h <= 0) return 0; // Still no room after adjustment
+		 }
 	 }
 	 if (max_h <= 0) return 0; // No room to draw
+	 
+	 // Clamp max_w to remaining screen space
+	 if (x + max_w > OVL_W) {
+		 max_w = OVL_W - x;
+		 if (max_w <= 0) return 0; // No space to draw
+	 }
+	 
+	 // Verify final coordinates are still valid (defensive check)
+	 if (x < 0 || x >= OVL_W || y < 0 || y >= OVL_H) return 0;
+	 if (y + max_h > OVL_H) return 0; // Ensure height fits on screen
+	 if (x + max_w > OVL_W) return 0; // Ensure width fits on screen
+	 
+	 // Verify buffer pointer is valid before drawing
+	 if (y * OVL_W + x < 0 || y * OVL_W + x >= OVL_W * OVL_H) return 0;
 	 
 	 uint8 *dest = currentXBuf + y * OVL_W + x;
 	 uint8 mapped = map_overlay_color(color);
@@ -506,14 +618,14 @@ static void DrawLuaConsole(uint8* buf) {
 	 
 	 if (!currentXBuf) return 0;
 	 
-	 // Clamp coordinates to safe bounds (auto-adjust if too low/high)
-	 if (x < 0) x = 0;
-	 if (x >= OVL_W) x = OVL_W - 1;
-	 if (y < 0) y = 0;
-	 if (y >= OVL_H) y = OVL_H - 1; // Clamp to safe position
+	 // Early return if completely off-screen (better performance and safety)
+	 if (x < 0 || x >= OVL_W || y < 0 || y >= OVL_H) return 0;
 	 
 	 // Draw pixel on the current frame buffer (set by FCEU_LuaGui)
-		 uint8 *dest = currentXBuf + y * OVL_W + x;
+	 // Additional defensive check on buffer pointer
+	 if (y * OVL_W + x < 0 || y * OVL_W + x >= OVL_W * OVL_H) return 0;
+	 
+	 uint8 *dest = currentXBuf + y * OVL_W + x;
 		 *dest = map_overlay_color(color);
 		 g_overlayDirty = true;  // Mark that something was drawn
 	 
@@ -535,15 +647,22 @@ static void DrawLuaConsole(uint8* buf) {
 	 
 	 if (!currentXBuf) return 0;
 	 
-	 // Clamp coordinates to safe bounds (auto-adjust if too low/high)
-	 if (x1 < 0) x1 = 0;
-	 if (x1 >= OVL_W) x1 = OVL_W - 1;
-	 if (x2 < 0) x2 = 0;
-	 if (x2 >= OVL_W) x2 = OVL_W - 1;
-	 if (y1 < 0) y1 = 0;
-	 if (y1 >= OVL_H) y1 = OVL_H - 1; // Clamp to safe position
-	 if (y2 < 0) y2 = 0;
-	 if (y2 >= OVL_H) y2 = OVL_H - 1; // Clamp to safe position
+	 // Early return if both points are completely off-screen
+	 if ((x1 < 0 || x1 >= OVL_W || y1 < 0 || y1 >= OVL_H) &&
+	     (x2 < 0 || x2 >= OVL_W || y2 < 0 || y2 >= OVL_H)) {
+		 return 0; // Both points off-screen, skip drawing
+	 }
+	 
+	 // Clamp coordinates to safe bounds (for line algorithm, we'll check bounds in the loop)
+	 // But we still need to clamp to prevent integer overflow in calculations
+	 if (x1 < -OVL_W) x1 = -OVL_W;
+	 if (x1 > OVL_W * 2) x1 = OVL_W * 2;
+	 if (x2 < -OVL_W) x2 = -OVL_W;
+	 if (x2 > OVL_W * 2) x2 = OVL_W * 2;
+	 if (y1 < -OVL_H) y1 = -OVL_H;
+	 if (y1 > OVL_H * 2) y1 = OVL_H * 2;
+	 if (y2 < -OVL_H) y2 = -OVL_H;
+	 if (y2 > OVL_H * 2) y2 = OVL_H * 2;
 	 
 	 // Use Bresenham's line algorithm to draw the line
 	 int dx = (x2 > x1) ? (x2 - x1) : (x1 - x2);
@@ -556,12 +675,21 @@ static void DrawLuaConsole(uint8* buf) {
 	 int y = y1;
 	 bool drewSomething = false;
 	 
-	 while (true) {
+	 // Safety limit to prevent infinite loops (max pixels we could draw)
+	 int maxIterations = (OVL_W + OVL_H) * 2;
+	 int iterations = 0;
+	 
+	 while (iterations < maxIterations) {
+		 iterations++;
+		 
 		 // Check bounds and draw pixel
 		 if (x >= 0 && x < OVL_W && y >= 0 && y < OVL_H) {
-			 uint8 *dest = currentXBuf + y * OVL_W + x;
-			 *dest = map_overlay_color(color);
-			 drewSomething = true;
+			 // Additional defensive check on buffer pointer
+			 if (y * OVL_W + x >= 0 && y * OVL_W + x < OVL_W * OVL_H) {
+				 uint8 *dest = currentXBuf + y * OVL_W + x;
+				 *dest = map_overlay_color(color);
+				 drewSomething = true;
+			 }
 		 }
 		 
 		 // Check if we've reached the end point
@@ -2509,6 +2637,49 @@ int lua_readbytes(lua_State *L) {
 	 return 1;  // Return the table
  }
 
+int lua_readram(lua_State *L) {
+	int n = lua_gettop(L);
+	if (n < 2) {
+		return luaL_error(L, "readram(startAddr, count) requires 2 arguments");
+	}
+	
+	unsigned int startAddr = (unsigned int)luaL_checkinteger(L, 1);
+	int count = (int)luaL_checkinteger(L, 2);
+	
+	// Validate address is in RAM range (0x0000-0x1FFF)
+	if (startAddr > 0x1FFF) {
+		return luaL_error(L, "readram: startAddr must be in RAM range 0x0000-0x1FFF");
+	}
+	
+	// Validate count
+	if (count < 1) {
+		return luaL_error(L, "readram: count must be at least 1");
+	}
+	if (count > 256) {
+		return luaL_error(L, "readram: count cannot exceed 256");
+	}
+	
+	// Adjust count if it would read past RAM boundary (0x1FFF)
+	if (startAddr + count > 0x2000) {
+		count = 0x2000 - startAddr;
+	}
+	
+	// Create Lua table to hold results
+	lua_createtable(L, count, 0);
+	
+	// Read each byte from RAM and add to table
+	for (int i = 0; i < count; ++i) {
+		unsigned int currentAddr = startAddr + i;
+		if (currentAddr > 0x1FFF) break;
+		
+		uint8 value = ARead[currentAddr](currentAddr);
+		lua_pushinteger(L, value);
+		lua_rawseti(L, -2, i + 1);  // Lua tables are 1-indexed
+	}
+	
+	return 1;  // Return the table
+}
+
 int lua_scanbyte(lua_State *L) {
 	 int n = lua_gettop(L);
 	 if (n < 3) {
@@ -2700,6 +2871,365 @@ int lua_writebytes(lua_State *L) {
 	 
 	 return 0;
  }
+
+int lua_writeprg(lua_State *L) {
+	int n = lua_gettop(L);
+	if (n < 2) {
+		return luaL_error(L, "writeprg(address, value) requires 2 arguments");
+	}
+	
+	unsigned int address = (unsigned int)luaL_checkinteger(L, 1);
+	int value = (int)luaL_checkinteger(L, 2);
+	
+	// Validate address is in program ROM range (0x8000-0xFFFF)
+	if (address < 0x8000 || address > 0xFFFF) {
+		return luaL_error(L, "writeprg: address must be in program ROM range 0x8000-0xFFFF");
+	}
+	
+	// Validate value range (byte must be 0-255)
+	if (value < 0 || value > 255) {
+		return luaL_error(L, "writeprg: value must be in range 0-255");
+	}
+	
+	uint8 byteValue = (uint8)(value & 0xFF);
+	
+	// Attempt to write to program ROM using BWrite
+	// Note: Most ROM is read-only, but some mappers support ROM writes
+	// BWrite will handle mapper-specific behavior (may ignore if ROM is read-only)
+	BWrite[address](address, byteValue);
+	 
+	 return 0;
+ }
+
+int lua_fillbytes(lua_State *L) {
+	int n = lua_gettop(L);
+	if (n < 3) {
+		return luaL_error(L, "fillbytes(address, count, value) requires 3 arguments");
+	}
+	
+	unsigned int address = (unsigned int)luaL_checkinteger(L, 1);
+	int count = (int)luaL_checkinteger(L, 2);
+	int value = (int)luaL_checkinteger(L, 3);
+	
+	// Validate address range
+	if (address > 0xFFFF) {
+		return luaL_error(L, "fillbytes: address must be in range 0x0000-0xFFFF");
+	}
+	
+	// Validate count
+	if (count < 1) {
+		return luaL_error(L, "fillbytes: count must be at least 1");
+	}
+	if (count > 256) {
+		return luaL_error(L, "fillbytes: count cannot exceed 256");
+	}
+	
+	// Validate value range (byte must be 0-255)
+	if (value < 0 || value > 255) {
+		return luaL_error(L, "fillbytes: value must be in range 0-255");
+	}
+	
+	uint8 byteValue = (uint8)(value & 0xFF);
+	
+	// Adjust count if it would write past address space
+	if (address + count > 0x10000) {
+		count = 0x10000 - address;
+	}
+	
+	// Fill the memory region
+	for (int i = 0; i < count; ++i) {
+		unsigned int currentAddr = address + i;
+		if (currentAddr > 0xFFFF) break;
+		
+		 BWrite[currentAddr](currentAddr, byteValue);
+	 }
+	 
+	 return 0;
+ }
+
+int lua_copybytes(lua_State *L) {
+	int n = lua_gettop(L);
+	if (n < 3) {
+		return luaL_error(L, "copybytes(sourceAddr, destAddr, count) requires 3 arguments");
+	}
+	
+	unsigned int sourceAddr = (unsigned int)luaL_checkinteger(L, 1);
+	unsigned int destAddr = (unsigned int)luaL_checkinteger(L, 2);
+	int count = (int)luaL_checkinteger(L, 3);
+	
+	// Validate address ranges
+	if (sourceAddr > 0xFFFF) {
+		return luaL_error(L, "copybytes: sourceAddr must be in range 0x0000-0xFFFF");
+	}
+	if (destAddr > 0xFFFF) {
+		return luaL_error(L, "copybytes: destAddr must be in range 0x0000-0xFFFF");
+	}
+	
+	// Validate count
+	if (count < 1) {
+		return luaL_error(L, "copybytes: count must be at least 1");
+	}
+	if (count > 256) {
+		return luaL_error(L, "copybytes: count cannot exceed 256");
+	}
+	
+	// Adjust count if it would read/write past address space
+	if (sourceAddr + count > 0x10000) {
+		count = 0x10000 - sourceAddr;
+	}
+	if (destAddr + count > 0x10000) {
+		count = 0x10000 - destAddr;
+	}
+	
+	// Handle overlapping regions correctly
+	// If destAddr > sourceAddr and they overlap, we need to copy backwards
+	// to avoid overwriting source data before it's read
+	if (destAddr > sourceAddr && destAddr < sourceAddr + count) {
+		// Overlapping region: copy backwards from end to beginning
+		for (int i = count - 1; i >= 0; --i) {
+			unsigned int srcAddr = sourceAddr + i;
+			unsigned int dstAddr = destAddr + i;
+			if (srcAddr > 0xFFFF || dstAddr > 0xFFFF) break;
+			
+			uint8 value = ARead[srcAddr](srcAddr);
+			BWrite[dstAddr](dstAddr, value);
+		}
+	} else {
+		// Non-overlapping or destAddr <= sourceAddr: copy forwards
+		for (int i = 0; i < count; ++i) {
+			unsigned int srcAddr = sourceAddr + i;
+			unsigned int dstAddr = destAddr + i;
+			if (srcAddr > 0xFFFF || dstAddr > 0xFFFF) break;
+			
+			uint8 value = ARead[srcAddr](srcAddr);
+			BWrite[dstAddr](dstAddr, value);
+		}
+	}
+	
+	return 0;
+}
+
+int lua_comparebytes(lua_State *L) {
+	int n = lua_gettop(L);
+	if (n < 3) {
+		return luaL_error(L, "comparebytes(addr1, addr2, count) requires 3 arguments");
+	}
+	
+	unsigned int addr1 = (unsigned int)luaL_checkinteger(L, 1);
+	unsigned int addr2 = (unsigned int)luaL_checkinteger(L, 2);
+	int count = (int)luaL_checkinteger(L, 3);
+	
+	// Validate address ranges
+	if (addr1 > 0xFFFF) {
+		return luaL_error(L, "comparebytes: addr1 must be in range 0x0000-0xFFFF");
+	}
+	if (addr2 > 0xFFFF) {
+		return luaL_error(L, "comparebytes: addr2 must be in range 0x0000-0xFFFF");
+	}
+	
+	// Validate count
+	if (count < 1) {
+		return luaL_error(L, "comparebytes: count must be at least 1");
+	}
+	if (count > 256) {
+		return luaL_error(L, "comparebytes: count cannot exceed 256");
+	}
+	
+	// Adjust count if it would read past address space
+	if (addr1 + count > 0x10000) {
+		count = 0x10000 - addr1;
+	}
+	if (addr2 + count > 0x10000) {
+		int count2 = 0x10000 - addr2;
+		if (count2 < count) {
+			count = count2;
+		}
+	}
+	
+	// Compare bytes
+	for (int i = 0; i < count; ++i) {
+		unsigned int addr1_current = addr1 + i;
+		unsigned int addr2_current = addr2 + i;
+		if (addr1_current > 0xFFFF || addr2_current > 0xFFFF) break;
+		
+		uint8 value1 = ARead[addr1_current](addr1_current);
+		uint8 value2 = ARead[addr2_current](addr2_current);
+		
+		if (value1 != value2) {
+			lua_pushboolean(L, 0);  // false (not identical)
+			return 1;
+		}
+	}
+	
+	lua_pushboolean(L, 1);  // true (identical)
+	return 1;
+}
+
+int lua_backupbytes(lua_State *L) {
+	int n = lua_gettop(L);
+	if (n < 2) {
+		return luaL_error(L, "backupbytes(address, count) requires 2 arguments");
+	}
+	
+	unsigned int address = (unsigned int)luaL_checkinteger(L, 1);
+	int count = (int)luaL_checkinteger(L, 2);
+	
+	// Validate address range
+	if (address > 0xFFFF) {
+		return luaL_error(L, "backupbytes: address must be in range 0x0000-0xFFFF");
+	}
+	
+	// Validate count
+	if (count < 1) {
+		return luaL_error(L, "backupbytes: count must be at least 1");
+	}
+	if (count > 256) {
+		return luaL_error(L, "backupbytes: count cannot exceed 256");
+	}
+	
+	// Adjust count if it would read past address space
+	if (address + count > 0x10000) {
+		count = 0x10000 - address;
+	}
+	
+	// Create Lua table to hold backup
+	lua_createtable(L, count, 0);
+	
+	// Read each byte and add to table
+	for (int i = 0; i < count; ++i) {
+		unsigned int currentAddr = address + i;
+		if (currentAddr > 0xFFFF) break;
+		
+		uint8 value = ARead[currentAddr](currentAddr);
+		lua_pushinteger(L, value);
+		lua_rawseti(L, -2, i + 1);  // Lua tables are 1-indexed
+	}
+	
+	return 1;  // Return the backup table
+}
+
+int lua_restorebytes(lua_State *L) {
+	int n = lua_gettop(L);
+	if (n < 2) {
+		return luaL_error(L, "restorebytes(address, data) requires 2 arguments");
+	}
+	
+	unsigned int address = (unsigned int)luaL_checkinteger(L, 1);
+	
+	// Validate address range
+	if (address > 0xFFFF) {
+		return luaL_error(L, "restorebytes: address must be in range 0x0000-0xFFFF");
+	}
+	
+	// Validate that second argument is a table
+	if (!lua_istable(L, 2)) {
+		return luaL_error(L, "restorebytes: data must be a table (from backupbytes)");
+	}
+	
+	// Read table entries (1-indexed), Lua 5.1-compatible
+	int count = 0;
+	for (int i = 1; i <= 256; ++i) {
+		lua_rawgeti(L, 2, i);
+		if (!lua_isnumber(L, -1)) {
+			lua_pop(L, 1);
+			break;  // End of table
+		}
+		int value = (int)luaL_checkinteger(L, -1);
+		lua_pop(L, 1);
+		
+		// Validate value range (byte must be 0-255)
+		if (value < 0 || value > 255) {
+			return luaL_error(L, "restorebytes: value at index %d must be in range 0-255", i);
+		}
+		
+		unsigned int currentAddr = address + count;
+		if (currentAddr > 0xFFFF) {
+			// Don't write past address space, but don't error - just stop
+			break;
+		}
+		
+		uint8 byteValue = (uint8)(value & 0xFF);
+		BWrite[currentAddr](currentAddr, byteValue);
+		++count;
+	}
+	
+	if (count <= 0) {
+		return luaL_error(L, "restorebytes: data table must contain at least one byte");
+	}
+	
+	return 0;  // Return nothing
+}
+
+int lua_getmemorytype(lua_State *L) {
+	int n = lua_gettop(L);
+	if (n < 1) {
+		return luaL_error(L, "getmemorytype(address) requires 1 argument");
+	}
+	
+	unsigned int address = (unsigned int)luaL_checkinteger(L, 1);
+	
+	// Validate address range
+	if (address > 0xFFFF) {
+		return luaL_error(L, "getmemorytype: address must be in range 0x0000-0xFFFF");
+	}
+	
+	// Determine memory type based on address range
+	const char* memType;
+	if (address <= 0x1FFF) {
+		memType = "RAM";
+	} else if (address >= 0x2000 && address <= 0x3FFF) {
+		memType = "PPU";
+	} else if (address >= 0x4000 && address <= 0x401F) {
+		memType = "APU";
+	} else if (address >= 0x8000 && address <= 0xFFFF) {
+		memType = "ROM";
+	} else {
+		// 0x4020-0x7FFF: Expansion ROM, Save RAM, or mapper-specific
+		memType = "UNKNOWN";
+	}
+	
+	// Push string to Lua (using full Lua API from lua.h)
+	lua_pushstring(L, memType);
+	
+	return 1;  // Return the string
+}
+
+int lua_ismemorywritable(lua_State *L) {
+	int n = lua_gettop(L);
+	if (n < 1) {
+		return luaL_error(L, "ismemorywritable(address) requires 1 argument");
+	}
+	
+	unsigned int address = (unsigned int)luaL_checkinteger(L, 1);
+	
+	// Validate address range
+	if (address > 0xFFFF) {
+		return luaL_error(L, "ismemorywritable: address must be in range 0x0000-0xFFFF");
+	}
+	
+	// Determine if address is writable based on memory type
+	// RAM, PPU, and APU are writable
+	// ROM and UNKNOWN regions are typically not writable (though ROM writes may be mapper-specific)
+	int isWritable;
+	if (address <= 0x1FFF) {
+		// RAM: writable
+		isWritable = 1;
+	} else if (address >= 0x2000 && address <= 0x3FFF) {
+		// PPU: writable (though writes have side effects)
+		isWritable = 1;
+	} else if (address >= 0x4000 && address <= 0x401F) {
+		// APU: writable (though writes have side effects)
+		isWritable = 1;
+	} else {
+		// ROM (0x8000-0xFFFF) and UNKNOWN (0x4020-0x7FFF): typically not writable
+		// Note: ROM writes may be supported by some mappers, but generally ROM is read-only
+		isWritable = 0;
+	}
+	
+	lua_pushboolean(L, isWritable);
+	
+	return 1;  // Return the boolean
+ }
  
  // Initialize Lua (original version - checks disabled state)
  static void InitLua() {
@@ -2750,9 +3280,15 @@ int lua_writebytes(lua_State *L) {
 	 lua_register(luaState, "readbyte", lua_readbyte);
 	 lua_register(luaState, "readword", lua_readword);
 	 lua_register(luaState, "readbytes", lua_readbytes);
+	 lua_register(luaState, "readram", lua_readram);
 	 lua_register(luaState, "scanbyte", lua_scanbyte);
      lua_register(luaState, "scanword", lua_scanword);
 	 lua_register(luaState, "scanbytes", lua_scanbytes);
+	 lua_register(luaState, "findpattern", lua_findpattern);
+	 lua_register(luaState, "scanchanged", lua_scanchanged);
+	 lua_register(luaState, "watchbyte", lua_watchbyte);
+	 lua_register(luaState, "unwatchbyte", lua_unwatchbyte);
+	 lua_register(luaState, "getmemorysnapshot", lua_getmemorysnapshot);
 	 lua_register(luaState, "setbit", lua_setbit);
 	 lua_register(luaState, "clearbit", lua_clearbit);
 	 lua_register(luaState, "togglebit", lua_togglebit);
@@ -2760,6 +3296,14 @@ int lua_writebytes(lua_State *L) {
 	 lua_register(luaState, "writebyte", lua_writebyte);
 	 lua_register(luaState, "writeword", lua_writeword);
 	 lua_register(luaState, "writebytes", lua_writebytes);
+	 lua_register(luaState, "writeprg", lua_writeprg);
+	 lua_register(luaState, "fillbytes", lua_fillbytes);
+	 lua_register(luaState, "copybytes", lua_copybytes);
+	 lua_register(luaState, "comparebytes", lua_comparebytes);
+	 lua_register(luaState, "backupbytes", lua_backupbytes);
+	 lua_register(luaState, "restorebytes", lua_restorebytes);
+	 lua_register(luaState, "getmemorytype", lua_getmemorytype);
+	 lua_register(luaState, "ismemorywritable", lua_ismemorywritable);
 	 // logging
 	 lua_register(luaState, "log", lua_log);
 	 // Console spacing control
@@ -2813,9 +3357,15 @@ static void EnsureLuaInit() {
 	REG("readbyte",       lua_readbyte);
 	REG("readword",       lua_readword);
 	REG("readbytes",      lua_readbytes);
+	REG("readram",        lua_readram);
 	REG("scanbyte",       lua_scanbyte);
  REG("scanword",       lua_scanword);
 REG("scanbytes",      lua_scanbytes);
+REG("findpattern",    lua_findpattern);
+REG("scanchanged",    lua_scanchanged);
+REG("watchbyte",      lua_watchbyte);
+REG("unwatchbyte",    lua_unwatchbyte);
+REG("getmemorysnapshot", lua_getmemorysnapshot);
 REG("setbit",         lua_setbit);
 REG("clearbit",       lua_clearbit);
 REG("togglebit",      lua_togglebit);
@@ -2823,6 +3373,14 @@ REG("testbit",        lua_testbit);
 	REG("writebyte",      lua_writebyte);
 	REG("writeword",      lua_writeword);
 	REG("writebytes",     lua_writebytes);
+	REG("writeprg",       lua_writeprg);
+	REG("fillbytes",      lua_fillbytes);
+	REG("copybytes",      lua_copybytes);
+	REG("comparebytes",   lua_comparebytes);
+	REG("backupbytes",    lua_backupbytes);
+	REG("restorebytes",   lua_restorebytes);
+	REG("getmemorytype",  lua_getmemorytype);
+	REG("ismemorywritable", lua_ismemorywritable);
 	REG("log",            lua_log);
 	REG("setconsolespacing", lua_setconsolespacing);
 REG("setscriptinterval", lua_setscriptinterval);
@@ -3133,6 +3691,324 @@ int lua_scanbytes(lua_State *L) {
     }
 
     return 1;
+}
+
+int lua_findpattern(lua_State *L) {
+    int n = lua_gettop(L);
+    if (n < 3) {
+        return luaL_error(L, "findpattern requires (pattern, startAddr, endAddr, [mask])");
+    }
+
+    // Check if first argument is a table
+    if (!lua_istable(L, 1)) {
+        return luaL_error(L, "findpattern: first argument must be a table (pattern)");
+    }
+
+    // Collect pattern bytes
+    unsigned int startAddr = (unsigned int)luaL_checkinteger(L, 2);
+    unsigned int endAddr   = (unsigned int)luaL_checkinteger(L, 3);
+    std::vector<uint8> pattern;
+    std::vector<uint8> mask;
+    pattern.reserve(64);
+    mask.reserve(64);
+
+    // Read pattern table entries (1-indexed)
+    int patternCount = 0;
+    for (int i = 1; i <= 256; ++i) {
+        lua_rawgeti(L, 1, i);
+        if (!lua_isnumber(L, -1)) { lua_pop(L, 1); break; }
+        int v = (int)luaL_checkinteger(L, -1);
+        lua_pop(L, 1);
+        if (v < 0 || v > 255) {
+            return luaL_error(L, "findpattern: pattern values must be 0-255");
+        }
+        pattern.push_back((uint8)(v & 0xFF));
+        ++patternCount;
+    }
+    if (patternCount <= 0) {
+        return luaL_error(L, "findpattern: pattern table must contain at least one byte");
+    }
+
+    // Read optional mask table (4th argument)
+    bool hasMask = false;
+    if (n >= 4 && !lua_isnil(L, 4)) {
+        if (!lua_istable(L, 4)) {
+            return luaL_error(L, "findpattern: mask (4th argument) must be a table or nil");
+        }
+        hasMask = true;
+        int maskCount = 0;
+        for (int i = 1; i <= 256; ++i) {
+            lua_rawgeti(L, 4, i);
+            if (!lua_isnumber(L, -1)) { lua_pop(L, 1); break; }
+            int v = (int)luaL_checkinteger(L, -1);
+            lua_pop(L, 1);
+            // Mask values: 0 = wildcard (ignore), non-zero = match
+            mask.push_back((v != 0) ? 1 : 0);
+            ++maskCount;
+        }
+        if (maskCount != patternCount) {
+            return luaL_error(L, "findpattern: mask table length must match pattern table length");
+        }
+    }
+
+    // Validate addresses
+    if (startAddr > 0xFFFF || endAddr > 0xFFFF) {
+        return luaL_error(L, "findpattern: addresses must be in range 0x0000-0xFFFF");
+    }
+    if (startAddr > endAddr) { unsigned int t = startAddr; startAddr = endAddr; endAddr = t; }
+
+    // If pattern longer than range, return empty table
+    if (pattern.empty()) {
+        return luaL_error(L, "findpattern: pattern cannot be empty");
+    }
+
+    lua_createtable(L, 0, 0);
+    int outIndex = 1;
+
+    // Compute last start index inclusive to avoid overflow
+    unsigned int maxStart;
+    if (pattern.size() - 1 > (size_t)0xFFFF) {
+        maxStart = 0; // impossible, but keep compiler happy
+    }
+    if (endAddr < (unsigned int)(pattern.size() - 1)) {
+        maxStart = 0; // will be < startAddr and loop won't run
+    } else {
+        maxStart = endAddr - (unsigned int)(pattern.size() - 1);
+    }
+
+    for (unsigned int addr = startAddr; addr <= endAddr && addr <= maxStart; ++addr) {
+        bool match = true;
+        for (size_t i = 0; i < pattern.size(); ++i) {
+            // If mask is provided and this position is wildcard (0), skip comparison
+            if (hasMask && mask[i] == 0) {
+                continue; // Wildcard - any byte matches
+            }
+            
+            unsigned int cur = addr + (unsigned int)i;
+            uint8 b = ARead[cur](cur);
+            if (b != pattern[i]) { 
+                match = false; 
+                break; 
+            }
+        }
+        if (match) {
+            lua_pushinteger(L, addr);
+            lua_rawseti(L, -2, outIndex++);
+        }
+        if (addr == 0xFFFF) break;
+    }
+
+    return 1;
+}
+
+int lua_scanchanged(lua_State *L) {
+    int n = lua_gettop(L);
+    if (n < 3) {
+        return luaL_error(L, "scanchanged requires (oldSnapshot, newSnapshot, startAddr)");
+    }
+
+    // Validate that first two arguments are tables
+    if (!lua_istable(L, 1)) {
+        return luaL_error(L, "scanchanged: oldSnapshot (1st argument) must be a table");
+    }
+    if (!lua_istable(L, 2)) {
+        return luaL_error(L, "scanchanged: newSnapshot (2nd argument) must be a table");
+    }
+
+    unsigned int startAddr = (unsigned int)luaL_checkinteger(L, 3);
+
+    // Validate address range
+    if (startAddr > 0xFFFF) {
+        return luaL_error(L, "scanchanged: startAddr must be in range 0x0000-0xFFFF");
+    }
+
+    // Read both snapshot tables (1-indexed)
+    std::vector<uint8> oldSnapshot;
+    std::vector<uint8> newSnapshot;
+    oldSnapshot.reserve(256);
+    newSnapshot.reserve(256);
+
+    // Read old snapshot
+    int oldCount = 0;
+    for (int i = 1; i <= 256; ++i) {
+        lua_rawgeti(L, 1, i);
+        if (!lua_isnumber(L, -1)) {
+            lua_pop(L, 1);
+            break;
+        }
+        int v = (int)luaL_checkinteger(L, -1);
+        lua_pop(L, 1);
+        if (v < 0 || v > 255) {
+            return luaL_error(L, "scanchanged: oldSnapshot value at index %d must be in range 0-255", i);
+        }
+        oldSnapshot.push_back((uint8)(v & 0xFF));
+        ++oldCount;
+    }
+
+    // Read new snapshot
+    int newCount = 0;
+    for (int i = 1; i <= 256; ++i) {
+        lua_rawgeti(L, 2, i);
+        if (!lua_isnumber(L, -1)) {
+            lua_pop(L, 1);
+            break;
+        }
+        int v = (int)luaL_checkinteger(L, -1);
+        lua_pop(L, 1);
+        if (v < 0 || v > 255) {
+            return luaL_error(L, "scanchanged: newSnapshot value at index %d must be in range 0-255", i);
+        }
+        newSnapshot.push_back((uint8)(v & 0xFF));
+        ++newCount;
+    }
+
+    // Validate that both snapshots have the same length
+    if (oldCount != newCount) {
+        return luaL_error(L, "scanchanged: oldSnapshot and newSnapshot must have the same length");
+    }
+
+    if (oldCount <= 0) {
+        return luaL_error(L, "scanchanged: snapshots must contain at least one byte");
+    }
+
+    // Create result table (address-indexed, not array-indexed)
+    lua_createtable(L, 0, 0);  // Create empty table for address-indexed results
+
+    // Compare snapshots and add changed addresses to result
+    for (int i = 0; i < oldCount; ++i) {
+        if (oldSnapshot[i] != newSnapshot[i]) {
+            unsigned int addr = startAddr + (unsigned int)i;
+            if (addr > 0xFFFF) break;  // Don't exceed address space
+            
+            // Add to result table: address as key, new value as value
+            lua_pushinteger(L, addr);
+            lua_pushinteger(L, newSnapshot[i]);
+            lua_rawset(L, -3);  // Set table[addr] = newValue
+        }
+    }
+
+    return 1;  // Return the result table
+}
+
+int lua_watchbyte(lua_State *L) {
+    int n = lua_gettop(L);
+    if (n < 1) {
+        return luaL_error(L, "watchbyte(address) requires 1 argument");
+    }
+
+    unsigned int address = (unsigned int)luaL_checkinteger(L, 1);
+
+    // Validate address range
+    if (address > 0xFFFF) {
+        return luaL_error(L, "watchbyte: address must be in range 0x0000-0xFFFF");
+    }
+
+    // Read current value and add to watch list
+    uint8 currentValue = ARead[address](address);
+    s_watchedAddresses[address] = currentValue;
+
+    return 0;  // Return nothing
+}
+
+int lua_unwatchbyte(lua_State *L) {
+    int n = lua_gettop(L);
+    if (n < 1) {
+        return luaL_error(L, "unwatchbyte(address) requires 1 argument");
+    }
+
+    unsigned int address = (unsigned int)luaL_checkinteger(L, 1);
+
+    // Validate address range
+    if (address > 0xFFFF) {
+        return luaL_error(L, "unwatchbyte: address must be in range 0x0000-0xFFFF");
+    }
+
+    // Remove from watch list if it exists
+    s_watchedAddresses.erase(address);
+
+    return 0;  // Return nothing
+}
+
+int lua_getmemorysnapshot(lua_State *L) {
+    int n = lua_gettop(L);
+    if (n < 2) {
+        return luaL_error(L, "getmemorysnapshot requires (startAddr, endAddr)");
+    }
+
+    unsigned int startAddr = (unsigned int)luaL_checkinteger(L, 1);
+    unsigned int endAddr   = (unsigned int)luaL_checkinteger(L, 2);
+
+    // Validate address range
+    if (startAddr > 0xFFFF || endAddr > 0xFFFF) {
+        return luaL_error(L, "getmemorysnapshot: addresses must be in range 0x0000-0xFFFF");
+    }
+
+    // Swap if start > end
+    if (startAddr > endAddr) {
+        unsigned int t = startAddr;
+        startAddr = endAddr;
+        endAddr = t;
+    }
+
+    // Limit range to prevent excessive memory usage (max 65536 bytes)
+    if (endAddr - startAddr > 0xFFFF) {
+        return luaL_error(L, "getmemorysnapshot: range cannot exceed 65536 bytes");
+    }
+
+    // Create result table (address-indexed, not array-indexed)
+    lua_createtable(L, 0, 0);
+
+    // Read each byte and store with address as key
+    for (unsigned int addr = startAddr; addr <= endAddr; ++addr) {
+        uint8 value = ARead[addr](addr);
+        lua_pushinteger(L, addr);
+        lua_pushinteger(L, value);
+        lua_rawset(L, -3);  // Set table[addr] = value
+    }
+
+    return 1;  // Return the snapshot table
+}
+
+// Helper: Check watched addresses for changes and call callback if needed
+static void CheckWatchedAddresses() {
+    if (!luaInitialized || luaState == NULL) {
+        return;
+    }
+
+    // Check if onwatch callback function exists
+    lua_getglobal(luaState, "onwatch");
+    if (!lua_isfunction(luaState, -1)) {
+        lua_pop(luaState, 1);
+        return;  // No callback function, skip checking
+    }
+
+    // Check each watched address for changes
+    for (std::map<unsigned int, uint8>::iterator it = s_watchedAddresses.begin(); 
+         it != s_watchedAddresses.end(); ++it) {
+        unsigned int addr = it->first;
+        uint8 oldValue = it->second;
+        uint8 newValue = ARead[addr](addr);
+
+        if (oldValue != newValue) {
+            // Value changed - update stored value
+            it->second = newValue;
+
+            // Call onwatch(address, oldValue, newValue)
+            lua_pushvalue(luaState, -1);  // Copy onwatch function
+            lua_pushinteger(luaState, addr);
+            lua_pushinteger(luaState, oldValue);
+            lua_pushinteger(luaState, newValue);
+            if (lua_pcall(luaState, 3, 0, 0) != 0) {
+                // Error in callback - log it
+                const char* err = lua_tostring(luaState, -1);
+                printf("LUA ERROR (onwatch callback): %s\n", err ? err : "unknown error");
+                if (err && err[0]) LuaConsolePushLine(err);
+                lua_pop(luaState, 1);
+            }
+        }
+    }
+
+    lua_pop(luaState, 1);  // Pop onwatch function
 }
 
 // Helper: Try to run a script in a specific directory
@@ -3569,6 +4445,11 @@ void FCEU_ReloadLuaCode(void) {
 	 }
 	 
 	 lastFrameTime = currentTime;
+	 
+	 // Check watched addresses for changes
+	 if (!s_watchedAddresses.empty()) {
+		 CheckWatchedAddresses();
+	 }
  }
  
  // GUI drawing callback - called from video.cpp
@@ -3790,6 +4671,7 @@ void FCEU_ReloadLuaCode(void) {
 	 }
 	 luaInitialized = false;
 	 ClearOverlaysIfAny();
+	 s_watchedAddresses.clear();  // Clear all watchpoints
 	 printf("FCEU_LuaStop: Lua state closed and overlays cleared\n");
  }
  

@@ -1,5 +1,26 @@
 /* FCE Ultra Lua Integration for Xbox 360
  * Basic Lua support for FPS display and other overlays
+ * 
+ * Enhanced for fce360-enhanced
+ * GitHub: https://github.com/frankischilling/fce360-enhanced
+ * 
+ * Contributors:
+ * @frankischilling
+ * Ced2911 (original Xbox 360 port)
+ * 
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
  #ifndef FCEULUA_H
@@ -112,6 +133,11 @@ void CallRegisteredLuaLoadFunctions(void* state, LuaSaveData& saveData);
  int lua_scanbyte(lua_State *L);
  int lua_scanword(lua_State *L);
  int lua_scanbytes(lua_State *L);
+ int lua_findpattern(lua_State *L);
+ int lua_scanchanged(lua_State *L);
+ int lua_watchbyte(lua_State *L);
+ int lua_unwatchbyte(lua_State *L);
+ int lua_getmemorysnapshot(lua_State *L);
  int lua_setbit(lua_State *L);
  int lua_clearbit(lua_State *L);
  int lua_togglebit(lua_State *L);
