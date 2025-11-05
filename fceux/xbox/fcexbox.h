@@ -61,6 +61,47 @@ enum
 const char ctrlName[6][20] =
 { "NES Controller", "NES Zapper", "NES Controllers (2)", "NES Controllers (4)" };
 
+// Undefine Windows LANG_* macros to avoid name collisions with our enum
+#ifdef LANG_JAPANESE
+#undef LANG_JAPANESE
+#endif
+#ifdef LANG_ENGLISH
+#undef LANG_ENGLISH
+#endif
+#ifdef LANG_GERMAN
+#undef LANG_GERMAN
+#endif
+#ifdef LANG_FRENCH
+#undef LANG_FRENCH
+#endif
+#ifdef LANG_SPANISH
+#undef LANG_SPANISH
+#endif
+#ifdef LANG_ITALIAN
+#undef LANG_ITALIAN
+#endif
+#ifdef LANG_DUTCH
+#undef LANG_DUTCH
+#endif
+#ifdef LANG_SIMP_CHINESE
+#undef LANG_SIMP_CHINESE
+#endif
+#ifdef LANG_TRAD_CHINESE
+#undef LANG_TRAD_CHINESE
+#endif
+#ifdef LANG_KOREAN
+#undef LANG_KOREAN
+#endif
+#ifdef LANG_PORTUGUESE
+#undef LANG_PORTUGUESE
+#endif
+#ifdef LANG_BRAZILIAN_PORTUGUESE
+#undef LANG_BRAZILIAN_PORTUGUESE
+#endif
+#ifdef LANG_CATALAN
+#undef LANG_CATALAN
+#endif
+
 enum {
         LANG_JAPANESE = 0,
         LANG_ENGLISH,
