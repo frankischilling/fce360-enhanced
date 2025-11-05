@@ -425,7 +425,7 @@
 				Optimization="3"
 				FavorSizeOrSpeed="2"
 				AdditionalIncludeDirectories=".;../lib/zlib-1.2.5;../libSDL/libSDLx360/SDL/include"
-				PreprocessorDefinitions="NDEBUG;_XBOX;LTCG;MSVC"
+				PreprocessorDefinitions="NDEBUG;_XBOX;LTCG;MSVC;LUA_USE_NO_DLOPEN"
 				StringPooling="true"
 				ExceptionHandling="0"
 				RuntimeLibrary="0"
@@ -631,6 +631,14 @@
 			</File>
 			<File
 				RelativePath=".\fceux\fceu.h"
+				>
+			</File>
+			<File
+				RelativePath=".\fceux\fceulua.cpp"
+				>
+			</File>
+			<File
+				RelativePath=".\fceux\fceulua.h"
 				>
 			</File>
 			<File
@@ -1962,6 +1970,38 @@
 					RelativePath=".\xbox\ui\mainui.h"
 					>
 				</File>
+			</Filter>
+			<Filter
+				Name="lua"
+				>
+				<File RelativePath=".\xbox\lua\src\lapi.c" />
+				<File RelativePath=".\xbox\lua\src\lauxlib.c" />
+				<File RelativePath=".\xbox\lua\src\lbaselib.c" />
+				<File RelativePath=".\xbox\lua\src\lcode.c" />
+				<File RelativePath=".\xbox\lua\src\ldblib.c" />
+				<File RelativePath=".\xbox\lua\src\ldebug.c" />
+				<File RelativePath=".\xbox\lua\src\ldo.c" />
+				<File RelativePath=".\xbox\lua\src\ldump.c" />
+				<File RelativePath=".\xbox\lua\src\lfunc.c" />
+				<File RelativePath=".\xbox\lua\src\lgc.c" />
+				<File RelativePath=".\xbox\lua\src\linit.c" />
+				<File RelativePath=".\xbox\lua\src\liolib.c" />
+				<File RelativePath=".\xbox\lua\src\llex.c" />
+				<File RelativePath=".\xbox\lua\src\lmathlib.c" />
+				<File RelativePath=".\xbox\lua\src\lmem.c" />
+				<File RelativePath=".\xbox\lua\src\lobject.c" />
+				<File RelativePath=".\xbox\lua\src\lopcodes.c" />
+				<File RelativePath=".\xbox\lua\src\loslib.c" />
+				<File RelativePath=".\xbox\lua\src\lparser.c" />
+				<File RelativePath=".\xbox\lua\src\lstate.c" />
+				<File RelativePath=".\xbox\lua\src\lstring.c" />
+				<File RelativePath=".\xbox\lua\src\lstrlib.c" />
+				<File RelativePath=".\xbox\lua\src\ltable.c" />
+				<File RelativePath=".\xbox\lua\src\ltablib.c" />
+				<File RelativePath=".\xbox\lua\src\ltm.c" />
+				<File RelativePath=".\xbox\lua\src\lundump.c" />
+				<File RelativePath=".\xbox\lua\src\lvm.c" />
+				<File RelativePath=".\xbox\lua\src\lzio.c" />
 			</Filter>
 			<Filter
 				Name="vfilter"
