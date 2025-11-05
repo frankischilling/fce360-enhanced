@@ -13,6 +13,11 @@
 #include "lualib.h"
 #include "lauxlib.h"
 
+/* Xbox build: no dynamic loading; ensure package library is excluded */
+#ifndef LUA_USE_NO_DLOPEN
+#define LUA_USE_NO_DLOPEN 1
+#endif
+
 
 static const luaL_Reg lualibs[] = {
   {"", luaopen_base},
