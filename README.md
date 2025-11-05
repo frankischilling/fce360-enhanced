@@ -7,7 +7,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.6.7** — *Drawing API Enhancements: clearclipregion, setdrawcolor + Advanced Memory API: pattern matching with wildcards, snapshot comparison, memory watchpoints, address-indexed snapshots + all prior features from v0.6.1–v0.6.6*
+* Current release: **v0.6.8** — *VSync Frame Pacing: Fixed Hz mismatch artifacts with texture latching at vblank boundaries + all prior features from v0.6.1–v0.6.7*
 
 ---
 
@@ -15,6 +15,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.6.8 - VSync Frame Pacing Fix](#whats-new-v068)
   - [v0.6.7 - Advanced Memory API Functions](#whats-new-v067)
   - [v0.6.6 - Enhanced Lua Console Scrolling](#whats-new-v066)
   - [v0.6.5 - Lua Console and Script Timing Controls](#whats-new-v065)
@@ -66,6 +67,33 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 📹 **[Watch Fast Scrolling Demo](https://github.com/frankischilling/fce360-enhanced/raw/main/img/fastScrolling.mp4)** (MP4 video)
 
 *Note: Click the link above to view the video demonstration. GitHub README files don't support embedded video playback.*
+
+---
+
+## What's new (v0.6.8)
+
+* **VSync Frame Pacing Fix:** Fixed graphical artifacts caused by 60.0988 Hz NTSC emulation vs 60 Hz display refresh mismatch!
+  * **Texture Latching at VBlank:** Frames now only change at vblank boundaries, preventing tearing and visual artifacts during motion
+  * **Frame Drift Management:** Tracks frame production vs display to handle Hz mismatch gracefully
+  * **Smooth Motion:** Eliminates visual "crawl" artifacts from Hz mismatch while maintaining smooth gameplay
+  * **True NTSC Timing:** Emulation runs at accurate 60.0988 Hz for proper NES timing
+  * **Display Sync:** Display syncs to 60 Hz via D3DPRESENT_INTERVAL_ONE (VSync enabled)
+  * **Intelligent Frame Skipping:** Skips frames when drift exceeds threshold (duplicates frame roughly every ~10 seconds)
+  * **Audio Sync:** Moved audio sync to vblank for better A/V synchronization
+  * **Performance:** Frame duplication is imperceptible but eliminates Hz mismatch artifacts
+
+* **Technical Details:**
+  * Added texture latching system (`g_texLatched`, `g_pendingTex`) for vblank-synchronized frame display
+  * Frame changes only occur after `Swap()` returns (vblank boundary)
+  * Render path uses latched texture instead of just-uploaded texture
+  * GPU fence protection maintained for write-while-sample safety
+  * Frame drift tracking prevents excessive frame accumulation
+
+* **Includes Previous Features:**
+  * All v0.6.7 features: Drawing API enhancements and advanced memory functions
+  * All v0.6.6 features: Enhanced Lua console scrolling
+  * All v0.6.5 features: Lua console and script timing controls
+  * All prior features from v0.6.1–v0.6.4
 
 ---
 
@@ -4457,6 +4485,23 @@ FCEUX360-<version>-xex.zip
 ---
 
 ## Changelog
+
+* **v0.6.8**
+
+  * feat(video): Implemented VSync frame pacing with texture latching at vblank boundaries to fix Hz mismatch artifacts.
+  * feat(video): Added frame drift management system to handle 60.0988 Hz NTSC vs 60 Hz display mismatch.
+  * feat(video): Emulation now runs at true NTSC rate (60.0988 Hz) for accurate timing.
+  * feat(video): Display syncs to 60 Hz via D3DPRESENT_INTERVAL_ONE (VSync enabled).
+  * feat(video): Intelligent frame skipping when drift exceeds threshold (maxLead = 1 frame).
+  * fix(video): Eliminated tearing and visual artifacts during motion from Hz mismatch.
+  * fix(video): Fixed visual "crawl" artifacts by synchronizing frame changes to vblank boundaries.
+  * perf(video): Frame duplication is imperceptible (~once per 10 seconds) but eliminates Hz mismatch issues.
+  * tech(video): Added `g_texLatched` and `g_pendingTex` for vblank-synchronized texture display.
+  * tech(video): Frame changes only occur after `Swap()` returns (vblank boundary).
+  * tech(video): Render path uses latched texture instead of just-uploaded texture.
+  * tech(audio): Moved `SyncAudioQueue()` to vblank (end of Render()) for better A/V sync.
+  * tech(audio): A/V sync now tracks display cadence instead of emulation cadence.
+  * tech(video): GPU fence protection maintained for write-while-sample safety.
 
 * **v0.6.7**
 
