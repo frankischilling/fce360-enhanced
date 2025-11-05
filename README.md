@@ -7,7 +7,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.6.7** — *Advanced Memory API: pattern matching with wildcards, snapshot comparison, memory watchpoints, address-indexed snapshots + all prior features from v0.6.1–v0.6.6*
+* Current release: **v0.6.7** — *Drawing API Enhancements: clearclipregion, setdrawcolor + Advanced Memory API: pattern matching with wildcards, snapshot comparison, memory watchpoints, address-indexed snapshots + all prior features from v0.6.1–v0.6.6*
 
 ---
 
@@ -71,6 +71,19 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 ## What's new (v0.6.7)
 
+* **Drawing API Enhancements:** Added **2 new drawing utility functions** for better control over clipping and colors!
+  * **Clipping Region Management:**
+    * `clearclipregion()` - Clears/disables the clipping region, allowing drawing across the full screen
+    * More convenient than setting clip region to full screen (0, 0, 256, 240)
+    * Useful for explicitly disabling clipping after drawing within restricted regions
+  * **Default Drawing Color:**
+    * `setdrawcolor(color)` - Sets a global default drawing color (0x00-0x3F)
+    * Stores default color for future use by drawing functions that may make color optional
+    * Default color is 0x39 (yellow-green) when script starts
+    * Useful for setting a preferred default color or preparing a color value used multiple times
+  * **Full Documentation:** Complete API reference with examples in **[Lua Scripting API](#lua-scripting-api)** section below!
+  * **Test Scripts:** Test scripts included for both new functions
+
 * **Advanced Memory API Functions:** Added **4 powerful new memory functions** for pattern matching, snapshot comparison, watchpoints, and address-indexed snapshots!
   * **Pattern Matching with Wildcards:**
     * `findpattern(pattern, startAddr, endAddr, [mask])` - Search for byte patterns with optional wildcard support
@@ -98,6 +111,8 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
   * **Test Scripts:** Comprehensive test scripts included for all new functions
 
 * **Use Cases:**
+  * Better control over drawing regions and clipping
+  * Global color management for consistent styling
   * Code signature discovery with variable addresses
   * Real-time memory change monitoring
   * Memory state comparison over time
@@ -423,6 +438,14 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
     - [`drawtile(x, y, tileIndex, paletteIndex)`](#drawtilex-y-tileindex-paletteindex)
       - Parameters, Returns, Notes, Examples
     - [`drawchrtile(x, y, tileIndex, paletteIndex)`](#drawchrtilex-y-tileindex-paletteindex)
+      - Parameters, Returns, Notes, Examples
+    - [`setdrawmode(mode)`](#setdrawmodemode)
+      - Parameters, Returns, Notes, Examples
+    - [`setclipregion(x, y, width, height)`](#setclipregionx-y-width-height)
+      - Parameters, Returns, Notes, Examples
+    - [`clearclipregion()`](#clearclipregion)
+      - Parameters, Returns, Notes, Examples
+    - [`setdrawcolor(color)`](#setdrawcolorcolor)
       - Parameters, Returns, Notes, Examples
     - [`drawcircle(x, y, radius, color)`](#drawcirclex-y-radius-color)
       - Parameters, Returns, Notes, Examples
@@ -1087,6 +1110,299 @@ for y = 0, 7 do
             drawchrtile(10 + (x * 18), 50 + (y * 18), tileIdx, (x + y) % 4)
         end
     end
+end
+```
+
+##### `setdrawmode(mode)`
+Sets the drawing mode for all subsequent drawing operations. This allows you to control how pixels are blended when drawn on top of existing overlay content.
+
+**Parameters:**
+- `mode` (string): The drawing mode to use. Valid values are:
+  - `"normal"` - Normal mode (default): Overwrites destination pixels completely. No blending.
+  - `"add"` - Additive blending: Adds source and destination color values together, creating a brighter result. Clamped at maximum brightness.
+  - `"sub"` - Subtractive blending: Subtracts source color from destination color, creating a darker result. Clamped at minimum brightness.
+  - `"multiply"` - Multiply blending: Multiplies source and destination color values together, creating a darker blended result.
+  - `"alpha"` - Alpha blending: Averages source and destination color values (50% mix), creating a smooth blend between the two.
+
+**Returns:** Nothing
+
+**Notes:**
+- The drawing mode persists across all drawing function calls until changed by calling `setdrawmode()` again.
+- Default mode is `"normal"` (overwrite mode) when the script starts.
+- Blending modes only affect pixels when drawn on top of existing content. Transparent pixels (value 0) are always written directly without blending.
+- All blend modes operate on the color index values (0-63) before mapping to the overlay range.
+- **Additive mode** (`"add"`): Best for creating glow effects, highlighting, or brightening areas. When colors overlap, they become brighter.
+- **Subtractive mode** (`"sub"`): Best for creating shadows, darkening effects, or dimming overlays. When colors overlap, they become darker.
+- **Multiply mode** (`"multiply"`): Best for creating darker overlays, shadows, or dimming effects. White (0x20) has no effect, darker colors darken more.
+- **Alpha mode** (`"alpha"`): Best for creating smooth transitions, semi-transparent overlays, or blending effects. Creates a 50/50 mix of source and destination.
+- The drawing mode applies to all drawing functions: `drawpixel`, `drawline`, `drawthickline`, `drawrect`, `fillrect`, `drawimage`, `drawimageindexed`, `drawtile`, `drawchrtile`, `drawcircle`, `fillcircle`, `drawtriangle`, `filltriangle`, `drawellipse`, `fillellipse`, `drawarc`, `fillarc`, `drawpolygon`, `fillpolygon`, and `drawpolyline`.
+- Text rendering (`drawtext`, `drawtextwh`) does not use blend modes and always uses normal mode.
+- For best visual results, draw base shapes first in normal mode, then draw overlapping shapes with blend modes.
+
+**Example:**
+```lua
+-- Draw overlapping shapes with different blend modes
+function gui()
+    -- Clear previous frame
+    clearrect(0, 0, 256, 240)
+    
+    -- Draw base shape in normal mode
+    setdrawmode("normal")
+    fillrect(10, 10, 80, 80, 0x20)  -- White base rectangle
+    
+    -- Draw overlapping shape with additive blending (brightens)
+    setdrawmode("add")
+    fillrect(50, 50, 80, 80, 0x16)  -- Red/orange overlapping (should brighten)
+    
+    -- Draw another shape with subtractive blending (darkens)
+    setdrawmode("sub")
+    fillrect(70, 70, 60, 60, 0x39)  -- Yellow-green (should darken overlapping area)
+    
+    -- Test multiply mode
+    setdrawmode("normal")
+    fillrect(150, 10, 60, 60, 0x39)  -- Yellow-green base
+    setdrawmode("multiply")
+    fillrect(170, 30, 40, 40, 0x20)  -- White (multiply should darken)
+    
+    -- Test alpha mode
+    setdrawmode("normal")
+    fillrect(150, 90, 60, 60, 0x16)  -- Red/orange base
+    setdrawmode("alpha")
+    fillrect(170, 110, 40, 40, 0x39)  -- Yellow-green (should blend)
+    
+    -- Reset to normal for text
+    setdrawmode("normal")
+    drawtext(4, 4, "Blend mode test", 0x39)
+end
+
+-- Create glow effect with additive blending
+function gui()
+    -- Draw base shape
+    setdrawmode("normal")
+    fillcircle(128, 120, 20, 0x39)  -- Yellow-green circle
+    
+    -- Add glow effect with additive blending
+    setdrawmode("add")
+    fillcircle(128, 120, 25, 0x39)  -- Slightly larger, adds brightness
+    fillcircle(128, 120, 30, 0x39)  -- Even larger, adds more brightness
+    
+    setdrawmode("normal")
+end
+
+-- Create shadow effect with subtractive blending
+function gui()
+    -- Draw base shape
+    setdrawmode("normal")
+    fillrect(50, 50, 60, 60, 0x20)  -- White rectangle
+    
+    -- Draw shadow with subtractive blending
+    setdrawmode("sub")
+    fillrect(55, 55, 60, 60, 0x20)  -- Offset shadow, darkens
+    
+    setdrawmode("normal")
+end
+```
+
+##### `setclipregion(x, y, width, height)`
+Sets a clipping region (scissor test) for all subsequent drawing operations. Pixels drawn outside the clipping region will be ignored, effectively creating a "window" where drawing is allowed.
+
+**Parameters:**
+- `x` (integer): X coordinate of the top-left corner of the clipping region (0-255).
+- `y` (integer): Y coordinate of the top-left corner of the clipping region (0-239).
+- `width` (integer): Width of the clipping region in pixels. Must be positive.
+- `height` (integer): Height of the clipping region in pixels. Must be positive.
+
+**Returns:** Nothing
+
+**Notes:**
+- The clipping region persists across all drawing function calls until changed by calling `setclipregion()` again or cleared with `clearclipregion()`.
+- By default, clipping is disabled (all pixels are allowed). Setting a valid region enables clipping.
+- The clipping region is automatically clamped to screen bounds (0-255, 0-239).
+- If `width` or `height` is zero or negative, clipping is disabled (all pixels are allowed).
+- Setting the clipping region to full screen (0, 0, 256, 240) effectively disables clipping.
+- To explicitly disable clipping, use `clearclipregion()` instead of setting the region to full screen.
+- The clipping region affects all drawing functions: `drawpixel`, `drawline`, `drawthickline`, `drawrect`, `fillrect`, `drawimage`, `drawimageindexed`, `drawtile`, `drawchrtile`, `drawcircle`, `fillcircle`, `drawtriangle`, `filltriangle`, `drawellipse`, `fillellipse`, `drawarc`, `fillarc`, `drawpolygon`, `fillpolygon`, and `drawpolyline`.
+- Text rendering (`drawtext`, `drawtextwh`) does not use clipping regions.
+- Useful for creating windowed drawing areas, UI panels, or restricting drawing to specific screen regions.
+- Clipping is applied per-pixel, so shapes that extend beyond the clip region will be partially drawn (only the pixels inside the region are rendered).
+
+**Example:**
+```lua
+-- Draw a full-screen pattern first
+function gui()
+    clearrect(0, 0, 256, 240)
+    
+    -- Draw a pattern across the whole screen
+    for y = 0, 239, 10 do
+        for x = 0, 255, 10 do
+            fillrect(x, y, 5, 5, 0x39)  -- Yellow-green pattern
+        end
+    end
+    
+    -- Set a clipping region (only draw in this area)
+    setclipregion(50, 50, 100, 80)  -- Clip region: x=50, y=50, width=100, height=80
+    
+    -- Draw a large rectangle - will be clipped to the region
+    fillrect(40, 40, 120, 100, 0x16)  -- Red/orange rectangle (clipped)
+    
+    -- Draw a circle - will be clipped
+    fillcircle(100, 90, 40, 0x20)  -- White circle (clipped)
+    
+    -- Reset clipping (disable by setting to full screen)
+    setclipregion(0, 0, 256, 240)
+    
+    -- Now draw outside the previous clip region
+    drawtext(10, 10, "NOT CLIPPED", 0x39)
+end
+
+-- Create a windowed UI panel with clipping
+function gui()
+    -- Set clipping region for a panel
+    setclipregion(20, 20, 200, 150)
+    
+    -- Draw panel background
+    fillrect(20, 20, 200, 150, 0x10)  -- Dark gray background
+    
+    -- Draw panel border
+    drawrect(20, 20, 200, 150, 0x20)  -- White border
+    
+    -- Draw content inside panel (will be clipped if it goes outside)
+    drawtext(25, 25, "Panel Title", 0x39)
+    drawtext(25, 35, "Content here", 0x20)
+    
+    -- Reset clipping
+    setclipregion(0, 0, 256, 240)
+end
+
+-- Use clipping to create a split-screen effect
+function gui()
+    -- Left half of screen
+    setclipregion(0, 0, 128, 240)
+    fillrect(0, 0, 128, 240, 0x16)  -- Red background (left)
+    drawtext(10, 10, "LEFT", 0x20)
+    
+    -- Right half of screen
+    setclipregion(128, 0, 128, 240)
+    fillrect(128, 0, 128, 240, 0x29)  -- Green background (right)
+    drawtext(138, 10, "RIGHT", 0x20)
+    
+    -- Reset clipping
+    setclipregion(0, 0, 256, 240)
+end
+```
+
+##### `clearclipregion()`
+Clears the clipping region, disabling clipping for all subsequent drawing operations. After calling this function, drawing will work across the entire screen without any restrictions.
+
+**Parameters:** None
+
+**Returns:** Nothing
+
+**Notes:**
+- Disables clipping by clearing the current clipping region.
+- After calling `clearclipregion()`, all drawing functions will work across the full screen (0-255, 0-239).
+- This is equivalent to calling `setclipregion(0, 0, 256, 240)`, but more convenient and explicit.
+- The clipping region remains disabled until `setclipregion()` is called again with a new region.
+- Useful for resetting clipping after drawing within a restricted region, or for explicitly disabling clipping when you want to ensure full-screen drawing.
+
+**Example:**
+```lua
+-- Draw with clipping, then clear it
+function gui()
+    clearrect(0, 0, 256, 240)
+    
+    -- Set a clipping region
+    setclipregion(50, 50, 100, 80)
+    
+    -- Draw a rectangle - will be clipped to the region
+    fillrect(40, 40, 120, 100, 0x16)  -- Red/orange rectangle (clipped)
+    
+    -- Clear the clipping region
+    clearclipregion()
+    
+    -- Now draw outside the previous clip region - should be visible
+    fillrect(10, 10, 30, 30, 0x3F)  -- Bright white rectangle (now visible)
+    drawtext(10, 20, "NOT CLIPPED", 0x16)  -- Text outside old clip region
+    
+    -- Set a new clipping region
+    setclipregion(150, 150, 60, 40)
+    
+    -- Draw only in this new region
+    for i = 0, 4 do
+        drawline(150, 150 + i * 10, 210, 150 + i * 10, 0x3F)
+    end
+    
+    -- Clear clipping again
+    clearclipregion()
+    
+    -- Draw something that should be visible everywhere
+    fillcircle(128, 120, 30, 0x16)  -- Large red circle in center
+end
+
+-- Create a windowed panel, then clear clipping to draw outside
+function gui()
+    -- Set clipping for a panel
+    setclipregion(20, 20, 200, 150)
+    
+    -- Draw panel content (clipped)
+    fillrect(20, 20, 200, 150, 0x10)  -- Dark gray background
+    drawrect(20, 20, 200, 150, 0x20)  -- White border
+    drawtext(25, 25, "Panel Content", 0x39)
+    
+    -- Clear clipping to draw outside the panel
+    clearclipregion()
+    
+    -- Draw UI elements outside the panel
+    drawtext(4, 4, "FPS: " .. string.format("%.1f", getfps()), 0x39)
+    drawtext(4, 220, "Status: OK", 0x20)
+end
+```
+
+##### `setdrawcolor(color)`
+Sets the default drawing color for drawing functions that don't specify a color parameter. This provides a global color setting that can be used by drawing functions when color is optional.
+
+**Parameters:**
+- `color` (integer): Default color index to use. Valid range is 0x00-0x3F (NES palette range).
+
+**Returns:** Nothing
+
+**Notes:**
+- Sets a global default color that persists across all drawing function calls until changed by calling `setdrawcolor()` again.
+- Default color is 0x39 (yellow-green) when the script starts.
+- The color value must be in the valid NES palette range (0x00-0x3F).
+- Currently, all drawing functions require an explicit color parameter, so this function stores the default color for potential future use by functions that may make color optional.
+- Useful for setting a preferred default color that can be used by drawing functions in the future, or for preparing a color value that you'll use multiple times.
+
+**Example:**
+```lua
+-- Set default drawing color to red/orange
+setdrawcolor(0x16)
+
+-- Set default drawing color to yellow-green
+setdrawcolor(0x39)
+
+-- Set default drawing color to white
+setdrawcolor(0x20)
+
+-- Set default drawing color to green/teal
+setdrawcolor(0x29)
+
+-- Note: Current drawing functions all require explicit color parameters,
+-- so this demonstrates storing the default color for future use
+function gui()
+    -- Set default color
+    setdrawcolor(0x39)  -- Yellow-green
+    
+    -- Draw with explicit colors (current functions require this)
+    fillrect(10, 10, 60, 60, 0x16)  -- Red/orange (explicit)
+    fillcircle(50, 50, 20, 0x20)    -- White (explicit)
+    
+    -- Change default color
+    setdrawcolor(0x20)  -- White
+    
+    -- Draw with explicit colors
+    fillrect(80, 10, 60, 60, 0x29)  -- Green/teal (explicit)
+    fillcircle(110, 40, 20, 0x16)   -- Red/orange (explicit)
 end
 ```
 
@@ -4141,6 +4457,19 @@ FCEUX360-<version>-xex.zip
 ---
 
 ## Changelog
+
+* **v0.6.7**
+
+  * feat(lua): Added `clearclipregion()` function to disable clipping region and allow full-screen drawing.
+  * feat(lua): Added `setdrawcolor(color)` function to set global default drawing color (0x00-0x3F).
+  * feat(lua): Added 4 new advanced memory functions: `findpattern()`, `scanchanged()`, `watchbyte()`, `unwatchbyte()`, `getmemorysnapshot()`.
+  * feat(lua): Pattern matching with wildcard support via optional mask table parameter.
+  * feat(lua): Memory watchpoint system with automatic change detection and `onwatch()` callback support.
+  * feat(lua): Address-indexed memory snapshots for efficient memory comparison and debugging.
+  * docs(lua): Complete API documentation for `clearclipregion()` and `setdrawcolor()` with examples.
+  * docs(lua): Added test scripts for all new drawing and memory functions.
+  * tech(lua): Default drawing color stored in static variable (0x39 yellow-green default).
+  * tech(lua): Clipping region cleared by disabling clip flag instead of setting full-screen region.
 
 * **v0.6.5**
 
