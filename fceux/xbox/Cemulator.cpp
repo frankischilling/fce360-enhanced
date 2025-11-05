@@ -61,7 +61,7 @@ static int g_framesDisplayed = 0; // Track frames actually displayed (advanced d
 // NES texture present latching
 static int g_texLatched   = -1;   // last latched (displayed) NES texture
 static int g_pendingTex   = -1;   // a complete frame uploaded this emu step
-static int g_maxLead      = 1;    // allow at most 1 frame of emu lead over display (keeps drift minimal)
+static int g_maxLead      = 0;    // keep drift at 0 (most aggressive - eliminates all artifacts)
 
 // Rendering surfaces and textures
 #ifdef _XBOX
@@ -1012,7 +1012,10 @@ void Cemulator::Render() {
 			break;
 		}
 
-		const int texToUse = (g_texLatched >= 0) ? g_texLatched : g_texDraw;
+		// Always use latched texture if available, otherwise fall back to current draw texture
+		// Ensure we have a valid texture index before using it
+		const int texToUse = (g_texLatched >= 0 && g_texLatched < 3) ? g_texLatched : 
+		                     ((g_texDraw >= 0 && g_texDraw < 3) ? g_texDraw : 0);
 		g_effect->SetTexture(g_MeshTexture, g_nesTex[texToUse]);
 		g_effect->Begin(&cPasses, 0);
 		g_pd3dDevice->SetVertexDeclaration(g_pVertexDecl);
@@ -1062,6 +1065,8 @@ void Cemulator::Render() {
 
 	// 2) Present the previous completed frame (N-1) at vsync for pacing
 	if (m_idxDisplay >= 0) {
+		// Synchronize to presentation interval before swapping (critical for proper VSync)
+		g_pd3dDevice->SynchronizeToPresentationInterval();
 		g_pd3dDevice->Swap(m_front[m_idxDisplay], NULL);
 	}
 
@@ -1080,22 +1085,25 @@ void Cemulator::Render() {
 				g_frameDrift = 0;
 			}
 
-			// Skip latching if we're more than maxLead frames ahead.
-			// This keeps drift minimal and prevents visual artifacts from Hz mismatch.
-			// With 60.0988 Hz vs 60 Hz, we accumulate ~1 frame every 10 seconds.
-			// By skipping when drift > 1, we duplicate a frame roughly every 10 seconds,
-			// which is imperceptible but eliminates the visual "crawl" artifacts.
-			if (g_frameDrift <= g_maxLead || g_texLatched < 0) {
-				// Normal case: latch the new frame at vblank
+			// With maxLead = 0, we keep drift at exactly 0, eliminating all artifacts.
+			// This means we'll skip a frame as soon as we produce one ahead of display.
+			// With 60.0988 Hz vs 60 Hz, we accumulate ~1 frame every 10 seconds,
+			// so we'll duplicate a frame roughly every 10 seconds to keep drift at 0.
+			// Always latch if we don't have a latched texture yet (first frame or initialization)
+			// OR if drift is exactly 0 (we're in sync)
+			if (g_texLatched < 0 || g_frameDrift == 0) {
+				// Normal case: latch the new frame at vblank (drift is 0, we're in sync)
 				g_texLatched = g_pendingTex;
 				g_pendingTex = -1;
 				g_framesDisplayed++;
 			} else {
-				// We're ahead - skip this frame to bleed off drift
+				// We're ahead (drift > 0) - MUST skip this frame to prevent artifacts
 				// Keep showing the previous g_texLatched for this vblank
-				g_pendingTex = -1; // Clear pending since we're not using it
+				// Clear g_pendingTex since we're skipping it (new frame will set it if needed)
 				// Don't increment g_framesDisplayed - we're showing the same frame again
-				// This will cause drift to decrease on next check
+				// This reduces drift: framesProduced stays same, framesDisplayed doesn't increase
+				// Next vblank, drift will be reduced by 1
+				g_pendingTex = -1;
 			}
 		} else if (g_texLatched < 0 && g_texDraw >= 0) {
 			// First frame fallback: if no pending texture but we have a draw texture, use it
