@@ -7,7 +7,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.6.8** — *VSync Frame Pacing: Fixed Hz mismatch artifacts with texture latching at vblank boundaries + all prior features from v0.6.1–v0.6.7*
+* Current release: **v0.6.8.1** — *VSync Hotfix: Added SynchronizeToPresentationInterval() for proper VSync synchronization + all prior features from v0.6.1–v0.6.8*
 
 ---
 
@@ -15,6 +15,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.6.8.1 - VSync Synchronization Hotfix](#whats-new-v0681)
   - [v0.6.8 - VSync Frame Pacing Fix](#whats-new-v068)
   - [v0.6.7 - Advanced Memory API Functions](#whats-new-v067)
   - [v0.6.6 - Enhanced Lua Console Scrolling](#whats-new-v066)
@@ -67,6 +68,28 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 📹 **[Watch Fast Scrolling Demo](https://github.com/frankischilling/fce360-enhanced/raw/main/img/fastScrolling.mp4)** (MP4 video)
 
 *Note: Click the link above to view the video demonstration. GitHub README files don't support embedded video playback.*
+
+---
+
+## What's new (v0.6.8.1)
+
+* **VSync Synchronization Hotfix:** Added critical `SynchronizeToPresentationInterval()` call for proper VSync on Xbox 360!
+  * **Required for Xbox 360:** This function is essential for proper VSync timing on Xbox 360 hardware
+  * **GPU Synchronization:** Ensures GPU is synchronized to presentation interval (vblank) before swapping
+  * **Completes VSync Chain:** Works with `D3DPRESENT_INTERVAL_ONE` and texture latching for perfect frame pacing
+  * **Eliminates Artifacts:** This was the missing piece that completes the VSync frame pacing fix
+  * **Technical:** Must be called before `Swap()` for reliable VSync synchronization
+
+* **Impact:**
+  * Eliminates all remaining Hz mismatch artifacts
+  * Ensures proper vblank synchronization
+  * Perfect frame pacing with zero visual artifacts
+  * Completes the VSync frame pacing implementation
+
+* **Includes Previous Features:**
+  * All v0.6.8 features: VSync frame pacing with texture latching
+  * All v0.6.7 features: Drawing API enhancements and advanced memory functions
+  * All prior features from v0.6.1–v0.6.6
 
 ---
 
@@ -4485,6 +4508,15 @@ FCEUX360-<version>-xex.zip
 ---
 
 ## Changelog
+
+* **v0.6.8.1**
+
+  * fix(video): Added missing `SynchronizeToPresentationInterval()` call before `Swap()` for proper VSync synchronization.
+  * fix(video): This function is REQUIRED for proper VSync timing on Xbox 360 hardware.
+  * fix(video): Ensures GPU is synchronized to presentation interval (vblank) before swapping.
+  * fix(video): Completes the VSync frame pacing fix from v0.6.8 by adding the critical missing synchronization call.
+  * tech(video): Matches the pattern used in the original working Xbox 360 port.
+  * perf(video): Eliminates all remaining Hz mismatch artifacts for perfect frame pacing.
 
 * **v0.6.8**
 
