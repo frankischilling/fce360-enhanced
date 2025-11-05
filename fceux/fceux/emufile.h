@@ -235,7 +235,7 @@ public:
 		reserve(pos+(s32)bytes);
 		memcpy(buf()+pos,ptr,bytes);
 		pos += (s32)bytes;
-		len = std::max(pos,len);
+		len = (std::max)(pos,len);
 	}
 
 	virtual int fseek(int offset, int origin){ 
@@ -315,7 +315,7 @@ public:
 			buffer = (char *)memalign(32, length);
 			if(buffer)
 			{
-				int bytes = std::min(len, length);
+				int bytes = (std::min)(len, length);
 				memcpy(buffer, oldbuffer, bytes);
 			}
 			free(oldbuffer);
@@ -365,7 +365,7 @@ public:
 		if(remain == 0)
 			return 0;
 
-		u32 todo = std::min<u32>(remain,(u32)bytes);
+		u32 todo = (std::min)(remain,(u32)bytes);
 		memcpy((void*)ptr,buffer+pos,todo);
 		pos += todo;
 		return todo;
@@ -375,7 +375,7 @@ public:
 		if(pos+bytes > (u32)buffersize) return;
 		memcpy(buffer+pos,ptr,bytes);
 		pos += bytes;
-		len = std::max(pos,len);
+		len = (std::max)(pos,len);
 	}
 
 	virtual int fseek(int offset, int origin){ 
