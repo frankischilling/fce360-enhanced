@@ -5422,7 +5422,5 @@ void FCEU_ReloadLuaCode(void) {
 	 
 	 return ret;
  }
- 
-// (duplicate Lua Console block removed; see definitions earlier in file)
- 
+  
  #endif // USE_LUA
