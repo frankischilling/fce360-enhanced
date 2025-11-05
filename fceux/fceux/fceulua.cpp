@@ -32,12 +32,19 @@
 #include "drawing.h"
 #include "video.h"
 #include "driver.h"
+#include "ppu.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
 #include <ctype.h>
 #include <vector>
 #include <map>
+
+// Extern PPU data for tile rendering
+extern uint8 PALRAM[0x20];
+extern uint8 PPU[4];
+extern uint8 *VPage[8];
+extern uint8 *CHRptr[32];
 
 // --- Overlay geometry and font metrics ---
 enum { OVL_W = 256, OVL_H = 240, GLYPH_H = 8 };
@@ -299,6 +306,82 @@ static int lua_getscriptinterval(lua_State* L) {
  // Map 0x00-0x3F to overlay-coded 0x80-0xBF (never dim)
  static inline uint8 map_overlay_color(int c) {
 	 return (uint8)((c & 0x3F) | 0x80);
+ }
+
+ // Drawing mode enum
+ enum DrawMode {
+	 DRAW_MODE_NORMAL = 0,
+	 DRAW_MODE_ADD = 1,
+	 DRAW_MODE_SUB = 2,
+	 DRAW_MODE_MULTIPLY = 3,
+	 DRAW_MODE_ALPHA = 4
+ };
+
+ // Current drawing mode
+ static DrawMode s_drawMode = DRAW_MODE_NORMAL;
+
+ // Clipping region (defaults to full screen - no clipping)
+ static int s_clipX = 0;
+ static int s_clipY = 0;
+ static int s_clipW = OVL_W;
+ static int s_clipH = OVL_H;
+ static bool s_clipEnabled = false;  // Only enable clipping when explicitly set
+
+ // Helper function to check if a point is within the clipping region
+ static inline bool is_point_clipped(int x, int y) {
+	 if (!s_clipEnabled) return false;  // No clipping if not enabled
+	 return (x < s_clipX || x >= s_clipX + s_clipW || y < s_clipY || y >= s_clipY + s_clipH);
+ }
+
+ // Helper function to apply blending mode
+ static inline uint8 apply_blend_mode(uint8 dest, uint8 src) {
+	 // If destination is transparent (0), just write source (for all modes)
+	 if (dest == 0) {
+		 return src;
+	 }
+	 
+	 // Extract color indices from overlay values (0x80-0xBF -> 0-63)
+	 int destColor = (dest & 0x3F);
+	 int srcColor = (src & 0x3F);
+	 int resultColor = 0;
+	 
+	 switch (s_drawMode) {
+		 case DRAW_MODE_NORMAL:
+			 return src;
+		 
+		 case DRAW_MODE_ADD: {
+			 // Add color indices, clamp at 63 (brightest)
+			 resultColor = destColor + srcColor;
+			 if (resultColor > 63) resultColor = 63;
+			 break;
+		 }
+		 
+		 case DRAW_MODE_SUB: {
+			 // Subtract color indices, clamp at 0 (darkest)
+			 resultColor = destColor - srcColor;
+			 if (resultColor < 0) resultColor = 0;
+			 break;
+		 }
+		 
+		 case DRAW_MODE_MULTIPLY: {
+			 // Multiply color indices (normalized)
+			 resultColor = (destColor * srcColor) / 63;
+			 if (resultColor > 63) resultColor = 63;
+			 break;
+		 }
+		 
+		 case DRAW_MODE_ALPHA: {
+			 // Simple alpha blending (50% mix)
+			 resultColor = (destColor + srcColor) / 2;
+			 break;
+		 }
+		 
+		 default:
+			 return src;
+	 }
+	 
+	 // Map result back to overlay range
+	 return (uint8)((resultColor & 0x3F) | 0x80);
  }
 
  // Measure pixels we'll actually draw on the first line (8px per glyph)
@@ -625,8 +708,12 @@ static void DrawLuaConsole(uint8* buf) {
 	 // Additional defensive check on buffer pointer
 	 if (y * OVL_W + x < 0 || y * OVL_W + x >= OVL_W * OVL_H) return 0;
 	 
+	 // Check clipping
+	 if (is_point_clipped(x, y)) return 0;
+	 
 	 uint8 *dest = currentXBuf + y * OVL_W + x;
-		 *dest = map_overlay_color(color);
+		 uint8 srcColor = map_overlay_color(color);
+		 *dest = apply_blend_mode(*dest, srcColor);
 		 g_overlayDirty = true;  // Mark that something was drawn
 	 
 	 return 0;
@@ -683,14 +770,18 @@ static void DrawLuaConsole(uint8* buf) {
 		 iterations++;
 		 
 		 // Check bounds and draw pixel
-		 if (x >= 0 && x < OVL_W && y >= 0 && y < OVL_H) {
-			 // Additional defensive check on buffer pointer
-			 if (y * OVL_W + x >= 0 && y * OVL_W + x < OVL_W * OVL_H) {
-				 uint8 *dest = currentXBuf + y * OVL_W + x;
-				 *dest = map_overlay_color(color);
-				 drewSomething = true;
+			 if (x >= 0 && x < OVL_W && y >= 0 && y < OVL_H) {
+				 // Additional defensive check on buffer pointer
+				 if (y * OVL_W + x >= 0 && y * OVL_W + x < OVL_W * OVL_H) {
+					 // Check clipping
+					 if (!is_point_clipped(x, y)) {
+						 uint8 *dest = currentXBuf + y * OVL_W + x;
+						 uint8 srcColor = map_overlay_color(color);
+						 *dest = apply_blend_mode(*dest, srcColor);
+						 drewSomething = true;
+					 }
+				 }
 			 }
-		 }
 		 
 		 // Check if we've reached the end point
 		 if (x == x2 && y == y2) break;
@@ -759,8 +850,11 @@ static void DrawLuaConsole(uint8* buf) {
 				 if (cx < 0 || cx >= OVL_W) continue;
 				 int distSq = (cx - x1) * (cx - x1) + (cy - y1) * (cy - y1);
 				 if (distSq <= radius * radius) {
-					 uint8 *dest = currentXBuf + cy * OVL_W + cx;
-					 *dest = mappedColor;
+					 // Check clipping
+					 if (!is_point_clipped(cx, cy)) {
+						 uint8 *dest = currentXBuf + cy * OVL_W + cx;
+						 *dest = apply_blend_mode(*dest, mappedColor);
+					 }
 				 }
 			 }
 		 }
@@ -796,9 +890,12 @@ static void DrawLuaConsole(uint8* buf) {
 			 int py = (int)(y + perpY * t + 0.5);
 			 
 			 if (px >= 0 && px < OVL_W && py >= 0 && py < OVL_H) {
-				 uint8 *dest = currentXBuf + py * OVL_W + px;
-				 *dest = mappedColor;
-				 drewSomething = true;
+				 // Check clipping
+				 if (!is_point_clipped(px, py)) {
+					 uint8 *dest = currentXBuf + py * OVL_W + px;
+					 *dest = apply_blend_mode(*dest, mappedColor);
+					 drewSomething = true;
+				 }
 			 }
 		 }
 		 
@@ -876,9 +973,12 @@ static void DrawLuaConsole(uint8* buf) {
 		 // Handle same-point case (degenerate segment)
 		 if (x1 == x2 && y1 == y2) {
 			 if (x1 >= 0 && x1 < OVL_W && y1 >= 0 && y1 < OVL_H) {
-				 uint8 *dest = currentXBuf + y1 * OVL_W + x1;
-				 *dest = mappedColor;
-				 drewSomething = true;
+				 // Check clipping
+				 if (!is_point_clipped(x1, y1)) {
+					 uint8 *dest = currentXBuf + y1 * OVL_W + x1;
+					 *dest = apply_blend_mode(*dest, mappedColor);
+					 drewSomething = true;
+				 }
 			 }
 			 continue;
 		 }
@@ -898,9 +998,12 @@ static void DrawLuaConsole(uint8* buf) {
 		 while (steps < maxSteps) {
 			 // Check bounds and draw pixel
 			 if (x >= 0 && x < OVL_W && y >= 0 && y < OVL_H) {
-				 uint8 *dest = currentXBuf + y * OVL_W + x;
-				 *dest = mappedColor;
-				 drewSomething = true;
+				 // Check clipping
+				 if (!is_point_clipped(x, y)) {
+					 uint8 *dest = currentXBuf + y * OVL_W + x;
+					 *dest = apply_blend_mode(*dest, mappedColor);
+					 drewSomething = true;
+				 }
 			 }
 			 
 			 // Check if we've reached the end point
@@ -977,9 +1080,12 @@ static void DrawLuaConsole(uint8* buf) {
 		 // Handle same-point case (degenerate segment)
 		 if (x1 == x2 && y1 == y2) {
 			 if (x1 >= 0 && x1 < OVL_W && y1 >= 0 && y1 < OVL_H) {
-				 uint8 *dest = currentXBuf + y1 * OVL_W + x1;
-				 *dest = mappedColor;
-				 drewSomething = true;
+				 // Check clipping
+				 if (!is_point_clipped(x1, y1)) {
+					 uint8 *dest = currentXBuf + y1 * OVL_W + x1;
+					 *dest = apply_blend_mode(*dest, mappedColor);
+					 drewSomething = true;
+				 }
 			 }
 			 continue;
 		 }
@@ -999,9 +1105,12 @@ static void DrawLuaConsole(uint8* buf) {
 		 while (steps < maxSteps) {
 			 // Check bounds and draw pixel
 			 if (x >= 0 && x < OVL_W && y >= 0 && y < OVL_H) {
-				 uint8 *dest = currentXBuf + y * OVL_W + x;
-				 *dest = mappedColor;
-				 drewSomething = true;
+				 // Check clipping
+				 if (!is_point_clipped(x, y)) {
+					 uint8 *dest = currentXBuf + y * OVL_W + x;
+					 *dest = apply_blend_mode(*dest, mappedColor);
+					 drewSomething = true;
+				 }
 			 }
 			 
 			 // Check if we've reached the end point
@@ -1141,9 +1250,12 @@ static void DrawLuaConsole(uint8* buf) {
 			 
 			 for (int x = xStart; x <= xEnd; ++x) {
 				 if (x >= 0 && x < OVL_W) {
-					 uint8 *dest = currentXBuf + y * OVL_W + x;
-					 *dest = mappedColor;
-					 drewSomething = true;
+					 // Check clipping
+					 if (!is_point_clipped(x, y)) {
+						 uint8 *dest = currentXBuf + y * OVL_W + x;
+						 *dest = apply_blend_mode(*dest, mappedColor);
+						 drewSomething = true;
+					 }
 				 }
 			 }
 		 }
@@ -1195,16 +1307,22 @@ static void DrawLuaConsole(uint8* buf) {
 		 
 		 // Top line
 		 if (px >= 0 && px < OVL_W && y >= 0 && y < OVL_H) {
-			 uint8 *dest = currentXBuf + y * OVL_W + px;
-			 *dest = mappedColor;
-			 drewSomething = true;
+			 // Check clipping
+			 if (!is_point_clipped(px, y)) {
+				 uint8 *dest = currentXBuf + y * OVL_W + px;
+				 *dest = apply_blend_mode(*dest, mappedColor);
+				 drewSomething = true;
+			 }
 		 }
 		 
 		 // Bottom line
 		 if (px >= 0 && px < OVL_W && (y + h - 1) >= 0 && (y + h - 1) < OVL_H) {
-			 uint8 *dest = currentXBuf + (y + h - 1) * OVL_W + px;
-			 *dest = mappedColor;
-			 drewSomething = true;
+			 // Check clipping
+			 if (!is_point_clipped(px, y + h - 1)) {
+				 uint8 *dest = currentXBuf + (y + h - 1) * OVL_W + px;
+				 *dest = apply_blend_mode(*dest, mappedColor);
+				 drewSomething = true;
+			 }
 		 }
 	 }
 	 
@@ -1214,16 +1332,22 @@ static void DrawLuaConsole(uint8* buf) {
 		 
 		 // Left line
 		 if (x >= 0 && x < OVL_W && py >= 0 && py < OVL_H) {
-			 uint8 *dest = currentXBuf + py * OVL_W + x;
-			 *dest = mappedColor;
-			 drewSomething = true;
+			 // Check clipping
+			 if (!is_point_clipped(x, py)) {
+				 uint8 *dest = currentXBuf + py * OVL_W + x;
+				 *dest = apply_blend_mode(*dest, mappedColor);
+				 drewSomething = true;
+			 }
 		 }
 		 
 		 // Right line
 		 if ((x + w - 1) >= 0 && (x + w - 1) < OVL_W && py >= 0 && py < OVL_H) {
-			 uint8 *dest = currentXBuf + py * OVL_W + (x + w - 1);
-			 *dest = mappedColor;
-			 drewSomething = true;
+			 // Check clipping
+			 if (!is_point_clipped(x + w - 1, py)) {
+				 uint8 *dest = currentXBuf + py * OVL_W + (x + w - 1);
+				 *dest = apply_blend_mode(*dest, mappedColor);
+				 drewSomething = true;
+			 }
 		 }
 	 }
 	 
@@ -1278,9 +1402,12 @@ static void DrawLuaConsole(uint8* buf) {
 	 // Fill the rectangle row by row
 	 for (int py = startY; py < endY; ++py) {
 		 for (int px = startX; px < endX; ++px) {
-			 uint8 *dest = currentXBuf + py * OVL_W + px;
-			 *dest = mappedColor;
-			 drewSomething = true;
+			 // Check clipping
+			 if (!is_point_clipped(px, py)) {
+				 uint8 *dest = currentXBuf + py * OVL_W + px;
+				 *dest = apply_blend_mode(*dest, mappedColor);
+				 drewSomething = true;
+			 }
 		 }
 	 }
 	 
@@ -1345,6 +1472,542 @@ static void DrawLuaConsole(uint8* buf) {
 	 return 0;
 }
 
+// Lua drawing function - allows scripts to draw an image from byte data
+int lua_drawimage(lua_State *L) {
+	 int n = lua_gettop(L);
+	 if (n < 5) {
+		 return luaL_error(L, "drawimage(x, y, imageData, width, height) requires 5 arguments");
+	 }
+	 
+	 int x = (int)luaL_checkinteger(L, 1);
+	 int y = (int)luaL_checkinteger(L, 2);
+	 
+	 // Check if imageData is a table
+	 if (!lua_istable(L, 3)) {
+		 return luaL_error(L, "drawimage: imageData (3rd argument) must be a table");
+	 }
+	 
+	 int width = (int)luaL_checkinteger(L, 4);
+	 int height = (int)luaL_checkinteger(L, 5);
+	 
+	 if (!currentXBuf) return 0;
+	 
+	 // Validate dimensions
+	 if (width <= 0 || height <= 0) {
+		 return luaL_error(L, "drawimage: width and height must be positive");
+	 }
+	 
+	 // Calculate expected data size
+	 int expectedSize = width * height;
+	 
+	 // Read image data from table (Lua tables are 1-indexed)
+	 std::vector<uint8> imageData;
+	 imageData.reserve(expectedSize);
+	 
+	 int dataCount = 0;
+	 for (int i = 1; i <= expectedSize; ++i) {
+		 lua_rawgeti(L, 3, i);
+		 if (!lua_isnumber(L, -1)) {
+			 lua_pop(L, 1);
+			 break; // End of table
+		 }
+		 int colorValue = (int)luaL_checkinteger(L, -1);
+		 lua_pop(L, 1);
+		 
+		 // Clamp color value to valid range (0x00-0x3F)
+		 if (colorValue < 0) colorValue = 0;
+		 if (colorValue > 0x3F) colorValue = 0x3F;
+		 
+		 imageData.push_back((uint8)(colorValue & 0xFF));
+		 dataCount++;
+	 }
+	 
+	 if (dataCount < expectedSize) {
+		 return luaL_error(L, "drawimage: imageData table must contain at least %d color values", expectedSize);
+	 }
+	 
+	 // Clamp coordinates to safe bounds
+	 if (x < 0) x = 0;
+	 if (x >= OVL_W) x = OVL_W - 1;
+	 if (y < 0) y = 0;
+	 if (y >= OVL_H) y = OVL_H - 1;
+	 
+	 // Calculate actual drawable area (clamp to screen bounds)
+	 int startX = (x < 0) ? 0 : x;
+	 int startY = (y < 0) ? 0 : y;
+	 int endX = (x + width > OVL_W) ? OVL_W : (x + width);
+	 int endY = (y + height > OVL_H) ? OVL_H : (y + height);
+	 
+	 // Adjust start positions if image is completely off-screen
+	 if (startX >= OVL_W || startY >= OVL_H || endX <= 0 || endY <= 0) {
+		 return 0;
+	 }
+	 
+	 bool drewSomething = false;
+	 
+	 // Draw image row by row
+	 int srcIndex = 0;
+	 for (int py = 0; py < height; ++py) {
+		 int screenY = y + py;
+		 if (screenY < 0 || screenY >= OVL_H) {
+			 srcIndex += width; // Skip this row
+			 continue;
+		 }
+		 
+		 for (int px = 0; px < width; ++px) {
+			 int screenX = x + px;
+			 if (screenX >= 0 && screenX < OVL_W && screenY >= 0 && screenY < OVL_H) {
+				 // Check clipping
+				 if (!is_point_clipped(screenX, screenY)) {
+					 uint8 colorValue = imageData[srcIndex];
+					 uint8 *dest = currentXBuf + screenY * OVL_W + screenX;
+					 uint8 srcColor = map_overlay_color(colorValue);
+					 *dest = apply_blend_mode(*dest, srcColor);
+					 drewSomething = true;
+				 }
+			 }
+			 srcIndex++;
+		 }
+	 }
+	 
+	 if (drewSomething) {
+		 g_overlayDirty = true;  // Mark that something was drawn
+	 }
+	 
+	 return 0;
+}
+
+// Lua drawing function - allows scripts to draw an image using indexed palette
+int lua_drawimageindexed(lua_State *L) {
+	 int n = lua_gettop(L);
+	 if (n < 6) {
+		 return luaL_error(L, "drawimageindexed(x, y, imageData, palette, width, height) requires 6 arguments");
+	 }
+	 
+	 int x = (int)luaL_checkinteger(L, 1);
+	 int y = (int)luaL_checkinteger(L, 2);
+	 
+	 // Check if imageData is a table
+	 if (!lua_istable(L, 3)) {
+		 return luaL_error(L, "drawimageindexed: imageData (3rd argument) must be a table");
+	 }
+	 
+	 // Check if palette is a table
+	 if (!lua_istable(L, 4)) {
+		 return luaL_error(L, "drawimageindexed: palette (4th argument) must be a table");
+	 }
+	 
+	 int width = (int)luaL_checkinteger(L, 5);
+	 int height = (int)luaL_checkinteger(L, 6);
+	 
+	 if (!currentXBuf) return 0;
+	 
+	 // Validate dimensions
+	 if (width <= 0 || height <= 0) {
+		 return luaL_error(L, "drawimageindexed: width and height must be positive");
+	 }
+	 
+	 // Calculate expected data size
+	 int expectedSize = width * height;
+	 
+	 // Read palette table first (Lua tables are 1-indexed)
+	 std::vector<uint8> palette;
+	 palette.reserve(256); // Max palette size
+	 
+	 int paletteCount = 0;
+	 for (int i = 1; i <= 256; ++i) {
+		 lua_rawgeti(L, 4, i);
+		 if (!lua_isnumber(L, -1)) {
+			 lua_pop(L, 1);
+			 break; // End of palette table
+		 }
+		 int colorValue = (int)luaL_checkinteger(L, -1);
+		 lua_pop(L, 1);
+		 
+		 // Clamp color value to valid range (0x00-0x3F)
+		 if (colorValue < 0) colorValue = 0;
+		 if (colorValue > 0x3F) colorValue = 0x3F;
+		 
+		 palette.push_back((uint8)(colorValue & 0xFF));
+		 paletteCount++;
+	 }
+	 
+	 if (paletteCount <= 0) {
+		 return luaL_error(L, "drawimageindexed: palette table must contain at least one color value");
+	 }
+	 
+	 // Read image data from table (Lua tables are 1-indexed)
+	 // imageData contains indices into the palette table
+	 std::vector<uint8> imageData;
+	 imageData.reserve(expectedSize);
+	 
+	 int dataCount = 0;
+	 for (int i = 1; i <= expectedSize; ++i) {
+		 lua_rawgeti(L, 3, i);
+		 if (!lua_isnumber(L, -1)) {
+			 lua_pop(L, 1);
+			 break; // End of table
+		 }
+		 int paletteIndex = (int)luaL_checkinteger(L, -1);
+		 lua_pop(L, 1);
+		 
+		 // Convert from Lua 1-based indexing to C++ 0-based indexing
+		 // User provides 1, 2, 3... which should map to palette[0], palette[1], palette[2]...
+		 paletteIndex = paletteIndex - 1;
+		 
+		 // Clamp palette index to valid range (0 to paletteCount-1)
+		 if (paletteIndex < 0) paletteIndex = 0;
+		 if (paletteIndex >= paletteCount) paletteIndex = paletteCount - 1;
+		 
+		 imageData.push_back((uint8)(paletteIndex & 0xFF));
+		 dataCount++;
+	 }
+	 
+	 if (dataCount < expectedSize) {
+		 return luaL_error(L, "drawimageindexed: imageData table must contain at least %d palette indices", expectedSize);
+	 }
+	 
+	 // Clamp coordinates to safe bounds
+	 if (x < 0) x = 0;
+	 if (x >= OVL_W) x = OVL_W - 1;
+	 if (y < 0) y = 0;
+	 if (y >= OVL_H) y = OVL_H - 1;
+	 
+	 // Calculate actual drawable area (clamp to screen bounds)
+	 int startX = (x < 0) ? 0 : x;
+	 int startY = (y < 0) ? 0 : y;
+	 int endX = (x + width > OVL_W) ? OVL_W : (x + width);
+	 int endY = (y + height > OVL_H) ? OVL_H : (y + height);
+	 
+	 // Adjust start positions if image is completely off-screen
+	 if (startX >= OVL_W || startY >= OVL_H || endX <= 0 || endY <= 0) {
+		 return 0;
+	 }
+	 
+	 bool drewSomething = false;
+	 
+	 // Draw image row by row
+	 int srcIndex = 0;
+	 for (int py = 0; py < height; ++py) {
+		 int screenY = y + py;
+		 if (screenY < 0 || screenY >= OVL_H) {
+			 srcIndex += width; // Skip this row
+			 continue;
+		 }
+		 
+		 for (int px = 0; px < width; ++px) {
+			 int screenX = x + px;
+			 if (screenX >= 0 && screenX < OVL_W && screenY >= 0 && screenY < OVL_H) {
+				 // Check clipping
+				 if (!is_point_clipped(screenX, screenY)) {
+					 uint8 paletteIndex = imageData[srcIndex];
+					 uint8 colorValue = palette[paletteIndex]; // Look up color from palette
+					 uint8 *dest = currentXBuf + screenY * OVL_W + screenX;
+					 uint8 srcColor = map_overlay_color(colorValue);
+					 *dest = apply_blend_mode(*dest, srcColor);
+					 drewSomething = true;
+				 }
+			 }
+			 srcIndex++;
+		 }
+	 }
+	 
+	 if (drewSomething) {
+		 g_overlayDirty = true;  // Mark that something was drawn
+	 }
+	 
+	 return 0;
+}
+
+// Lua drawing function - allows scripts to draw a single NES tile (8x8 pixels)
+int lua_drawtile(lua_State *L) {
+	 int n = lua_gettop(L);
+	 if (n < 4) {
+		 return luaL_error(L, "drawtile(x, y, tileIndex, paletteIndex) requires 4 arguments");
+	 }
+	 
+	 int x = (int)luaL_checkinteger(L, 1);
+	 int y = (int)luaL_checkinteger(L, 2);
+	 int tileIndex = (int)luaL_checkinteger(L, 3);
+	 int paletteIndex = (int)luaL_checkinteger(L, 4);
+	 
+	 if (!currentXBuf) return 0;
+	 
+	 // Validate tile index (0-255)
+	 if (tileIndex < 0) tileIndex = 0;
+	 if (tileIndex > 255) tileIndex = 255;
+	 
+	 // Validate palette index (0-3)
+	 if (paletteIndex < 0) paletteIndex = 0;
+	 if (paletteIndex > 3) paletteIndex = 3;
+	 
+	 // Read tile data from pattern table (0x0000-0x1FFF)
+	 // Each tile is 16 bytes: 8 rows * 2 bytes per row
+	 // Tile address = tileIndex * 16
+	 // Check which pattern table to use based on PPU register 0 bit 4 (BGAdrHI)
+	 uint32 patternTableBase = (PPU[0] & 0x10) ? 0x1000 : 0x0000;
+	 uint32 tileAddr = patternTableBase + (tileIndex * 16);
+	 if (tileAddr >= 0x2000) {
+		 tileAddr = (tileAddr & 0x1FFF) | patternTableBase; // Wrap within pattern table range
+	 }
+	 
+	 // Read tile data directly from VPage which contains the pattern table
+	 uint8 tileData[16];
+	 for (int i = 0; i < 16; ++i) {
+		 uint32 addr = tileAddr + i;
+		 if (addr < 0x2000) {
+			 // Read from pattern table (VPage)
+			 tileData[i] = VPage[addr>>10][addr];
+		 } else {
+			 tileData[i] = 0; // Should not happen for pattern table
+		 }
+	 }
+	 
+	 // Get palette base address
+	 // Background palettes: PALRAM[0x01-0x03] = palette 0, [0x05-0x07] = palette 1, [0x09-0x0B] = palette 2, [0x0D-0x0F] = palette 3
+	 // Each palette has 3 colors (plus transparent color 0 which is always PALRAM[0x00])
+	 int paletteBase = 0x01 + (paletteIndex * 4);
+	 uint8 palette[4];
+	 palette[0] = PALRAM[0x00]; // Universal background color
+	 palette[1] = PALRAM[paletteBase + 0];
+	 palette[2] = PALRAM[paletteBase + 1];
+	 palette[3] = PALRAM[paletteBase + 2];
+	 
+	 // Clamp coordinates to safe bounds
+	 if (x < 0) x = 0;
+	 if (x >= OVL_W) x = OVL_W - 1;
+	 if (y < 0) y = 0;
+	 if (y >= OVL_H) y = OVL_H - 1;
+	 
+	 // Draw tile (8x8 pixels)
+	 bool drewSomething = false;
+	 
+	 for (int py = 0; py < 8; ++py) {
+		 int screenY = y + py;
+		 if (screenY < 0 || screenY >= OVL_H) {
+			 continue;
+		 }
+		 
+		 // Get two bytes for this row (low and high bit planes)
+		 uint8 lowByte = tileData[py];
+		 uint8 highByte = tileData[py + 8];
+		 
+		 for (int px = 0; px < 8; ++px) {
+			 int screenX = x + px;
+			 if (screenX >= 0 && screenX < OVL_W && screenY >= 0 && screenY < OVL_H) {
+				 // Check clipping
+				 if (!is_point_clipped(screenX, screenY)) {
+					 // Extract 2-bit color index from bit planes
+					 // Bit 7-px from lowByte and highByte form the color index
+					 int bitPos = 7 - px;
+					 int colorIndex = ((lowByte >> bitPos) & 1) | (((highByte >> bitPos) & 1) << 1);
+					 
+					 // Skip transparent pixels (colorIndex 0)
+					 if (colorIndex == 0) {
+						 continue;
+					 }
+					 
+					 // Get color from palette
+					 uint8 colorValue = palette[colorIndex];
+					 
+					 // Draw pixel
+					 uint8 *dest = currentXBuf + screenY * OVL_W + screenX;
+					 uint8 srcColor = map_overlay_color(colorValue);
+					 *dest = apply_blend_mode(*dest, srcColor);
+					 drewSomething = true;
+				 }
+			 }
+		 }
+	 }
+	 
+	 if (drewSomething) {
+		 g_overlayDirty = true;  // Mark that something was drawn
+	 }
+	 
+	 return 0;
+}
+
+// Lua drawing function - allows scripts to draw a CHR-ROM tile (8x8 pixels)
+int lua_drawchrtile(lua_State *L) {
+	 int n = lua_gettop(L);
+	 if (n < 4) {
+		 return luaL_error(L, "drawchrtile(x, y, tileIndex, paletteIndex) requires 4 arguments");
+	 }
+	 
+	 int x = (int)luaL_checkinteger(L, 1);
+	 int y = (int)luaL_checkinteger(L, 2);
+	 int tileIndex = (int)luaL_checkinteger(L, 3);
+	 int paletteIndex = (int)luaL_checkinteger(L, 4);
+	 
+	 if (!currentXBuf) return 0;
+	 
+	 // Validate tile index (0-255)
+	 if (tileIndex < 0) tileIndex = 0;
+	 if (tileIndex > 255) tileIndex = 255;
+	 
+	 // Validate palette index (0-3)
+	 if (paletteIndex < 0) paletteIndex = 0;
+	 if (paletteIndex > 3) paletteIndex = 3;
+	 
+	 // Check if CHR-ROM data is available
+	 if (!CHRptr[0]) {
+		 return luaL_error(L, "drawchrtile: CHR-ROM data not available");
+	 }
+	 
+	 // Read tile data directly from CHR-ROM
+	 // Each tile is 16 bytes: 8 rows * 2 bytes per row
+	 // Tile address = tileIndex * 16
+	 uint32 tileOffset = tileIndex * 16;
+	 
+	 uint8 tileData[16];
+	 for (int i = 0; i < 16; ++i) {
+		 tileData[i] = CHRptr[0][tileOffset + i];
+	 }
+	 
+	 // Get palette base address
+	 // Background palettes: PALRAM[0x01-0x03] = palette 0, [0x05-0x07] = palette 1, [0x09-0x0B] = palette 2, [0x0D-0x0F] = palette 3
+	 // Each palette has 3 colors (plus transparent color 0 which is always PALRAM[0x00])
+	 int paletteBase = 0x01 + (paletteIndex * 4);
+	 uint8 palette[4];
+	 palette[0] = PALRAM[0x00]; // Universal background color
+	 palette[1] = PALRAM[paletteBase + 0];
+	 palette[2] = PALRAM[paletteBase + 1];
+	 palette[3] = PALRAM[paletteBase + 2];
+	 
+	 // Clamp coordinates to safe bounds
+	 if (x < 0) x = 0;
+	 if (x >= OVL_W) x = OVL_W - 1;
+	 if (y < 0) y = 0;
+	 if (y >= OVL_H) y = OVL_H - 1;
+	 
+	 // Draw tile (8x8 pixels)
+	 bool drewSomething = false;
+	 
+	 for (int py = 0; py < 8; ++py) {
+		 int screenY = y + py;
+		 if (screenY < 0 || screenY >= OVL_H) {
+			 continue;
+		 }
+		 
+		 // Get two bytes for this row (low and high bit planes)
+		 uint8 lowByte = tileData[py];
+		 uint8 highByte = tileData[py + 8];
+		 
+		 for (int px = 0; px < 8; ++px) {
+			 int screenX = x + px;
+			 if (screenX >= 0 && screenX < OVL_W && screenY >= 0 && screenY < OVL_H) {
+				 // Check clipping
+				 if (!is_point_clipped(screenX, screenY)) {
+					 // Extract 2-bit color index from bit planes
+					 // Bit 7-px from lowByte and highByte form the color index
+					 int bitPos = 7 - px;
+					 int colorIndex = ((lowByte >> bitPos) & 1) | (((highByte >> bitPos) & 1) << 1);
+					 
+					 // Skip transparent pixels (colorIndex 0)
+					 if (colorIndex == 0) {
+						 continue;
+					 }
+					 
+					 // Get color from palette
+					 uint8 colorValue = palette[colorIndex];
+					 
+					 // Draw pixel
+					 uint8 *dest = currentXBuf + screenY * OVL_W + screenX;
+					 uint8 srcColor = map_overlay_color(colorValue);
+					 *dest = apply_blend_mode(*dest, srcColor);
+					 drewSomething = true;
+				 }
+			 }
+		 }
+	 }
+	 
+	 if (drewSomething) {
+		 g_overlayDirty = true;  // Mark that something was drawn
+	 }
+	 
+	 return 0;
+}
+
+// Lua function to set drawing mode
+int lua_setdrawmode(lua_State *L) {
+	 int n = lua_gettop(L);
+	 if (n < 1) {
+		 return luaL_error(L, "setdrawmode(mode) requires 1 argument");
+	 }
+	 
+	 if (!lua_isstring(L, 1)) {
+		 return luaL_error(L, "setdrawmode: mode must be a string");
+	 }
+	 
+	 const char* modeStr = lua_tostring(L, 1);
+	 
+	 if (strcmp(modeStr, "normal") == 0) {
+		 s_drawMode = DRAW_MODE_NORMAL;
+	 } else if (strcmp(modeStr, "add") == 0) {
+		 s_drawMode = DRAW_MODE_ADD;
+	 } else if (strcmp(modeStr, "sub") == 0) {
+		 s_drawMode = DRAW_MODE_SUB;
+	 } else if (strcmp(modeStr, "multiply") == 0) {
+		 s_drawMode = DRAW_MODE_MULTIPLY;
+	 } else if (strcmp(modeStr, "alpha") == 0) {
+		 s_drawMode = DRAW_MODE_ALPHA;
+	 } else {
+		 return luaL_error(L, "setdrawmode: invalid mode. Valid modes are: \"normal\", \"add\", \"sub\", \"multiply\", \"alpha\"");
+	 }
+	 
+	return 0;
+}
+
+// Lua function to set clipping region
+int lua_setclipregion(lua_State *L) {
+	int n = lua_gettop(L);
+	if (n < 4) {
+		return luaL_error(L, "setclipregion(x, y, width, height) requires 4 arguments");
+	}
+	
+	int x = (int)luaL_checkinteger(L, 1);
+	int y = (int)luaL_checkinteger(L, 2);
+	int width = (int)luaL_checkinteger(L, 3);
+	int height = (int)luaL_checkinteger(L, 4);
+	
+	// Validate and clamp clipping region
+	if (width <= 0 || height <= 0) {
+		// Disable clipping if invalid dimensions
+		s_clipEnabled = false;
+		return 0;
+	}
+	
+	// Clamp to screen bounds
+	if (x < 0) {
+		width += x;
+		x = 0;
+	}
+	if (y < 0) {
+		height += y;
+		y = 0;
+	}
+	if (x + width > OVL_W) {
+		width = OVL_W - x;
+	}
+	if (y + height > OVL_H) {
+		height = OVL_H - y;
+	}
+	
+	// If region is still valid, set it
+	if (width > 0 && height > 0) {
+		s_clipX = x;
+		s_clipY = y;
+		s_clipW = width;
+		s_clipH = height;
+		s_clipEnabled = true;
+	} else {
+		// Disable clipping if region is invalid
+		s_clipEnabled = false;
+	}
+	
+	return 0;
+}
+
 // Lua drawing function - allows scripts to draw a circle outline
 int lua_drawcircle(lua_State *L) {
 	int n = lua_gettop(L);
@@ -1398,7 +2061,7 @@ int lua_drawcircle(lua_State *L) {
 			int py = points[i][1];
 		 if (px >= 0 && px < OVL_W && py >= 0 && py < OVL_H) {
 				uint8 *dest = currentXBuf + py * OVL_W + px;
-				*dest = mappedColor;
+				*dest = apply_blend_mode(*dest, mappedColor);
 				drewSomething = true;
 			}
 		}
@@ -1473,7 +2136,7 @@ int lua_fillcircle(lua_State *L) {
 			if (distSq <= radiusSq) {
 		 if (px >= 0 && px < OVL_W && py >= 0 && py < OVL_H) {
 					uint8 *dest = currentXBuf + py * OVL_W + px;
-					*dest = mappedColor;
+					*dest = apply_blend_mode(*dest, mappedColor);
 					drewSomething = true;
 				}
 			}
@@ -1535,7 +2198,7 @@ int lua_drawtriangle(lua_State *L) {
 	while (true) {
 			 if (x >= 0 && x < OVL_W && y >= 0 && y < OVL_H) {
 				 uint8 *dest = currentXBuf + y * OVL_W + x;
-			*dest = mappedColor;
+			*dest = apply_blend_mode(*dest, mappedColor);
 			drewSomething = true;
 		}
 		if (x == x2 && y == y2) break;
@@ -1562,7 +2225,7 @@ int lua_drawtriangle(lua_State *L) {
 	while (true) {
 			 if (x >= 0 && x < OVL_W && y >= 0 && y < OVL_H) {
 				 uint8 *dest = currentXBuf + y * OVL_W + x;
-			*dest = mappedColor;
+			*dest = apply_blend_mode(*dest, mappedColor);
 			drewSomething = true;
 		}
 		if (x == x3 && y == y3) break;
@@ -1589,7 +2252,7 @@ int lua_drawtriangle(lua_State *L) {
 	while (true) {
 			 if (x >= 0 && x < OVL_W && y >= 0 && y < OVL_H) {
 				 uint8 *dest = currentXBuf + y * OVL_W + x;
-			*dest = mappedColor;
+			*dest = apply_blend_mode(*dest, mappedColor);
 			drewSomething = true;
 		}
 		if (x == x1 && y == y1) break;
@@ -1697,7 +2360,7 @@ int lua_filltriangle(lua_State *L) {
 			for (int x = xStart; x <= xEnd; ++x) {
 				if (x >= 0 && x < 256) {
 					uint8 *dest = currentXBuf + y * 256 + x;
-					*dest = mappedColor;
+					*dest = apply_blend_mode(*dest, mappedColor);
 					drewSomething = true;
 				}
 			}
@@ -1725,7 +2388,7 @@ int lua_filltriangle(lua_State *L) {
 			for (int x = xStart; x <= xEnd; ++x) {
 				if (x >= 0 && x < 256) {
 					uint8 *dest = currentXBuf + y * 256 + x;
-					*dest = mappedColor;
+					*dest = apply_blend_mode(*dest, mappedColor);
 					drewSomething = true;
 				}
 			}
@@ -1738,7 +2401,7 @@ int lua_filltriangle(lua_State *L) {
 			for (int x = xStart; x <= xEnd; ++x) {
 				if (x >= 0 && x < OVL_W) {
 					uint8 *dest = currentXBuf + topY * OVL_W + x;
-					*dest = mappedColor;
+					*dest = apply_blend_mode(*dest, mappedColor);
 					drewSomething = true;
 				}
 			}
@@ -1929,7 +2592,7 @@ int lua_fillellipse(lua_State *L) {
 			if (distSq <= rx2ry2) {
 		 if (px >= 0 && px < OVL_W && py >= 0 && py < OVL_H) {
 					uint8 *dest = currentXBuf + py * OVL_W + px;
-					*dest = mappedColor;
+					*dest = apply_blend_mode(*dest, mappedColor);
 					drewSomething = true;
 				}
 			}
@@ -2020,7 +2683,7 @@ int lua_drawarc(lua_State *L) {
 				
 				if (inRange) {
 					uint8 *dest = currentXBuf + py * OVL_W + px;
-					*dest = mappedColor;
+					*dest = apply_blend_mode(*dest, mappedColor);
 					drewSomething = true;
 				}
 			}
@@ -2114,7 +2777,7 @@ int lua_fillarc(lua_State *L) {
 				if (inRange) {
 		 if (px >= 0 && px < OVL_W && py >= 0 && py < OVL_H) {
 						uint8 *dest = currentXBuf + py * OVL_W + px;
-						*dest = mappedColor;
+						*dest = apply_blend_mode(*dest, mappedColor);
 						drewSomething = true;
 					}
 				}
@@ -3266,6 +3929,12 @@ int lua_ismemorywritable(lua_State *L) {
 	 lua_register(luaState, "drawrect", lua_drawrect);
 	 lua_register(luaState, "fillrect", lua_fillrect);
 	 lua_register(luaState, "clearrect", lua_clearrect);
+	 lua_register(luaState, "drawimage", lua_drawimage);
+	 lua_register(luaState, "drawimageindexed", lua_drawimageindexed);
+	 lua_register(luaState, "drawtile", lua_drawtile);
+	 lua_register(luaState, "drawchrtile", lua_drawchrtile);
+	 lua_register(luaState, "setdrawmode", lua_setdrawmode);
+	 lua_register(luaState, "setclipregion", lua_setclipregion);
 	 lua_register(luaState, "drawcircle", lua_drawcircle);
 	 lua_register(luaState, "fillcircle", lua_fillcircle);
 	 lua_register(luaState, "drawtriangle", lua_drawtriangle);
@@ -3343,6 +4012,12 @@ static void EnsureLuaInit() {
 	REG("drawrect",       lua_drawrect);
 	REG("fillrect",       lua_fillrect);
 	REG("clearrect",      lua_clearrect);
+	REG("drawimage",      lua_drawimage);
+	REG("drawimageindexed", lua_drawimageindexed);
+	REG("drawtile",       lua_drawtile);
+	REG("drawchrtile",    lua_drawchrtile);
+	REG("setdrawmode",    lua_setdrawmode);
+	REG("setclipregion",  lua_setclipregion);
 	REG("drawcircle",     lua_drawcircle);
 	REG("fillcircle",     lua_fillcircle);
 	REG("drawtriangle",   lua_drawtriangle);
