@@ -317,10 +317,13 @@ static int lua_getscriptinterval(lua_State* L) {
 	 DRAW_MODE_ALPHA = 4
  };
 
- // Current drawing mode
- static DrawMode s_drawMode = DRAW_MODE_NORMAL;
+// Current drawing mode
+static DrawMode s_drawMode = DRAW_MODE_NORMAL;
 
- // Clipping region (defaults to full screen - no clipping)
+// Default drawing color (for functions that don't specify color)
+static int s_defaultDrawColor = 0x39;  // Default to yellow-green
+
+// Clipping region (defaults to full screen - no clipping)
  static int s_clipX = 0;
  static int s_clipY = 0;
  static int s_clipW = OVL_W;
@@ -2005,6 +2008,31 @@ int lua_setclipregion(lua_State *L) {
 		s_clipEnabled = false;
 	}
 	
+	return 0;
+}
+
+// Lua function to clear clipping region
+int lua_clearclipregion(lua_State *L) {
+	// Disable clipping by setting the enabled flag to false
+	s_clipEnabled = false;
+	return 0;
+}
+
+// Lua function to set default drawing color
+int lua_setdrawcolor(lua_State *L) {
+	int n = lua_gettop(L);
+	if (n < 1) {
+		return luaL_error(L, "setdrawcolor(color) requires 1 argument");
+	}
+	
+	int color = (int)luaL_checkinteger(L, 1);
+	
+	// Validate color range (0x00-0x3F)
+	if (color < 0 || color > 0x3F) {
+		return luaL_error(L, "setdrawcolor: color must be in range 0x00-0x3F");
+	}
+	
+	s_defaultDrawColor = color;
 	return 0;
 }
 
@@ -3935,6 +3963,8 @@ int lua_ismemorywritable(lua_State *L) {
 	 lua_register(luaState, "drawchrtile", lua_drawchrtile);
 	 lua_register(luaState, "setdrawmode", lua_setdrawmode);
 	 lua_register(luaState, "setclipregion", lua_setclipregion);
+	 lua_register(luaState, "clearclipregion", lua_clearclipregion);
+	 lua_register(luaState, "setdrawcolor", lua_setdrawcolor);
 	 lua_register(luaState, "drawcircle", lua_drawcircle);
 	 lua_register(luaState, "fillcircle", lua_fillcircle);
 	 lua_register(luaState, "drawtriangle", lua_drawtriangle);
@@ -4018,6 +4048,8 @@ static void EnsureLuaInit() {
 	REG("drawchrtile",    lua_drawchrtile);
 	REG("setdrawmode",    lua_setdrawmode);
 	REG("setclipregion",  lua_setclipregion);
+	REG("clearclipregion", lua_clearclipregion);
+	REG("setdrawcolor",   lua_setdrawcolor);
 	REG("drawcircle",     lua_drawcircle);
 	REG("fillcircle",     lua_fillcircle);
 	REG("drawtriangle",   lua_drawtriangle);

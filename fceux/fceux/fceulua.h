@@ -131,6 +131,8 @@ void CallRegisteredLuaLoadFunctions(void* state, LuaSaveData& saveData);
  int lua_drawchrtile(lua_State *L);
  int lua_setdrawmode(lua_State *L);
  int lua_setclipregion(lua_State *L);
+ int lua_clearclipregion(lua_State *L);
+ int lua_setdrawcolor(lua_State *L);
  // Lua memory functions
  int lua_getfps(lua_State *L);
  int lua_readbyte(lua_State *L);
