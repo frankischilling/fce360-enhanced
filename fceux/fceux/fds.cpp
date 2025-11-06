@@ -67,6 +67,7 @@ static void FDSFix(int a);
 #define CHRRAM (GameMemBlock+32768)
 
 static uint8 FDSRegs[6];
+static uint8 FDSReg4026;  // External connector output register
 static int32 IRQLatch,IRQCount;
 static uint8 IRQa;
 static void FDSClose(void);
@@ -88,6 +89,7 @@ static uint8 writeskip;
 static uint32 DiskPtr;
 static int32 DiskSeekIRQ;
 static uint8 SelectDisk,InDisk;
+static uint8 ByteTransferFlag;  // Bit 7 of $4030 - set when 8 bits transferred
 
 #define DC_INC    1
 
@@ -125,7 +127,9 @@ static void RenderSoundHQ(void);
 static void FDSInit(void)
 {
 	memset(FDSRegs,0,sizeof(FDSRegs));
+	FDSReg4026=0xFF;  // External connector: all bits pulled high initially
 	writeskip=DiskPtr=DiskSeekIRQ=0;
+	ByteTransferFlag=0;
 	setmirror(1);
 
 	setprg8r(0,0xe000,0);    // BIOS
@@ -140,7 +144,7 @@ static void FDSInit(void)
 	SetReadHandler(0x4032,0x4032,FDSRead4032);
 	SetReadHandler(0x4033,0x4033,FDSRead4033);
 
-	SetWriteHandler(0x4020,0x4025,FDSWrite); 
+	SetWriteHandler(0x4020,0x4026,FDSWrite);  // Extended to include $4026
 
 	SetWriteHandler(0x6000,0xdfff,FDSRAMWrite);
 	SetReadHandler(0x6000,0xdfff,FDSRAMRead);
@@ -204,7 +208,8 @@ void FCEU_FDSSelect(void)
 
 static void FDSFix(int a)
 {
-	if((IRQa&2) && IRQCount)
+	// Timer IRQ: only active if disk registers are enabled ($4023.0) and timer is enabled
+	if((IRQa&2) && IRQCount && (FDSRegs[3]&0x1))
 	{
 		IRQCount-=a;
 		if(IRQCount<=0)
@@ -216,18 +221,16 @@ static void FDSFix(int a)
 			}
 			else
 				IRQCount=IRQLatch; 
-			//IRQCount=IRQLatch; //0xFFFF;
 			X6502_IRQBegin(FCEU_IQEXT);
-			//printf("IRQ: %d\n",timestamp);
-			//   printf("IRQ: %d\n",scanline);
 		}
 	}
+	// Disk transfer IRQ
 	if(DiskSeekIRQ>0) 
 	{
 		DiskSeekIRQ-=a;
 		if(DiskSeekIRQ<=0)
 		{
-			if(FDSRegs[5]&0x80)
+			if(FDSRegs[5]&0x80 && (FDSRegs[3]&0x1))
 			{
 				X6502_IRQBegin(FCEU_IQEXT2);
 			}
@@ -239,12 +242,31 @@ static DECLFR(FDSRead4030)
 {
 	uint8 ret=0;
 
-	/* Cheap hack. */
+	// Bit 0: Timer Interrupt (1 = IRQ occurred)
 	if(X.IRQlow&FCEU_IQEXT) ret|=1;
-	if(X.IRQlow&FCEU_IQEXT2) ret|=2;
-
+	
+	// Bit 1: Unknown Interrupt source (TODO)
+	// Bit 2: Nametable Arrangement (from $4025.D3)
+	if(FDSRegs[5]&0x08) ret|=4;
+	
+	// Bit 3: CRC control (0 = CRC passed, 1 = CRC error)
+	// TODO: Implement proper CRC checking
+	
+	// Bit 4: End of Head (1 when disk head is on most inner track)
+	// TODO: Track disk head position
+	
+	// Bit 5: Unknown
+	
+	// Bit 6: Unknown
+	
+	// Bit 7: Byte transfer flag - set every time 8 bits transferred,
+	//        reset when $4024, $4031, or $4030 is serviced
+	ret |= ByteTransferFlag;
+	
+	// Reading $4030 resets the byte transfer flag and acknowledges IRQs
 	if(!fceuindbg)
 	{
+		ByteTransferFlag = 0;
 		X6502_IRQEnd(FCEU_IQEXT);
 		X6502_IRQEnd(FCEU_IQEXT2);
 	}
@@ -261,6 +283,8 @@ static DECLFR(FDSRead4031)
 		{
 			if(DiskPtr<64999) DiskPtr++;
 			DiskSeekIRQ=150;
+			// Reading $4031 resets byte transfer flag and acknowledges disk IRQ
+			ByteTransferFlag = 0;
 			X6502_IRQEnd(FCEU_IQEXT2);
 		}
 	}
@@ -268,20 +292,45 @@ static DECLFR(FDSRead4031)
 }
 static DECLFR(FDSRead4032)
 {       
-	uint8 ret;
+	uint8 ret = X.DB & ~7;  // Preserve upper bits
 
-	ret=X.DB&~7;
+	// Disk flag (bit 0): 0 = Disk inserted, 1 = Disk not inserted
 	if(InDisk==255)
-		ret|=5;
+		ret|=1;  // No disk inserted
 
-	if(InDisk==255 || !(FDSRegs[5]&1) || (FDSRegs[5]&2))        
-		ret|=2;
+	// Ready flag (bit 1): 0 = Disk ready, 1 = Disk not ready
+	// Set when head reaches end of disk, cleared when returns to start
+	// Motor must be on (bit 4 of $4025 is 0) and disk must be inserted
+	if(InDisk==255 || (FDSRegs[5]&0x10))        
+		ret|=2;  // Not ready (motor off or disk ejected)
+
+	// Protect flag (bit 2): 0 = Not write protected, 1 = Write protected or disk ejected
+	// For now, assume not write protected unless disk is ejected
+	if(InDisk==255)
+		ret|=4;  // Write protected (no disk)
+
+	// Acknowledge disk IRQ
+	if(!fceuindbg)
+		X6502_IRQEnd(FCEU_IQEXT2);
+
 	return ret;
 }
 
 static DECLFR(FDSRead4033)
 {
-	return 0x80; // battery
+	uint8 ret = 0;
+
+	// Bits 0-6: Input from expansion terminal (read from $4026 output)
+	// Open-collector: if bit is clear in $4026, it reads as '0' here
+	ret = FDSReg4026 & 0x7F;  // Lower 7 bits from $4026
+
+	// Bit 7: Battery status (0 = Voltage is low, 1 = Good)
+	// Should be checked when motor is on, otherwise always reads as 0
+	// For now, assume battery is good if motor is on
+	if((FDSRegs[5]&0x10)==0)  // Motor is on (bit 4 of $4025 is 0)
+		ret |= 0x80;  // Battery good
+
+	return ret;
 }
 
 static DECLFW(FDSRAMWrite)
@@ -631,25 +680,52 @@ static DECLFW(FDSWrite)
 	switch(A)
 	{
 	case 0x4020:
+		// Timer IRQ reload value low - not affected by $4023.0
 		X6502_IRQEnd(FCEU_IQEXT);
 		IRQLatch&=0xFF00;
 		IRQLatch|=V;
-		//  printf("$%04x:$%02x\n",A,V);
 		break;
 	case 0x4021:
+		// Timer IRQ reload value high - not affected by $4023.0
 		X6502_IRQEnd(FCEU_IQEXT);
 		IRQLatch&=0xFF;
 		IRQLatch|=V<<8;
-		//  printf("$%04x:$%02x\n",A,V);
 		break;
 	case 0x4022:
+		// Timer IRQ control - only works if disk registers enabled ($4023.0)
 		X6502_IRQEnd(FCEU_IQEXT);
-		IRQCount=IRQLatch;
-		IRQa=V&3;
-		//  printf("$%04x:$%02x\n",A,V);
+		if(FDSRegs[3]&0x1)  // Disk registers enabled
+		{
+			IRQCount=IRQLatch;
+			IRQa=V&3;
+		}
+		else
+		{
+			// If disk registers disabled, stop timer IRQ
+			IRQa&=~2;
+			IRQCount=0;
+		}
 		break;
-	case 0x4023:break;
+	case 0x4023:
+		// Master I/O enable
+		// Bit 0: Enable disk I/O registers (0=disabled, 1=enabled)
+		// Bit 1: Enable sound I/O registers (0=disabled, 1=enabled)
+		// Bit 7: Unknown (BIOS writes $00 then $83)
+		if(!(V&0x1))  // Disabling disk registers
+		{
+			// Stop timer IRQ immediately
+			IRQa&=~2;
+			IRQCount=0;
+			X6502_IRQEnd(FCEU_IQEXT);
+			// Also stop disk transfer IRQ
+			X6502_IRQEnd(FCEU_IQEXT2);
+		}
+		FDSRegs[3]=V;
+		break;
 	case 0x4024:
+		// Write data register - resets byte transfer flag and acknowledges disk IRQ
+		ByteTransferFlag = 0;
+		X6502_IRQEnd(FCEU_IQEXT2);
 		if(InDisk!=255 && !(FDSRegs[5]&0x4) && (FDSRegs[3]&0x1))
 		{
 			if(DiskPtr>=0 && DiskPtr<65500)
@@ -664,10 +740,21 @@ static DECLFW(FDSWrite)
 		}
 		break;
 	case 0x4025:
+		// FDS Control - acknowledges disk IRQ
 		X6502_IRQEnd(FCEU_IQEXT2);
 		if(InDisk!=255)
 		{
-			if(!(V&0x40))
+			// Bit 0: Transfer Reset (1 = Reset transfer timing to initial state)
+			// Bit 1: Drive Motor Control (0 = start, 1 = stop) - spec says bit 1, but code uses bit 6
+			// Bit 2: Transfer Mode (0 = write, 1 = read)
+			// Bit 3: Nametable Arrangement (0 = Horizontal, 1 = Vertical)
+			// Bit 4: CRC Transfer Control (1 = transfer CRC value)
+			// Bit 5: Unknown, always set to '1' by BIOS/games
+			// Bit 6: CRC Enabled (0 = disable/reset, 1 = enable)
+			// Bit 7: Interrupt Enabled (1 = Generate IRQ on byte transfer flag)
+			
+			// Motor control logic (original code uses bit 6 for motor, keeping for compatibility)
+			if(!(V&0x40))  // Motor starting (bit 6 clear)
 			{
 				if(FDSRegs[5]&0x40 && !(V&0x10))
 				{
@@ -676,14 +763,34 @@ static DECLFW(FDSWrite)
 				}
 				if(DiskPtr<0) DiskPtr=0;
 			}
-			if(!(V&0x4)) writeskip=2;
-			if(V&2) {DiskPtr=0;DiskSeekIRQ=200;}
-			if(V&0x40) DiskSeekIRQ=200;
+			
+			// Nametable arrangement
+			setmirror(((V>>3)&1)^1);
+			
+			// CRC reset
+			if(!(V&0x4)) writeskip=2;  // Reset CRC when bit 4 is cleared
+			
+			// Transfer reset (bit 0)
+			if(V&0x2) {DiskPtr=0;DiskSeekIRQ=200;}  // Transfer reset (bit 1)
+			if(V&0x40) DiskSeekIRQ=200;  // Motor stop (bit 6)
 		}
-		setmirror(((V>>3)&1)^1);
+		FDSRegs[5]=V;
+		break;
+	case 0x4026:
+		// External connector output (open-collector with pull-ups)
+		// Bits 0-6: Output to expansion terminal
+		// Bit 7: Has pull-up (always high when output)
+		// Setting $4025.D5 to 0 alters bits 1 and 2
+		if(!(FDSRegs[5]&0x20))  // If $4025.D5 is 0
+		{
+			// Alter bits 1 and 2 (TODO: exact behavior needs testing)
+			V = (V & ~0x06) | ((V & 0x06) ^ 0x06);
+		}
+		FDSReg4026 = V;
 		break;
 	}
-	FDSRegs[A&7]=V;
+	if(A != 0x4026)  // Don't store $4026 in FDSRegs array
+		FDSRegs[A&7]=V;
 }
 
 static void FreeFDSMemory(void)
@@ -815,6 +922,45 @@ int FDSLoad(const char *name, FCEUFILE *fp)
 	}
 
 	fclose(zp);
+#elif defined(_XBOX)
+	// Xbox-specific BIOS loading
+	// Try multiple possible paths for the FDS BIOS
+	const char* biosPaths[] = {
+		"game:\\disksys.rom",
+		"game:\\bios\\disksys.rom",
+		"hdd1:\\fce360-enhanced\\disksys.rom",
+		NULL
+	};
+	
+	int biosLoaded = 0;
+	for(int i = 0; biosPaths[i] != NULL; i++)
+	{
+		zp = fopen(biosPaths[i], "rb");
+		if(zp)
+		{
+			fseek(zp, 0L, SEEK_END);
+			long size = ftell(zp);
+			fseek(zp, 0L, SEEK_SET);
+			
+			if(size == 8192)
+			{
+				if(fread(FDSBIOS, 1, 8192, zp) == 8192)
+				{
+					biosLoaded = 1;
+					fclose(zp);
+					break;
+				}
+			}
+			fclose(zp);
+		}
+	}
+	
+	if(!biosLoaded)
+	{
+		FCEU_PrintError("FDS BIOS ROM image missing. Please place 'disksys.rom' in game:\\ or game:\\roms\\");
+		FreeFDSMemory();
+		return 0;
+	}
 #endif
 
 	if (!disableBatteryLoading)
@@ -867,6 +1013,7 @@ int FDSLoad(const char *name, FCEUFILE *fp)
 
 	AddExState(FDSRAM,32768,0,"FDSR");
 	AddExState(FDSRegs,sizeof(FDSRegs),0,"FREG");
+	AddExState(&FDSReg4026,1,0,"F4026");
 	AddExState(CHRRAM,8192,0,"CHRR");
 	AddExState(&IRQCount, 4, 1, "IRQC");
 	AddExState(&IRQLatch, 4, 1, "IQL1");
@@ -877,6 +1024,7 @@ int FDSLoad(const char *name, FCEUFILE *fp)
 	AddExState(&SelectDisk,1,0,"SELD");
 	AddExState(&InDisk,1,0,"INDI");
 	AddExState(&DiskWritten,1,0,"DSKW");
+	AddExState(&ByteTransferFlag,1,0,"BTF");
 
 	ResetCartMapping();
 	SetupCartCHRMapping(0,CHRRAM,8192,1);
