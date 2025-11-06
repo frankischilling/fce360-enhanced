@@ -7,7 +7,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.6.8.1** — *VSync Hotfix: Added SynchronizeToPresentationInterval() for proper VSync synchronization + all prior features from v0.6.1–v0.6.8*
+* Current release: **v0.6.9** — *Famicom Disk System (.fds) support + alphabetical ROM sorting + all prior features from v0.6.1–v0.6.8.1*
 
 ---
 
@@ -15,6 +15,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.6.9 - Famicom Disk System Support](#whats-new-v069)
   - [v0.6.8.1 - VSync Synchronization Hotfix](#whats-new-v0681)
   - [v0.6.8 - VSync Frame Pacing Fix](#whats-new-v068)
   - [v0.6.7 - Advanced Memory API Functions](#whats-new-v067)
@@ -87,6 +88,51 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
   * Completes the VSync frame pacing implementation
 
 * **Includes Previous Features:**
+  * All v0.6.8 features: VSync frame pacing with texture latching
+  * All v0.6.7 features: Drawing API enhancements and advanced memory functions
+  * All prior features from v0.6.1–v0.6.6
+
+---
+
+## What's new (v0.6.9)
+
+* **Famicom Disk System Support:** Full support for .fds files - play FDS games on Xbox 360!
+  * **ROM Scanner:** Added .fds file extension to ROM directory scanner alongside .nes and .zip
+  * **FDS Games Playable:** Famicom Disk System games now fully supported and launchable
+  * **BIOS Support:** Automatic BIOS loading from multiple paths (game:\, game:\bios\, hdd1:\fce360-enhanced\)
+  * **Core Emulation:** Full FDS emulation already implemented in FCEUX core - now accessible via UI
+
+* **ROM List Improvements:**
+  * **Alphabetical Sorting:** ROM list now sorted alphabetically (case-insensitive) for better organization
+  * **Mixed Format Support:** NES and FDS files properly intermingled in sorted order
+  * **Improved Browsing:** Large ROM collections easier to navigate with alphabetical organization
+
+* **UI Fixes:**
+  * **Duplicate Visibility:** Removed duplicate suppression - ROMs can appear in both Recent/Favorites AND general list
+  * **Complete Visibility:** All scanned ROMs (including .fds) now always visible and accessible
+  * **Search Support:** Search functionality works correctly with .fds files
+
+* **Technical Details:**
+  * ScanDir() now recognizes .fds extension (case-insensitive check)
+  * CompareRomItems() static function for case-insensitive alphabetical sorting via std::sort()
+  * Sorting applied to m_rom_list_full after directory scan completes
+  * FDS BIOS loading supports multiple fallback paths for flexibility
+
+* **FDS Requirements:**
+  * Requires disksys.rom BIOS file (8KB, exactly 8192 bytes)
+  * BIOS can be placed in any of these locations:
+    * `game:\disksys.rom`
+    * `game:\bios\disksys.rom`
+    * `hdd1:\fce360-enhanced\disksys.rom`
+
+* **Impact:**
+  * Users can now browse and launch Famicom Disk System games
+  * All ROM types (NES, FDS, ZIP) appear in unified, sorted list
+  * Better organization makes large ROM collections easier to navigate
+  * No duplicate suppression means all games are always accessible
+
+* **Includes Previous Features:**
+  * All v0.6.8.1 features: VSync synchronization hotfix
   * All v0.6.8 features: VSync frame pacing with texture latching
   * All v0.6.7 features: Drawing API enhancements and advanced memory functions
   * All prior features from v0.6.1–v0.6.6
@@ -4508,6 +4554,20 @@ FCEUX360-<version>-xex.zip
 ---
 
 ## Changelog
+
+* **v0.6.9**
+
+  * feat(rom): Added .fds file extension support to ROM scanner for Famicom Disk System games.
+  * feat(rom): ROM list now sorted alphabetically (case-insensitive) for better organization.
+  * feat(rom): Added CompareRomItems() static function for case-insensitive alphabetical sorting.
+  * fix(rom): Removed duplicate suppression logic - ROMs can now appear in both Recent/Favorites and general list.
+  * fix(rom): Fixed issue where .fds files were scanned but not visible in general ROM list.
+  * fix(rom): Ensures all scanned ROMs (including .fds) are always visible and accessible.
+  * ux(rom): Improved ROM organization - NES and FDS files properly intermingled in sorted order.
+  * ux(rom): Better browsing experience for large ROM collections with alphabetical sorting.
+  * tech(rom): std::sort() applied to m_rom_list_full after directory scan completes.
+  * tech(fds): FDS BIOS loading supports multiple fallback paths (game:\, game:\bios\, hdd1:\fce360-enhanced\).
+  * docs(rom): Added FDS requirements section explaining disksys.rom BIOS file placement.
 
 * **v0.6.8.1**
 
