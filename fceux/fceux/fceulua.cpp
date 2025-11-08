@@ -33,6 +33,7 @@
 #include "video.h"
 #include "driver.h"
 #include "ppu.h"
+#include "git.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -50,6 +51,12 @@ extern uint8 *CHRptr[32];
 extern uint8 Font6x7[792];
 extern int FixJoedChar(uint8 ch);
 extern int JoedCharWidth(uint8 ch);
+
+// Extern joypad state from input.cpp
+extern uint8 joy[4];
+
+// Extern powerpadbuf from Cemulator.cpp (Xbox input buffer)
+extern uint32 powerpadbuf;
 
 // --- Overlay geometry and font metrics ---
 enum { OVL_W = 256, OVL_H = 240, GLYPH_H = 8 };
@@ -216,9 +223,28 @@ static const int LUA_CONSOLE_LINE_CHARS = 256; // storage capacity per line (cha
 static char s_luaConsoleLines[LUA_CONSOLE_MAX_LINES][LUA_CONSOLE_LINE_CHARS];
 static int s_luaConsoleCount = 0;
 static int s_consoleScrollOffset = 0; // Scroll offset for console (0 = show most recent)
+static int s_consoleScrollOffsetH = 0; // Horizontal scroll offset for console (in pixels, 0 = leftmost)
 static bool s_consoleDpadUpLast = false;
 static bool s_consoleDpadDownLast = false;
+static bool s_consoleDpadLeftLast = false;
+static bool s_consoleDpadRightLast = false;
 static int s_consoleScrollHoldFrames = 0; // Frame counter for continuous scrolling
+static int s_consoleScrollHoldFramesH = 0; // Frame counter for continuous horizontal scrolling
+
+// --- Lua-forced joypad state (per player) ---
+static uint8 s_luaJoypadValue[4]  = {0,0,0,0};   // full 8-bit NES mask
+static uint8 s_luaJoypadMask[4]   = {0,0,0,0};   // which bits to force (0xFF = all)
+static uint8 s_luaJoypadLatched[4]= {0,0,0,0};   // 1 if override active
+static uint8 s_hardwareJoypad[4]  = {0,0,0,0};   // hardware input before override (for reading real controller state)
+static uint8 s_oneFramePress[4]   = {0,0,0,0};   // one-frame button presses (cleared after each frame)
+static uint8 s_oneFrameRelease[4] = {0,0,0,0};   // one-frame button releases (cleared after each frame)
+
+// --- Input recording and playback ---
+static bool s_inputRecording = false;              // true if recording input
+static std::vector<uint8> s_recordedInput[4];      // recorded input per player (frame-by-frame)
+static bool s_inputPlayback = false;               // true if playing back input
+static std::vector<uint8> s_playbackInput[4];      // playback input per player
+static int s_playbackFrame = 0;                    // current frame in playback
 
 static void LuaConsolePushLine(const char* msg) {
      if (!msg || !msg[0]) return;
@@ -239,6 +265,7 @@ void FCEU_SetLuaConsoleVisible(int visible) {
 	s_consoleVisible = (visible != 0);
 	if (!s_consoleVisible) {
 		s_consoleScrollOffset = 0; // Reset scroll when console is hidden
+		s_consoleScrollOffsetH = 0; // Reset horizontal scroll when console is hidden
 	}
 }
 int  FCEU_IsLuaConsoleVisible(void) { return s_consoleVisible ? 1 : 0; }
@@ -254,6 +281,7 @@ void FCEU_ToggleLuaConsole(void) {
 	s_consoleVisible = !s_consoleVisible;
 	if (!s_consoleVisible) {
 		s_consoleScrollOffset = 0; // Reset scroll when console is hidden
+		s_consoleScrollOffsetH = 0; // Reset horizontal scroll when console is hidden
 	}
 }
 
@@ -551,7 +579,7 @@ static inline void DrawTextTransRotated(
 		}
 		penX += wid;
 	}
-}
+ }
 
 static void DrawLuaConsole(uint8* buf) {
 	if (!s_consoleVisible || !buf) return;
@@ -585,6 +613,23 @@ static void DrawLuaConsole(uint8* buf) {
 		if (last > s_luaConsoleCount) last = s_luaConsoleCount;
 	}
 
+	// Calculate maximum horizontal scroll needed for visible lines
+	int maxLineWidthPx = 0;
+	for (int i = first; i < last; ++i) {
+		int lineWidth = 0;
+		for (const unsigned char* p = (const unsigned char*)s_luaConsoleLines[i]; *p && *p != '\n'; ++p) {
+			int cw = JoedCharWidth(*p);
+			if (cw <= 0) cw = 6; // fallback
+			lineWidth += cw;
+		}
+		if (lineWidth > maxLineWidthPx) maxLineWidthPx = lineWidth;
+	}
+	
+	// Clamp horizontal scroll offset
+	int maxScrollH = (maxLineWidthPx > textWidthPx) ? (maxLineWidthPx - textWidthPx) : 0;
+	if (s_consoleScrollOffsetH > maxScrollH) s_consoleScrollOffsetH = maxScrollH;
+	if (s_consoleScrollOffsetH < 0) s_consoleScrollOffsetH = 0;
+
 	int y = lineStartY;
 	for (int i = first; i < last && y + GLYPH_H <= maxY + 1; ++i, y += adv) {
 		// Clear exactly this line's 8px band within the box area
@@ -593,8 +638,28 @@ static void DrawLuaConsole(uint8* buf) {
 				buf[py*OVL_W + px] = bg;
 			}
 		}
-		// Use line advance as max_h to ensure full glyph rendering (glyphs are 8px, but give extra space)
-		DrawTextTransWH(buf + y*OVL_W + textLeftMargin, OVL_W, (uint8*)s_luaConsoleLines[i], 0x20 | 0x80, textWidthPx, adv, 0);
+		
+		// Calculate how many characters to skip based on horizontal scroll
+		// We need to find the character position that corresponds to s_consoleScrollOffsetH pixels
+		const char* lineStart = s_luaConsoleLines[i];
+		const char* drawStart = lineStart;
+		int skippedPx = 0;
+		if (s_consoleScrollOffsetH > 0) {
+			for (const unsigned char* p = (const unsigned char*)lineStart; *p && *p != '\n'; ++p) {
+				int cw = JoedCharWidth(*p);
+				if (cw <= 0) cw = 6; // fallback
+				if (skippedPx + cw > s_consoleScrollOffsetH) {
+					drawStart = (const char*)p;
+					break;
+				}
+				skippedPx += cw;
+			}
+		}
+		
+		// Draw text starting from the horizontal scroll offset
+		// Adjust width to account for the skipped pixels
+		int adjustedWidth = textWidthPx + (s_consoleScrollOffsetH - skippedPx);
+		DrawTextTransWH(buf + y*OVL_W + textLeftMargin, OVL_W, (uint8*)drawStart, 0x20 | 0x80, adjustedWidth, adv, 0);
 	}
  }
 
@@ -922,6 +987,556 @@ static void DrawLuaConsole(uint8* buf) {
 		 if (*p == '\n') ++lines;
 
 	 lua_pushinteger(L, lines * GLYPH_H); // GLYPH_H is 8
+	 return 1;
+ }
+
+ // getjoypad(player) -> integer bitmask
+ // Gets current controller state for a player (0-3, 0=Player 1)
+ // Returns button bitmask: bit 0=A, 1=B, 2=Select, 3=Start, 4=Up, 5=Down, 6=Left, 7=Right
+ static int lua_getjoypad(lua_State* L)
+ {
+	 int player = (int)luaL_checkinteger(L, 1);
+	 
+	 // Validate player number (0-3)
+	 if (player < 0 || player > 3) {
+		 return luaL_error(L, "getjoypad: player must be 0-3 (0=Player 1, 1=Player 2, 2=Player 3, 3=Player 4)");
+	 }
+	 
+	 // Return current button state for the specified player
+	 lua_pushinteger(L, (int)joy[player]);
+	 return 1;
+ }
+ 
+ // gethardwarejoypad(player) -> integer bitmask
+ // Gets hardware controller state for a player BEFORE Lua override is applied
+ // Useful for detecting real controller input even when setjoypad() is active
+ // Returns button bitmask: bit 0=A, 1=B, 2=Select, 3=Start, 4=Up, 5=Down, 6=Left, 7=Right
+ static int lua_gethardwarejoypad(lua_State* L)
+ {
+	 int player = (int)luaL_checkinteger(L, 1);
+	 
+	 // Validate player number (0-3)
+	 if (player < 0 || player > 3) {
+		 return luaL_error(L, "gethardwarejoypad: player must be 0-3 (0=Player 1, 1=Player 2, 2=Player 3, 3=Player 4)");
+	 }
+	 
+	 // Return hardware button state (before Lua override)
+	 lua_pushinteger(L, (int)s_hardwareJoypad[player]);
+	 return 1;
+ }
+ 
+ // isbuttonpressed(player, button) -> boolean
+ // Checks if a specific button is pressed for a player
+ // Button names: "A", "B", "SELECT", "START", "UP", "DOWN", "LEFT", "RIGHT" (case-insensitive)
+ static int lua_isbuttonpressed(lua_State* L)
+ {
+	 int player = (int)luaL_checkinteger(L, 1);
+	 const char* buttonName = luaL_checkstring(L, 2);
+	 
+	 // Validate player number (0-3)
+	 if (player < 0 || player > 3) {
+		 return luaL_error(L, "isbuttonpressed: player must be 0-3 (0=Player 1, 1=Player 2, 2=Player 3, 3=Player 4)");
+	 }
+	 
+	 if (!buttonName || !buttonName[0]) {
+		 return luaL_error(L, "isbuttonpressed: button name cannot be empty");
+	 }
+	 
+	 // Get current button state
+	 uint8 buttons = joy[player];
+	 
+	 // Map button name to bitmask (case-insensitive)
+	 // FCEUX bit order: A=0x01, B=0x02, Select=0x04, Start=0x08, Up=0x10, Down=0x20, Left=0x40, Right=0x80
+	 uint8 buttonMask = 0;
+	 
+	 // Convert to uppercase for case-insensitive comparison
+	 char upperButton[16];
+	 int i = 0;
+	 for (; buttonName[i] && i < 15; ++i) {
+		 char c = buttonName[i];
+		 if (c >= 'a' && c <= 'z') {
+			 upperButton[i] = c - 'a' + 'A';
+		 } else {
+			 upperButton[i] = c;
+		 }
+	 }
+	 upperButton[i] = '\0';
+	 
+	 // Map button name to bitmask
+	 if (strcmp(upperButton, "A") == 0) {
+		 buttonMask = 0x01;
+	 } else if (strcmp(upperButton, "B") == 0) {
+		 buttonMask = 0x02;
+	 } else if (strcmp(upperButton, "SELECT") == 0) {
+		 buttonMask = 0x04;
+	 } else if (strcmp(upperButton, "START") == 0) {
+		 buttonMask = 0x08;
+	 } else if (strcmp(upperButton, "UP") == 0) {
+		 buttonMask = 0x10;
+	 } else if (strcmp(upperButton, "DOWN") == 0) {
+		 buttonMask = 0x20;
+	 } else if (strcmp(upperButton, "LEFT") == 0) {
+		 buttonMask = 0x40;
+	 } else if (strcmp(upperButton, "RIGHT") == 0) {
+		 buttonMask = 0x80;
+	 } else {
+		 return luaL_error(L, "isbuttonpressed: invalid button name '%s'. Valid buttons: A, B, SELECT, START, UP, DOWN, LEFT, RIGHT", buttonName);
+	 }
+	 
+	 // Check if button is pressed (bit is set)
+	 bool isPressed = (buttons & buttonMask) != 0;
+	 lua_pushboolean(L, isPressed ? 1 : 0);
+	 return 1;
+ }
+
+ // getbuttonname(buttonMask) -> string
+ // Converts button bitmask to comma-separated string of button names
+ // Returns empty string if no buttons are pressed
+ static int lua_getbuttonname(lua_State* L)
+ {
+	 int buttonMask = (int)luaL_checkinteger(L, 1);
+	 
+	 // Validate bitmask range
+	 if (buttonMask < 0 || buttonMask > 0xFF) {
+		 return luaL_error(L, "getbuttonname: buttonMask must be in range 0x00-0xFF");
+	 }
+	 
+	 // Build comma-separated list of button names
+	 // FCEUX bit order: A=0x01, B=0x02, Select=0x04, Start=0x08, Up=0x10, Down=0x20, Left=0x40, Right=0x80
+	 char result[128];  // Enough space for all button names
+	 result[0] = '\0';
+	 int first = 1;  // Track if this is the first button (for comma handling)
+	 
+	 if (buttonMask & 0x01) {
+		 if (!first) strcat(result, ", ");
+		 strcat(result, "A");
+		 first = 0;
+	 }
+	 if (buttonMask & 0x02) {
+		 if (!first) strcat(result, ", ");
+		 strcat(result, "B");
+		 first = 0;
+	 }
+	 if (buttonMask & 0x04) {
+		 if (!first) strcat(result, ", ");
+		 strcat(result, "SELECT");
+		 first = 0;
+	 }
+	 if (buttonMask & 0x08) {
+		 if (!first) strcat(result, ", ");
+		 strcat(result, "START");
+		 first = 0;
+	 }
+	 if (buttonMask & 0x10) {
+		 if (!first) strcat(result, ", ");
+		 strcat(result, "UP");
+		 first = 0;
+	 }
+	 if (buttonMask & 0x20) {
+		 if (!first) strcat(result, ", ");
+		 strcat(result, "DOWN");
+		 first = 0;
+	 }
+	 if (buttonMask & 0x40) {
+		 if (!first) strcat(result, ", ");
+		 strcat(result, "LEFT");
+		 first = 0;
+	 }
+	 if (buttonMask & 0x80) {
+		 if (!first) strcat(result, ", ");
+		 strcat(result, "RIGHT");
+		 first = 0;
+	 }
+	 
+	 // Return the result (empty string if no buttons)
+	 lua_pushstring(L, result);
+	 return 1;
+ }
+
+ // setjoypad(player, buttons) -> nothing
+ // Sets controller state for a player (from Lua)
+ // player: 0..3 (P1..P4), buttons: 0x00..0xFF (A=1, B=2, Select=4, Start=8, Up=16, Down=32, Left=64, Right=128)
+ // Overrides the polled pad state; persists until changed or cleared.
+ // Note: May conflict with joypad() callback if both are used
+ static int lua_setjoypad(lua_State* L)
+ {
+	 if (lua_gettop(L) < 2) {
+		 return luaL_error(L, "setjoypad(player, buttons) requires 2 arguments");
+	 }
+	 
+	 int player  = (int)luaL_checkinteger(L, 1);
+	 int buttons = (int)luaL_checkinteger(L, 2);
+	 
+	 if (player < 0 || player > 3) {
+		 return luaL_error(L, "setjoypad: player must be 0..3");
+	 }
+	 
+	 if (buttons < 0)     buttons = 0;
+	 if (buttons > 0xFF)  buttons &= 0xFF;
+	 
+	 s_luaJoypadValue[player]   = (uint8)buttons;
+	 s_luaJoypadMask[player]    = 0xFF;        // force all buttons by default
+	 s_luaJoypadLatched[player] = 1;
+	 
+	 // Apply immediately so scripts see effect right away; input poller should call FCEU_LuaJoypadApply() each frame.
+	 joy[player] = (uint8)((joy[player] & ~s_luaJoypadMask[player]) |
+						   (s_luaJoypadValue[player] & s_luaJoypadMask[player]));
+	 
+	 return 0;
+ }
+
+ // clearjoypad(player) -> nothing
+ // Clears Lua joypad override for a player, allowing hardware input to work again
+ // player: 0..3 (P1..P4), or -1 to clear all players
+ static int lua_clearjoypad(lua_State* L)
+ {
+	 int player = (int)luaL_checkinteger(L, 1);
+	 
+	 if (player < -1 || player > 3) {
+		 return luaL_error(L, "clearjoypad: player must be -1 (all) or 0..3");
+	 }
+	 
+	 FCEU_LuaJoypadClear(player);
+	 
+	 return 0;
+ }
+
+ // pressbutton(player, button) -> nothing
+ // Simulates pressing a button for one frame
+ // player: 0..3 (P1..P4), button: string name ("A", "B", "SELECT", "START", "UP", "DOWN", "LEFT", "RIGHT")
+ // The button will be pressed for the current frame only, then automatically released
+ static int lua_pressbutton(lua_State* L)
+ {
+	 if (lua_gettop(L) < 2) {
+		 return luaL_error(L, "pressbutton(player, button) requires 2 arguments");
+	 }
+	 
+	 int player = (int)luaL_checkinteger(L, 1);
+	 const char* buttonName = luaL_checkstring(L, 2);
+	 
+	 if (player < 0 || player > 3) {
+		 return luaL_error(L, "pressbutton: player must be 0..3");
+	 }
+	 
+	 if (!buttonName || !buttonName[0]) {
+		 return luaL_error(L, "pressbutton: button name cannot be empty");
+	 }
+	 
+	 // Get button mask using the same logic as lua_isbuttonpressed (case-insensitive)
+	 uint8 buttonMask = 0;
+	 
+	 // Convert to uppercase for case-insensitive comparison
+	 char upperButton[16];
+	 int i = 0;
+	 for (; buttonName[i] && i < 15; ++i) {
+		 char c = buttonName[i];
+		 if (c >= 'a' && c <= 'z') {
+			 upperButton[i] = c - 'a' + 'A';
+		 } else {
+			 upperButton[i] = c;
+		 }
+	 }
+	 upperButton[i] = '\0';
+	 
+	 // Map button name to bitmask
+	 if (strcmp(upperButton, "A") == 0) {
+		 buttonMask = 0x01;
+	 } else if (strcmp(upperButton, "B") == 0) {
+		 buttonMask = 0x02;
+	 } else if (strcmp(upperButton, "SELECT") == 0) {
+		 buttonMask = 0x04;
+	 } else if (strcmp(upperButton, "START") == 0) {
+		 buttonMask = 0x08;
+	 } else if (strcmp(upperButton, "UP") == 0) {
+		 buttonMask = 0x10;
+	 } else if (strcmp(upperButton, "DOWN") == 0) {
+		 buttonMask = 0x20;
+	 } else if (strcmp(upperButton, "LEFT") == 0) {
+		 buttonMask = 0x40;
+	 } else if (strcmp(upperButton, "RIGHT") == 0) {
+		 buttonMask = 0x80;
+	 } else {
+		 return luaL_error(L, "pressbutton: invalid button name '%s'. Valid buttons: A, B, SELECT, START, UP, DOWN, LEFT, RIGHT", buttonName);
+	 }
+	 
+	 // Set the button bit for one-frame press
+	 s_oneFramePress[player] |= (uint8)buttonMask;
+	 
+	 return 0;
+ }
+
+ // releasebutton(player, button) -> nothing
+ // Simulates releasing a button for one frame
+ // player: 0..3 (P1..P4), button: string name ("A", "B", "SELECT", "START", "UP", "DOWN", "LEFT", "RIGHT")
+ // The button will be released for the current frame only, then return to previous state
+ static int lua_releasebutton(lua_State* L)
+ {
+	 if (lua_gettop(L) < 2) {
+		 return luaL_error(L, "releasebutton(player, button) requires 2 arguments");
+	 }
+	 
+	 int player = (int)luaL_checkinteger(L, 1);
+	 const char* buttonName = luaL_checkstring(L, 2);
+	 
+	 if (player < 0 || player > 3) {
+		 return luaL_error(L, "releasebutton: player must be 0..3");
+	 }
+	 
+	 if (!buttonName || !buttonName[0]) {
+		 return luaL_error(L, "releasebutton: button name cannot be empty");
+	 }
+	 
+	 // Get button mask using the same logic as lua_isbuttonpressed (case-insensitive)
+	 uint8 buttonMask = 0;
+	 
+	 // Convert to uppercase for case-insensitive comparison
+	 char upperButton[16];
+	 int i = 0;
+	 for (; buttonName[i] && i < 15; ++i) {
+		 char c = buttonName[i];
+		 if (c >= 'a' && c <= 'z') {
+			 upperButton[i] = c - 'a' + 'A';
+		 } else {
+			 upperButton[i] = c;
+		 }
+	 }
+	 upperButton[i] = '\0';
+	 
+	 // Map button name to bitmask
+	 if (strcmp(upperButton, "A") == 0) {
+		 buttonMask = 0x01;
+	 } else if (strcmp(upperButton, "B") == 0) {
+		 buttonMask = 0x02;
+	 } else if (strcmp(upperButton, "SELECT") == 0) {
+		 buttonMask = 0x04;
+	 } else if (strcmp(upperButton, "START") == 0) {
+		 buttonMask = 0x08;
+	 } else if (strcmp(upperButton, "UP") == 0) {
+		 buttonMask = 0x10;
+	 } else if (strcmp(upperButton, "DOWN") == 0) {
+		 buttonMask = 0x20;
+	 } else if (strcmp(upperButton, "LEFT") == 0) {
+		 buttonMask = 0x40;
+	 } else if (strcmp(upperButton, "RIGHT") == 0) {
+		 buttonMask = 0x80;
+	 } else {
+		 return luaL_error(L, "releasebutton: invalid button name '%s'. Valid buttons: A, B, SELECT, START, UP, DOWN, LEFT, RIGHT", buttonName);
+	 }
+	 
+	 // Set the button bit for one-frame release
+	 s_oneFrameRelease[player] |= (uint8)buttonMask;
+	 
+	 return 0;
+ }
+
+ // startinputrecording() -> boolean
+ // Starts recording input for all players
+ // Returns true if recording started successfully, false if already recording
+ static int lua_startinputrecording(lua_State* L)
+ {
+	 if (s_inputRecording) {
+		 lua_pushboolean(L, 0);  // false - already recording
+		 return 1;
+	 }
+	 
+	 // Clear any existing recording
+	 for (int p = 0; p < 4; ++p) {
+		 s_recordedInput[p].clear();
+	 }
+	 
+	 s_inputRecording = true;
+	 lua_pushboolean(L, 1);  // true - recording started
+	 return 1;
+ }
+
+ // stopinputrecording() -> table
+ // Stops recording input and returns recorded data as a table
+ // Returns a table with keys "player0", "player1", "player2", "player3"
+ // Each player's data is a table of button states (frame-by-frame)
+ static int lua_stopinputrecording(lua_State* L)
+ {
+	 if (!s_inputRecording) {
+		 return luaL_error(L, "stopinputrecording: not currently recording");
+	 }
+	 
+	 s_inputRecording = false;
+	 
+	 // Create Lua table to hold all recorded data
+	 lua_createtable(L, 0, 4);  // 0 array part, 4 hash part
+	 
+	 // For each player, create a table with their recorded input
+	 for (int p = 0; p < 4; ++p) {
+		 // Create table for this player's input
+		 lua_createtable(L, (int)s_recordedInput[p].size(), 0);
+		 
+		 // Fill table with recorded input (1-indexed)
+		 for (size_t i = 0; i < s_recordedInput[p].size(); ++i) {
+			 lua_pushinteger(L, (int)s_recordedInput[p][i]);
+			 lua_rawseti(L, -2, (int)(i + 1));  // Lua tables are 1-indexed
+		 }
+		 
+		 // Set this player's table in the main table
+		 char key[16];
+		 snprintf(key, sizeof(key), "player%d", p);
+		 lua_setfield(L, -2, key);
+	 }
+	 
+	 return 1;  // Return the table
+ }
+
+ // playinputrecording(data) -> nothing
+ // Plays back recorded input from a table
+ // data: table from stopinputrecording() with keys "player0", "player1", "player2", "player3"
+ static int lua_playinputrecording(lua_State* L)
+ {
+	 if (lua_gettop(L) < 1) {
+		 return luaL_error(L, "playinputrecording(data) requires 1 argument");
+	 }
+	 
+	 if (!lua_istable(L, 1)) {
+		 return luaL_error(L, "playinputrecording: data must be a table");
+	 }
+	 
+	 // Stop any current playback
+	 s_inputPlayback = false;
+	 s_playbackFrame = 0;
+	 
+	 // Clear playback data
+	 for (int p = 0; p < 4; ++p) {
+		 s_playbackInput[p].clear();
+	 }
+	 
+	 // Read data from Lua table
+	 for (int p = 0; p < 4; ++p) {
+		 char key[16];
+		 snprintf(key, sizeof(key), "player%d", p);
+		 
+		 // Get player's table
+		 lua_getfield(L, 1, key);
+		 if (lua_istable(L, -1)) {
+			 // Read all entries from the table (1-indexed)
+			 int i = 1;
+			 while (true) {
+				 lua_rawgeti(L, -1, i);
+				 if (!lua_isnumber(L, -1)) {
+					 lua_pop(L, 1);
+					 break;  // End of table
+				 }
+				 int value = (int)luaL_checkinteger(L, -1);
+				 lua_pop(L, 1);
+				 
+				 // Clamp to valid range
+				 if (value < 0) value = 0;
+				 if (value > 0xFF) value = 0xFF;
+				 
+				 s_playbackInput[p].push_back((uint8)(value & 0xFF));
+				 ++i;
+			 }
+		 }
+		 lua_pop(L, 1);  // Pop player table
+	 }
+	 
+	 // Start playback
+	 s_inputPlayback = true;
+	 s_playbackFrame = 0;
+	 
+	 return 0;
+ }
+
+ // getromname() -> string
+ // Gets the current ROM filename (without path)
+ // Returns the filename with extension (.nes, .fds, etc.)
+ // Works for both NES and FDS games
+ static int lua_getromname(lua_State* L)
+ {
+	 extern FCEUGI *GameInfo;
+	 
+	 // Check if a game is loaded
+	 if (!GameInfo || !GameInfo->filename) {
+		 lua_pushstring(L, "");
+		 return 1;
+	 }
+	 
+	 // Get the full filename/path
+	 const char* fullPath = GameInfo->filename;
+	 if (!fullPath || !fullPath[0]) {
+		 lua_pushstring(L, "");
+		 return 1;
+	 }
+	 
+	 // Handle zip archive format: "path.zip|internal.nes" or "path.zip|internal.fds"
+	 std::string filename;
+	 const char* pipePos = strchr(fullPath, '|');
+	 if (pipePos) {
+		 // Extract filename after the pipe (internal file in archive)
+		 filename = pipePos + 1;
+	 } else {
+		 // Not in archive, use the full path
+		 filename = fullPath;
+	 }
+	 
+	 // Extract just the filename without path
+	 size_t lastSlash = filename.find_last_of("\\/");
+	 if (lastSlash != std::string::npos) {
+		 filename = filename.substr(lastSlash + 1);
+	 }
+	 
+	 // Return the filename with extension (e.g., "Super Mario Bros.nes" or "game.fds")
+	 lua_pushstring(L, filename.c_str());
+	 return 1;
+ }
+
+ // getbuttonmask(buttonName) -> integer bitmask
+ // Converts button name to bitmask
+ // Button names: "A", "B", "SELECT", "START", "UP", "DOWN", "LEFT", "RIGHT" (case-insensitive)
+ static int lua_getbuttonmask(lua_State* L)
+ {
+	 const char* buttonName = luaL_checkstring(L, 1);
+	 
+	 if (!buttonName || !buttonName[0]) {
+		 return luaL_error(L, "getbuttonmask: button name cannot be empty");
+	 }
+	 
+	 // Map button name to bitmask (case-insensitive)
+	 // FCEUX bit order: A=0x01, B=0x02, Select=0x04, Start=0x08, Up=0x10, Down=0x20, Left=0x40, Right=0x80
+	 uint8 buttonMask = 0;
+	 
+	 // Convert to uppercase for case-insensitive comparison
+	 char upperButton[16];
+	 int i = 0;
+	 for (; buttonName[i] && i < 15; ++i) {
+		 char c = buttonName[i];
+		 if (c >= 'a' && c <= 'z') {
+			 upperButton[i] = c - 'a' + 'A';
+		 } else {
+			 upperButton[i] = c;
+		 }
+	 }
+	 upperButton[i] = '\0';
+	 
+	 // Map button name to bitmask
+	 if (strcmp(upperButton, "A") == 0) {
+		 buttonMask = 0x01;
+	 } else if (strcmp(upperButton, "B") == 0) {
+		 buttonMask = 0x02;
+	 } else if (strcmp(upperButton, "SELECT") == 0) {
+		 buttonMask = 0x04;
+	 } else if (strcmp(upperButton, "START") == 0) {
+		 buttonMask = 0x08;
+	 } else if (strcmp(upperButton, "UP") == 0) {
+		 buttonMask = 0x10;
+	 } else if (strcmp(upperButton, "DOWN") == 0) {
+		 buttonMask = 0x20;
+	 } else if (strcmp(upperButton, "LEFT") == 0) {
+		 buttonMask = 0x40;
+	 } else if (strcmp(upperButton, "RIGHT") == 0) {
+		 buttonMask = 0x80;
+	 } else {
+		 return luaL_error(L, "getbuttonmask: invalid button name '%s'. Valid buttons: A, B, SELECT, START, UP, DOWN, LEFT, RIGHT", buttonName);
+	 }
+	 
+	 // Return the bitmask
+	 lua_pushinteger(L, (int)buttonMask);
 	 return 1;
  }
 
@@ -4342,6 +4957,24 @@ int lua_ismemorywritable(lua_State *L) {
 	 lua_pushcfunction(luaState, lua_gettextheight);
 	 lua_setglobal(luaState, "gettextheight");
 	 lua_register(luaState, "drawtextbox", lua_drawtextbox);
+	 lua_register(luaState, "getjoypad", lua_getjoypad);
+	 lua_register(luaState, "gethardwarejoypad", lua_gethardwarejoypad);
+	 lua_pushcfunction(luaState, lua_setjoypad);
+	 lua_setglobal(luaState, "setjoypad");
+	 lua_pushcfunction(luaState, lua_clearjoypad);
+	 lua_setglobal(luaState, "clearjoypad");
+	 lua_pushcfunction(luaState, lua_pressbutton);
+	 lua_setglobal(luaState, "pressbutton");
+	 lua_pushcfunction(luaState, lua_releasebutton);
+	 lua_setglobal(luaState, "releasebutton");
+	 lua_register(luaState, "startinputrecording", lua_startinputrecording);
+	 lua_register(luaState, "stopinputrecording", lua_stopinputrecording);
+	 lua_pushcfunction(luaState, lua_playinputrecording);
+	 lua_setglobal(luaState, "playinputrecording");
+	 lua_register(luaState, "getromname", lua_getromname);
+	 lua_register(luaState, "isbuttonpressed", lua_isbuttonpressed);
+	 lua_register(luaState, "getbuttonname", lua_getbuttonname);
+	 lua_register(luaState, "getbuttonmask", lua_getbuttonmask);
 	 lua_register(luaState, "drawpixel", lua_drawpixel);
 	 lua_register(luaState, "drawline", lua_drawline);
 	 lua_register(luaState, "drawthickline", lua_drawthickline);
@@ -4434,6 +5067,24 @@ static void EnsureLuaInit() {
 	lua_pushcfunction(luaState, lua_gettextheight);
 	lua_setglobal(luaState, "gettextheight");
 	REG("drawtextbox",    lua_drawtextbox);
+	REG("getjoypad",      lua_getjoypad);
+	REG("gethardwarejoypad", lua_gethardwarejoypad);
+	lua_pushcfunction(luaState, lua_setjoypad);
+	lua_setglobal(luaState, "setjoypad");
+	lua_pushcfunction(luaState, lua_clearjoypad);
+	lua_setglobal(luaState, "clearjoypad");
+	lua_pushcfunction(luaState, lua_pressbutton);
+	lua_setglobal(luaState, "pressbutton");
+	lua_pushcfunction(luaState, lua_releasebutton);
+	lua_setglobal(luaState, "releasebutton");
+	REG("startinputrecording", lua_startinputrecording);
+	REG("stopinputrecording", lua_stopinputrecording);
+	lua_pushcfunction(luaState, lua_playinputrecording);
+	lua_setglobal(luaState, "playinputrecording");
+	REG("getromname", lua_getromname);
+	REG("isbuttonpressed", lua_isbuttonpressed);
+	REG("getbuttonname",  lua_getbuttonname);
+	REG("getbuttonmask",  lua_getbuttonmask);
 	REG("drawpixel",      lua_drawpixel);
 	REG("drawline",       lua_drawline);
 	REG("drawthickline",  lua_drawthickline);
@@ -5558,6 +6209,21 @@ void FCEU_ReloadLuaCode(void) {
 	 if (!s_watchedAddresses.empty()) {
 		 CheckWatchedAddresses();
 	 }
+	 
+	 // Call "beforeframe" function if it exists - this runs BEFORE input polling
+	 // This allows scripts to set joypad state before FCEU_UpdateInput() is called
+	 lua_getglobal(luaState, "beforeframe");
+	 if (lua_isfunction(luaState, -1)) {
+		 if (lua_pcall(luaState, 0, 0, 0) != 0) {
+			 // Error occurred - pop error message
+			 lua_pop(luaState, 1);
+		 }
+	 } else {
+		 lua_pop(luaState, 1);
+	 }
+	 
+	 // Note: powerpadbuf override is now handled in Cemulator::UpdateInput()
+	 // right after hardware input is read, ensuring it happens before UpdateGP() reads it
  }
  
  // GUI drawing callback - called from video.cpp
@@ -5679,7 +6345,7 @@ void FCEU_ReloadLuaCode(void) {
 		 
          // If console visible, draw it now onto back buffer and mark dirty
 		 if (s_consoleVisible && s_overlay_back) {
-			 // Handle D-pad scrolling
+			 // Handle D-pad scrolling (vertical)
 			 bool dpadUp = (Gamepads[0].wButtons & XINPUT_GAMEPAD_DPAD_UP) != 0;
 			 bool dpadDown = (Gamepads[0].wButtons & XINPUT_GAMEPAD_DPAD_DOWN) != 0;
 			 
@@ -5724,6 +6390,54 @@ void FCEU_ReloadLuaCode(void) {
 			 
 			 s_consoleDpadUpLast = dpadUp;
 			 s_consoleDpadDownLast = dpadDown;
+			 
+			 // Handle D-pad scrolling (horizontal)
+			 bool dpadLeft = (Gamepads[0].wButtons & XINPUT_GAMEPAD_DPAD_LEFT) != 0;
+			 bool dpadRight = (Gamepads[0].wButtons & XINPUT_GAMEPAD_DPAD_RIGHT) != 0;
+			 
+			 // Scroll horizontally on button press (immediate) or hold (throttled)
+			 if (dpadLeft) {
+				 if (!s_consoleDpadLeftLast) {
+					 // First press - scroll immediately (scroll left = decrease offset)
+					 if (s_consoleScrollOffsetH > 0) {
+						 s_consoleScrollOffsetH -= 8; // Scroll by ~1 character width
+						 if (s_consoleScrollOffsetH < 0) s_consoleScrollOffsetH = 0;
+					 }
+					 s_consoleScrollHoldFramesH = 0;
+				 } else {
+					 // Holding - scroll every 3 frames for smooth but controlled speed
+					 s_consoleScrollHoldFramesH++;
+					 if (s_consoleScrollHoldFramesH >= 3) {
+						 if (s_consoleScrollOffsetH > 0) {
+							 s_consoleScrollOffsetH -= 8;
+							 if (s_consoleScrollOffsetH < 0) s_consoleScrollOffsetH = 0;
+						 }
+						 s_consoleScrollHoldFramesH = 0;
+					 }
+				 }
+			 }
+			 if (dpadRight) {
+				 if (!s_consoleDpadRightLast) {
+					 // First press - scroll immediately (scroll right = increase offset)
+					 s_consoleScrollOffsetH += 8; // Scroll by ~1 character width
+					 s_consoleScrollHoldFramesH = 0;
+				 } else {
+					 // Holding - scroll every 3 frames for smooth but controlled speed
+					 s_consoleScrollHoldFramesH++;
+					 if (s_consoleScrollHoldFramesH >= 3) {
+						 s_consoleScrollOffsetH += 8;
+						 s_consoleScrollHoldFramesH = 0;
+					 }
+				 }
+			 }
+			 
+			 // Reset hold counter when button is released
+			 if (!dpadLeft && !dpadRight) {
+				 s_consoleScrollHoldFramesH = 0;
+			 }
+			 
+			 s_consoleDpadLeftLast = dpadLeft;
+			 s_consoleDpadRightLast = dpadRight;
 			 
 			 const int cx = 4, cy = 40;
 			 int maxX = 4 + 248 - 1; if (maxX > OVL_W - 1) maxX = OVL_W - 1;
@@ -5829,6 +6543,180 @@ void FCEU_ReloadLuaCode(void) {
 	 }
 	 
 	 return ret;
+ }
+
+// Apply Lua joypad overrides after input polling
+// Call this each frame at the END of FCEU_UpdateInput() to ensure Lua's override wins over hardware
+// This merges Lua overrides into the final pad state the NES core reads
+extern "C" void FCEU_LuaJoypadApply(void)
+{
+	// Store hardware input before override (for gethardwarejoypad() function)
+	// powerpadbuf format: pad[0] in low byte, pad[1] in next byte
+	s_hardwareJoypad[0] = (uint8)(powerpadbuf & 0xFF);
+	s_hardwareJoypad[1] = (uint8)((powerpadbuf >> 8) & 0xFF);
+	s_hardwareJoypad[2] = (uint8)((powerpadbuf >> 16) & 0xFF);
+	s_hardwareJoypad[3] = (uint8)((powerpadbuf >> 24) & 0xFF);
+	
+	// Override powerpadbuf (Xbox input buffer) for players 0 and 1
+	// This is the source that UpdateGP() reads from, so we need to override it here
+	// Players: 0=pad[0], 1=pad[1], 2=pad[0]>>16, 3=pad[1]>>24 (but Xbox only uses first 2)
+	
+	uint32 newPowerpadbuf = powerpadbuf;  // Start with current hardware input
+	
+	// Apply input playback FIRST if active (playback overrides everything)
+	// This must happen before other overrides so playback takes precedence
+	if (s_inputPlayback) {
+		// Apply playback for player 0 (low byte of powerpadbuf)
+		if (s_playbackFrame < (int)s_playbackInput[0].size()) {
+			uint8 pad0 = s_playbackInput[0][s_playbackFrame];
+			newPowerpadbuf = (newPowerpadbuf & 0xFFFFFF00) | pad0;
+		}
+		
+		// Apply playback for player 1 (second byte of powerpadbuf)
+		if (s_playbackFrame < (int)s_playbackInput[1].size()) {
+			uint8 pad1 = s_playbackInput[1][s_playbackFrame];
+			newPowerpadbuf = (newPowerpadbuf & 0xFFFF00FF) | ((uint32)pad1 << 8);
+		}
+	} else {
+		// Only apply other overrides if NOT playing back
+		// Override player 0 (low byte of powerpadbuf)
+		if (s_luaJoypadLatched[0]) {
+			uint8 oldPad0 = (uint8)(powerpadbuf & 0xFF);
+			uint8 newPad0 = (uint8)((oldPad0 & (uint8)~s_luaJoypadMask[0]) |
+									(s_luaJoypadValue[0] & s_luaJoypadMask[0]));
+			newPowerpadbuf = (newPowerpadbuf & 0xFFFFFF00) | newPad0;
+		}
+		
+		// Apply one-frame presses for player 0 (OR them in)
+		if (s_oneFramePress[0] != 0) {
+			uint8 pad0 = (uint8)(newPowerpadbuf & 0xFF);
+			pad0 |= s_oneFramePress[0];
+			newPowerpadbuf = (newPowerpadbuf & 0xFFFFFF00) | pad0;
+		}
+		
+		// Apply one-frame releases for player 0 (AND ~mask to clear bits)
+		if (s_oneFrameRelease[0] != 0) {
+			uint8 pad0 = (uint8)(newPowerpadbuf & 0xFF);
+			pad0 &= (uint8)~s_oneFrameRelease[0];
+			newPowerpadbuf = (newPowerpadbuf & 0xFFFFFF00) | pad0;
+		}
+		
+		// Override player 1 (second byte of powerpadbuf)
+		if (s_luaJoypadLatched[1]) {
+			uint8 oldPad1 = (uint8)((powerpadbuf >> 8) & 0xFF);
+			uint8 newPad1 = (uint8)((oldPad1 & (uint8)~s_luaJoypadMask[1]) |
+									(s_luaJoypadValue[1] & s_luaJoypadMask[1]));
+			newPowerpadbuf = (newPowerpadbuf & 0xFFFF00FF) | ((uint32)newPad1 << 8);
+		}
+		
+		// Apply one-frame presses for player 1 (OR them in)
+		if (s_oneFramePress[1] != 0) {
+			uint8 pad1 = (uint8)((newPowerpadbuf >> 8) & 0xFF);
+			pad1 |= s_oneFramePress[1];
+			newPowerpadbuf = (newPowerpadbuf & 0xFFFF00FF) | ((uint32)pad1 << 8);
+		}
+		
+		// Apply one-frame releases for player 1 (AND ~mask to clear bits)
+		if (s_oneFrameRelease[1] != 0) {
+			uint8 pad1 = (uint8)((newPowerpadbuf >> 8) & 0xFF);
+			pad1 &= (uint8)~s_oneFrameRelease[1];
+			newPowerpadbuf = (newPowerpadbuf & 0xFFFF00FF) | ((uint32)pad1 << 8);
+		}
+	}
+	
+	// Apply the override to powerpadbuf
+	powerpadbuf = newPowerpadbuf;
+	
+	// Also override joy[] array for consistency (this is what the NES core reads)
+	for (int p = 0; p < 4; ++p) {
+		uint8 finalButtons = joy[p];
+		
+		// Apply persistent override if latched
+		if (s_luaJoypadLatched[p]) {
+			// Store old value for debugging
+			uint8 oldJoy = joy[p];
+			// Merge Lua override into joy[p] - this is the buffer the NES core ultimately reads
+			// Mask determines which bits to override (0xFF = all bits)
+			// Formula: clear masked bits from hardware, then OR in Lua's values
+			// When mask is 0xFF, this completely replaces hardware input with Lua's value
+			finalButtons = (uint8)((joy[p] & (uint8)~s_luaJoypadMask[p]) |
+								   (s_luaJoypadValue[p] & s_luaJoypadMask[p]));
+			// Debug output for player 0 (uncomment to verify override is being applied)
+			if (p == 0) {
+				static int debugCounter = 0;
+				if (++debugCounter % 60 == 0) {  // Print every 60 frames
+					printf("FCEU_LuaJoypadApply: P%d: joy[%d]=0x%02X, powerpadbuf=0x%08X (value=0x%02X, mask=0x%02X, latched=%d)\n",
+						   p, p, joy[p], powerpadbuf, s_luaJoypadValue[p], s_luaJoypadMask[p], s_luaJoypadLatched[p]);
+				}
+			}
+		}
+		
+		// Apply one-frame button presses (OR them in, they work on top of any override)
+		if (s_oneFramePress[p] != 0) {
+			finalButtons |= s_oneFramePress[p];
+			// Clear after applying (one-frame presses are cleared each frame)
+			s_oneFramePress[p] = 0;
+		}
+		
+		// Apply one-frame button releases (AND ~mask to clear bits)
+		if (s_oneFrameRelease[p] != 0) {
+			finalButtons &= (uint8)~s_oneFrameRelease[p];
+			// Clear after applying (one-frame releases are cleared each frame)
+			s_oneFrameRelease[p] = 0;
+		}
+		
+		// Apply input playback if active (playback overrides everything)
+		// This must happen before recording so we record the playback, not the original input
+		if (s_inputPlayback && p < 4) {
+			if (s_playbackFrame < (int)s_playbackInput[p].size()) {
+				// Use recorded input for this frame
+				finalButtons = s_playbackInput[p][s_playbackFrame];
+			} else {
+				// This player's playback finished, continue with normal input
+			}
+		}
+		
+		// Record input if recording is active (record the final button state)
+		// Record after playback is applied so we can record either original input or playback
+		if (s_inputRecording && p < 4) {
+			s_recordedInput[p].push_back(finalButtons);
+		}
+		
+		joy[p] = finalButtons;
+	}
+	
+	// Advance playback frame counter
+	if (s_inputPlayback) {
+		s_playbackFrame++;
+		// Check if all players have finished playback
+		bool allFinished = true;
+		for (int p = 0; p < 4; ++p) {
+			if (s_playbackFrame < (int)s_playbackInput[p].size()) {
+				allFinished = false;
+				break;
+			}
+		}
+		if (allFinished) {
+			s_inputPlayback = false;
+			s_playbackFrame = 0;
+		}
+	}
+}
+
+// Clear Lua joypad overrides
+// player: -1 = all players, 0-3 = specific player
+extern "C" void FCEU_LuaJoypadClear(int player)
+{
+	if (player == -1) {
+		for (int p = 0; p < 4; ++p) {
+			s_luaJoypadMask[p] = 0;
+			s_luaJoypadLatched[p] = 0;
+		}
+	} else if (player >= 0 && player < 4) {
+		s_luaJoypadMask[player] = 0;
+		s_luaJoypadLatched[player] = 0;
+	}
+	// leave s_luaJoypadValue as-is; it won't be applied while latched==0
  }
   
  #endif // USE_LUA

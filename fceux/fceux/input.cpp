@@ -247,6 +247,9 @@ static void UpdateGP(int w, void *data, int arg)
 		joy[3] = *(uint32 *)joyports[1].ptr >> 24;
 		#endif
 	}
+	
+	// NOTE: FCEU_LuaJoypadApply() is now called at the END of FCEU_UpdateInput()
+	// to ensure it runs after all input processing and before the NES core reads the controller
 
 }
 
@@ -343,6 +346,13 @@ void FCEU_UpdateInput(void)
 	//TODO - should this apply to the movie data? should this be displayed in the input hud?
 	if(GameInfo->type==GIT_VSUNI)
 		FCEU_VSUniSwap(&joy[0],&joy[1]);
+	
+	// Apply Lua joypad overrides LAST, after all input processing
+	// This ensures Lua's override is the final value before the NES core reads the controller
+	#ifdef USE_LUA
+	extern void FCEU_LuaJoypadApply(void);
+	FCEU_LuaJoypadApply();
+	#endif
 }
 
 static DECLFR(VSUNIRead0)

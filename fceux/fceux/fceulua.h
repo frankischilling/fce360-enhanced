@@ -57,6 +57,15 @@ void CallRegisteredLuaFunctions(LUACALL callID);
 void CallRegisteredLuaMemHook(unsigned int address, int size, uint8 value, LUAMEMHOOK hookType);
 uint32 FCEU_LuaReadJoypad(int n, uint32 ret);
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+void FCEU_LuaJoypadApply(void);
+void FCEU_LuaJoypadClear(int player);
+#ifdef __cplusplus
+}
+#endif
+
 // Load and run Lua script from file
 int FCEU_LoadLuaScript(const char* filename);
 
