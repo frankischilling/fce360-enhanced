@@ -462,6 +462,9 @@
  {
  private:
 	 CXuiList XuiRomList;
+	 CXuiTextElement XuiRomCounter;   // the "0/100" text
+	 bool        m_hasCounter;    // did we find it in the XUR?
+	 int         m_lastReportedSel; // tracks changes to update every frame
  
 	 typedef struct s_rom_item{
 		 std::string path;
@@ -573,19 +576,25 @@
 	 HRESULT OnInit( XUIMessageInit* pInitData, BOOL& bHandled )
 	 {
 		 EnableTab(false);
- 
+
 		 HRESULT hr = GetChildById( L"XuiRomList", &XuiRomList );
 		 if( FAILED( hr ) )
 		 {
 			 return hr;
 		 }
-		 else
+
+		 // get the counter text (it's okay if it's missing)
+		 hr = GetChildById( L"XuiRomCounter", &XuiRomCounter );
+		 m_hasCounter = SUCCEEDED(hr);
+		 m_lastReportedSel = -1;
+		 // Optional debug to catch an ID mismatch at runtime:
+		 if (!m_hasCounter) OutputDebugStringA("XuiRomCounter not found in XUR (check the control ID)\n");
+
+		 // ScanDir will handle list population via ApplySearchFilter
+		 hr = ScanDir();
+		 if(FAILED(hr))
 		 {
-			 // ScanDir will handle list population via ApplySearchFilter
-			 if(FAILED(ScanDir()))
-			 {
-				 return hr;
-			 }
+			 return hr;
 		 }
  
 		 // init scroll config/state
@@ -628,9 +637,14 @@
 		 // Load favorites from config
 		 LoadFavorites();
 		 
+		 // Re-apply filter now that recent games and favorites are loaded
+		 ApplySearchFilter();
+		 
 		 // expose instance for per-frame updates from RenderXui
 		 g_LoadGameInstance = this;
- 
+
+		 UpdateRomCounter();
+
 		 return S_OK;
 	 }
 	 
@@ -644,24 +658,54 @@
 		 LoadRecentGames();
 		 LoadFavorites();
 		 ApplySearchFilter();  // Refresh the display with updated recent games and favorites
+		 UpdateRomCounter();
 		 bHandled = TRUE;
 		 return S_OK;
 	 }
 	 
+	 void UpdateRomCounter()
+	 {
+		 if (!m_hasCounter) return;
+
+		 // total = only real selectable items (skip separators like "---")
+		 int total = 0;
+		 for (size_t i = 0; i < m_rom_list.size(); ++i)
+			 if (IsSelectable(m_rom_list[i])) ++total;
+
+		 int sel = XuiRomList.GetCurSel();
+		 if (sel < 0) sel = 0;
+		 if (sel >= (int)m_rom_list.size() && !m_rom_list.empty())
+			 sel = (int)m_rom_list.size() - 1;
+
+		 int current = CountSelectableUpTo(sel);
+
+		 // If selection is on a separator (so current==0) but there ARE items,
+		 // show "1/total" instead of "0/total" to avoid the stuck-at-zero look.
+		 if (total > 0 && current == 0) current = 1;
+
+		 wchar_t buf[32];
+		 if (total <= 0) {
+			 wcscpy(buf, L"0/0");
+		 } else {
+			 swprintf(buf, L"%d/%d", current, total);
+		 }
+		 XuiRomCounter.SetText(buf);
+	 }
+
 	 void Page(int dir /* +1 = up page, -1 = down page */)
 	 {
 		 int count = XuiRomList.GetItemCount();
 		 if (count <= 0) return;
- 
+
 		 int cur = XuiRomList.GetCurSel();
 		 int next = cur + (dir > 0 ? -m_pageSize : +m_pageSize);
 		 if (next < 0) next = 0;
 		 if (next >= count) next = count - 1;
- 
+
 		 if (next != cur)
 		 {
 			 XuiRomList.SetCurSel(next);
- 
+
 			 // keep selection roughly centered
 			 int visible = 10;
 			 int top = next - (visible / 2);
@@ -669,6 +713,8 @@
 			 int maxTop = (count > visible) ? (count - visible) : 0;
 			 if (top > maxTop) top = maxTop;
 			 XuiRomList.SetTopItem(top);
+			 
+			 UpdateRomCounter();
 		 }
 	 }
  
@@ -677,8 +723,21 @@
 		 Input::GetInput(NULL);
 		 GAMEPAD* pad = Input::GetMergedInput(0, NULL);
 		 if (!pad) return;
- 
+
+		 // catch XUI's own one-step moves - update counter whenever selection changes
+		 int selNow = XuiRomList.GetCurSel();
+		 if (selNow != m_lastReportedSel) {
+			 m_lastReportedSel = selNow;
+			 UpdateRomCounter();
+		 }
+		 
+		 // Also update periodically to catch any missed updates (every ~100ms)
+		 static DWORD lastCounterUpdate = 0;
 		 DWORD now = GetTickCount();
+		 if (now - lastCounterUpdate > 100) {
+			 lastCounterUpdate = now;
+			 UpdateRomCounter();
+		 }
 		 
 		 // Check for keyboard completion if one is pending (non-blocking check)
 		 if (m_keyboardPending && m_keyboardEvent)
@@ -786,6 +845,8 @@
 							 // Fallback: try original index if item count hasn't changed much
 							 XuiRomList.SetCurSel(selIndex);
 						 }
+						 
+						 UpdateRomCounter();
 					 }
 				 }
 			 }
@@ -924,7 +985,7 @@
 		 if( next != cur )
 		 {
 			 XuiRomList.SetCurSel( next );
- 
+
 			 // Keep selection in view by adjusting the top item.
 			 int visible = 10; // conservative fallback; XUI doesn't expose a query here
 			 int top = next - (visible / 2);
@@ -932,9 +993,22 @@
 			 int maxTop = (count > visible) ? (count - visible) : 0;
 			 if( top > maxTop ) top = maxTop;
 			 XuiRomList.SetTopItem( top );
+			 
+			 UpdateRomCounter();
 		 }
 	 }
  private:
+	 static bool IsSelectable(const rom_item& r) {
+		 return !r.path.empty() && !r.filename.empty();
+	 }
+
+	 int CountSelectableUpTo(int idxInclusive) const {
+		 int c = 0;
+		 for (int i = 0; i <= idxInclusive && i < (int)m_rom_list.size(); ++i)
+			 if (IsSelectable(m_rom_list[i])) ++c;
+		 return c;
+	 }
+
 	 void ApplySearchFilter()
 	 {
 		 m_rom_list.clear();
@@ -1101,6 +1175,11 @@
 				 XuiRomList.SetCurSel(0);
 				 XuiRomList.SetTopItem(0);
 			 }
+			 UpdateRomCounter();
+		 }
+		 else
+		 {
+			 UpdateRomCounter();
 		 }
 	 }
 	 
