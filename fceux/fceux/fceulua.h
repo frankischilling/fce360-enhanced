@@ -119,6 +119,7 @@ void CallRegisteredLuaLoadFunctions(void* state, LuaSaveData& saveData);
  
  // Lua drawing functions exposed to scripts
  int lua_drawtext(lua_State *L);
+ int lua_drawtextscaled(lua_State *L);
  int lua_drawpixel(lua_State *L);
  int lua_drawline(lua_State *L);
  int lua_drawthickline(lua_State *L);

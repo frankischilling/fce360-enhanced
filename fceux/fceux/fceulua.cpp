@@ -46,6 +46,11 @@ extern uint8 PPU[4];
 extern uint8 *VPage[8];
 extern uint8 *CHRptr[32];
 
+// Extern font data from drawing.cpp
+extern uint8 Font6x7[792];
+extern int FixJoedChar(uint8 ch);
+extern int JoedCharWidth(uint8 ch);
+
 // --- Overlay geometry and font metrics ---
 enum { OVL_W = 256, OVL_H = 240, GLYPH_H = 8 };
 
@@ -71,6 +76,8 @@ void lua_pushcfunction(lua_State* L, int (*fn)(lua_State*));
 void lua_setglobal(lua_State* L, const char* name);
 int luaL_error(lua_State* L, const char* fmt, ...);
 int luaL_checkinteger(lua_State* L, int idx);
+double luaL_checknumber(lua_State* L, int idx);
+const char* luaL_checkstring(lua_State* L, int idx);
 void lua_pushinteger(lua_State* L, int n);
 }
  
@@ -476,6 +483,76 @@ static bool g_overlayDirty = false;
 	 DrawTextTransWH(base, pitch, (uint8*)s, color, max_w, max_h, 0);
  }
 
+// ---- Rotated text (glyph-only, no background/outline) ----
+
+static inline void DrawTextTransRotated(
+	uint8* base, int pitch,
+	int x, int y,
+	const char* text, uint8 fgcolor, float angleDeg)
+{
+	if(!base || !text || !*text) return;
+
+	// Fast path: angle == 0 -> regular draw
+	int anglei = (int)angleDeg;
+	if(((anglei % 360) + 360) % 360 == 0) {
+		uint8* dest = base + y * pitch + x;
+		if(dest >= base && dest < base + OVL_W * OVL_H)
+			DrawTextTrans(dest, pitch, (uint8*)text, fgcolor);
+		return;
+	}
+
+	// Clamp once; we'll bounds-check each pixel anyway
+	if(x <= -OVL_W || x >= OVL_W || y <= -OVL_H || y >= OVL_H) {
+		// Still may draw if rotation swings pixels in; keep going.
+	}
+
+	// Precompute rotation
+	// Use standard counter-clockwise rotation matrix
+	// Standard: x' = x*cos - y*sin, y' = x*sin + y*cos
+	// This gives: 0°=right, 90°=down, 180°=left, 270°=up (for screen Y-down coords)
+	const float PI = 3.14159265358979323846f;
+	float a = angleDeg * (PI / 180.0f);
+	float cs = cosf(a), sn = sinf(a);
+
+	// Pen position in source (unrotated) text space
+	int penX = 0, penY = 0;
+
+	for(const char* p = text; *p; ++p)
+	{
+		if(*p == '\n') { penX = 0; penY += 8; continue; }
+
+		int ch  = FixJoedChar((uint8)*p);
+		int wid = JoedCharWidth((uint8)*p);
+
+		for(int ny = 0; ny < 7; ++ny)
+		{
+			uint8 row = Font6x7[ch*8 + 1 + ny];
+			for(int nx = 0; nx < wid; ++nx)
+			{
+				if(((row >> (7 - nx)) & 1) == 0) continue;
+
+				// source local coords (right = +x, down = +y)
+				float fx = (float)(penX + nx);
+				float fy = (float)(penY + ny);
+
+				// rotate around origin (x,y) in screen space
+				// Standard 2D rotation: x' = x*cos - y*sin, y' = x*sin + y*cos
+				int rx = (int)floorf(x + (cs*fx - sn*fy) + 0.5f);
+				int ry = (int)floorf(y + (sn*fx + cs*fy) + 0.5f);
+
+				if(rx < 0 || rx >= OVL_W || ry < 0 || ry >= OVL_H) continue;
+				if(is_point_clipped(rx, ry)) continue;
+
+				uint8* dst = base + ry * pitch + rx;
+				if(dst >= base && dst < base + OVL_W * OVL_H) {
+					*dst = apply_blend_mode(*dst, fgcolor);
+				}
+			}
+		}
+		penX += wid;
+	}
+}
+
 static void DrawLuaConsole(uint8* buf) {
 	if (!s_consoleVisible || !buf) return;
 
@@ -687,6 +764,316 @@ static void DrawLuaConsole(uint8* buf) {
 	 
 	 DrawTextTransWH(dest, OVL_W, (uint8*)text, mapped, max_w, max_h, border <= 0 ? 0 : border);
 	 
+	 g_overlayDirty = true;
+	 return 0;
+ }
+
+ // Lua drawing function - allows scripts to draw text with custom scaling
+ int lua_drawtextscaled(lua_State *L) {
+	 int n = lua_gettop(L);
+	 if (n < 6) {
+		 return luaL_error(L, "drawtextscaled(x, y, text, color, scaleX, scaleY) requires 6 arguments");
+	 }
+	 
+	 int x = (int)luaL_checkinteger(L, 1);
+	 int y = (int)luaL_checkinteger(L, 2);
+	 const char* text = luaL_checkstring(L, 3);
+	 int color_in = (int)luaL_checkinteger(L, 4);
+	 float scaleX = (float)luaL_checknumber(L, 5);
+	 float scaleY = (float)luaL_checknumber(L, 6);
+	 
+	 if (!currentXBuf || !text || !*text) return 0;
+	 
+	 // Clamp scale values to valid range (0.5-4.0)
+	 if (scaleX < 0.5f) scaleX = 0.5f;
+	 if (scaleX > 4.0f) scaleX = 4.0f;
+	 if (scaleY < 0.5f) scaleY = 0.5f;
+	 if (scaleY > 4.0f) scaleY = 4.0f;
+	 
+	 // Early return if completely off-screen
+	 if (x >= OVL_W) return 0;
+	 if (y >= OVL_H) return 0;
+	 
+	 // Clamp coordinates to safe bounds
+	 if (x < 0) x = 0;
+	 if (y < 0) y = 0;
+	 
+	 // Calculate maximum scaled text dimensions for bounds checking
+	 // Each character is up to 6 pixels wide and 7 pixels tall (scaled)
+	 int maxCharWidth = (int)(6 * scaleX + 0.5f);
+	 int maxCharHeight = (int)(7 * scaleY + 0.5f);
+	 
+	 // Estimate text width (rough approximation)
+	 int textWidth = 0;
+	 const char* p = text;
+	 while (*p && *p != '\n') {
+		 textWidth += maxCharWidth;
+		 p++;
+	 }
+	 
+	 // Ensure text fits on screen (DrawTextTransScaled will handle pixel-level clipping)
+	 if (y + maxCharHeight > OVL_H) {
+		 // Text would extend past screen bottom - skip drawing
+		 return 0;
+	 }
+	 
+	 // Verify buffer pointer is valid before drawing
+	 if (y * OVL_W + x < 0 || y * OVL_W + x >= OVL_W * OVL_H) return 0;
+	 
+	 uint8 *dest = currentXBuf + y * OVL_W + x;
+	 if (dest < currentXBuf || dest >= currentXBuf + OVL_W * OVL_H) return 0;
+	 
+	 uint8 mapped = map_overlay_color(color_in);
+	 DrawTextTransScaled(dest, OVL_W, (uint8*)text, mapped, scaleX, scaleY);
+	 g_overlayDirty = true;
+	 return 0;
+ }
+
+ // drawtextrotated(x, y, text, color, angleDeg)
+ int lua_drawtextrotated(lua_State* L)
+ {
+	 int n = lua_gettop(L);
+	 if(n < 5)
+		 return luaL_error(L, "drawtextrotated(x, y, text, color, angle) requires 5 arguments");
+
+	 int x = (int)luaL_checkinteger(L, 1);
+	 int y = (int)luaL_checkinteger(L, 2);
+	 const char* text = luaL_checkstring(L, 3);
+	 int color_in = (int)luaL_checkinteger(L, 4);
+	 int angleDeg = (int)luaL_checkinteger(L, 5);
+
+	 if(!currentXBuf || !text || !*text) return 0;
+
+	 // Normalize & map color, clamp angle
+	 if(angleDeg < 0) angleDeg %= 360, angleDeg += 360;
+	 else              angleDeg %= 360;
+
+	 uint8 mapped = map_overlay_color(color_in);
+
+	 // Defensive pointer check for starting row; per-pixel checks are inside
+	 if(y * OVL_W + x < -OVL_W || y * OVL_W + x > OVL_W * OVL_H) {
+		 // Not a hard error; we still try (rotation may move pixels onscreen)
+	 }
+
+	 DrawTextTransRotated(currentXBuf, OVL_W, x, y, text, mapped, (float)angleDeg);
+	 g_overlayDirty = true;
+	 return 0;
+ }
+
+ // gettextwidth(text) -> integer pixels
+ // Returns the pixel width of the longest line in `text` using the same
+ // variable-width metrics as DrawTextTrans (Font6x7 + JoedCharWidth).
+ static int lua_gettextwidth(lua_State* L)
+ {
+	 const char* s = luaL_checkstring(L, 1);
+	 if (!s || !*s) { lua_pushinteger(L, 0); return 1; }
+
+	 int maxw = 0;
+	 int curw = 0;
+
+	 // Space/tab handling
+	 int space_w = JoedCharWidth((uint8)' ');
+	 if (space_w <= 0) space_w = 4;   // safe fallback if font says 0/unknown
+	 const int tab_w = space_w * 4; // 4-space tab stops
+
+	 for (const unsigned char* p = (const unsigned char*)s; *p; ++p)
+	 {
+		 unsigned char ch = *p;
+
+		 // newline -> finalize this line, start next
+		 if (ch == '\n') {
+			 if (curw > maxw) maxw = curw;
+			 curw = 0;
+			 continue;
+		 }
+
+		 // carriage return: ignore (Windows line endings)
+		 if (ch == '\r') {
+			 continue;
+		 }
+
+		 // tabs: advance by 4 spaces (no hard tab-stop alignment in pixels)
+		 if (ch == '\t') {
+			 curw += tab_w;
+			 continue;
+		 }
+
+		 // Measure variable width using the same mapping as drawing
+		 int cw = JoedCharWidth(ch);
+		 if (cw > 0) curw += cw;
+		 // else non-printable/unknown -> zero advance
+	 }
+
+	 if (curw > maxw) maxw = curw;
+	 lua_pushinteger(L, maxw);
+	 return 1;
+ }
+
+ // gettextheight(text) -> integer pixels
+ // Counts lines separated by '\n'. Empty string => 0 pixels.
+ // Trailing '\n' adds an empty line (so "a\n" -> 2 lines -> 16 px).
+ static int lua_gettextheight(lua_State* L)
+ {
+	 const char* s = luaL_checkstring(L, 1);
+	 if (!s || !*s) { lua_pushinteger(L, 0); return 1; }
+
+	 int lines = 1;
+	 for (const unsigned char* p = (const unsigned char*)s; *p; ++p)
+		 if (*p == '\n') ++lines;
+
+	 lua_pushinteger(L, lines * GLYPH_H); // GLYPH_H is 8
+	 return 1;
+ }
+
+ // drawtextbox(x, y, width, height, text, color, bgColor, borderColor)
+ // Draws text in a bordered box with background
+ // bgColor and borderColor are optional (nil or -1 for no background/border)
+ static int lua_drawtextbox(lua_State* L)
+ {
+	 int n = lua_gettop(L);
+	 if (n < 6) {
+		 return luaL_error(L, "drawtextbox(x, y, width, height, text, color [, bgColor, borderColor]) requires at least 6 arguments");
+	 }
+
+	 int x = (int)luaL_checkinteger(L, 1);
+	 int y = (int)luaL_checkinteger(L, 2);
+	 int width = (int)luaL_checkinteger(L, 3);
+	 int height = (int)luaL_checkinteger(L, 4);
+	 const char* text = luaL_checkstring(L, 5);
+	 int color = (int)luaL_checkinteger(L, 6);
+	 
+	 // Optional parameters
+	 int bgColor = -1;
+	 int borderColor = -1;
+	 if (n >= 7 && !lua_isnil(L, 7)) {
+		 bgColor = (int)luaL_checkinteger(L, 7);
+	 }
+	 if (n >= 8 && !lua_isnil(L, 8)) {
+		 borderColor = (int)luaL_checkinteger(L, 8);
+	 }
+
+	 if (!currentXBuf || !text) return 0;
+
+	 // Clamp dimensions
+	 if (width <= 0 || height <= 0) return 0;
+	 if (x < 0) x = 0;
+	 if (y < 0) y = 0;
+	 if (x + width > OVL_W) width = OVL_W - x;
+	 if (y + height > OVL_H) height = OVL_H - y;
+	 if (width <= 0 || height <= 0) return 0;
+
+	 // Border thickness (3 pixels as requested for testing)
+	 const int borderThickness = 3;
+
+	 // Calculate inner area (accounting for border)
+	 int innerX = x;
+	 int innerY = y;
+	 int innerW = width;
+	 int innerH = height;
+	 
+	 if (borderColor >= 0) {
+		 innerX += borderThickness;
+		 innerY += borderThickness;
+		 innerW -= borderThickness * 2;
+		 innerH -= borderThickness * 2;
+		 
+		 // Ensure inner area is valid
+		 if (innerW <= 0 || innerH <= 0) {
+			 // Box too small for border, just draw border
+			 innerW = 0;
+			 innerH = 0;
+		 }
+	 }
+
+	 // Draw background (if specified)
+	 if (bgColor >= 0 && innerW > 0 && innerH > 0) {
+		 uint8 mappedBg = map_overlay_color(bgColor);
+		 for (int py = innerY; py < innerY + innerH && py < OVL_H; ++py) {
+			 if (py < 0) continue;
+			 for (int px = innerX; px < innerX + innerW && px < OVL_W; ++px) {
+				 if (px < 0) continue;
+				 if (!is_point_clipped(px, py)) {
+					 uint8* dest = currentXBuf + py * OVL_W + px;
+					 *dest = apply_blend_mode(*dest, mappedBg);
+				 }
+			 }
+		 }
+	 }
+
+	 // Draw border (if specified) - 3 pixel thick border
+	 if (borderColor >= 0) {
+		 uint8 mappedBorder = map_overlay_color(borderColor);
+		 
+		 // Draw border as filled rectangles on each side
+		 // Top border
+		 for (int by = 0; by < borderThickness && by < height; ++by) {
+			 int py = y + by;
+			 if (py >= 0 && py < OVL_H) {
+				 for (int px = x; px < x + width && px < OVL_W; ++px) {
+					 if (px >= 0 && !is_point_clipped(px, py)) {
+						 uint8* dest = currentXBuf + py * OVL_W + px;
+						 *dest = apply_blend_mode(*dest, mappedBorder);
+					 }
+				 }
+			 }
+		 }
+		 
+		 // Bottom border
+		 for (int by = height - borderThickness; by < height; ++by) {
+			 int py = y + by;
+			 if (py >= 0 && py < OVL_H) {
+				 for (int px = x; px < x + width && px < OVL_W; ++px) {
+					 if (px >= 0 && !is_point_clipped(px, py)) {
+						 uint8* dest = currentXBuf + py * OVL_W + px;
+						 *dest = apply_blend_mode(*dest, mappedBorder);
+					 }
+				 }
+			 }
+		 }
+		 
+		 // Left border
+		 for (int bx = 0; bx < borderThickness && bx < width; ++bx) {
+			 int px = x + bx;
+			 if (px >= 0 && px < OVL_W) {
+				 for (int py = y; py < y + height && py < OVL_H; ++py) {
+					 if (py >= 0 && !is_point_clipped(px, py)) {
+						 uint8* dest = currentXBuf + py * OVL_W + px;
+						 *dest = apply_blend_mode(*dest, mappedBorder);
+					 }
+				 }
+			 }
+		 }
+		 
+		 // Right border
+		 for (int bx = width - borderThickness; bx < width; ++bx) {
+			 int px = x + bx;
+			 if (px >= 0 && px < OVL_W) {
+				 for (int py = y; py < y + height && py < OVL_H; ++py) {
+					 if (py >= 0 && !is_point_clipped(px, py)) {
+						 uint8* dest = currentXBuf + py * OVL_W + px;
+						 *dest = apply_blend_mode(*dest, mappedBorder);
+					 }
+				 }
+			 }
+		 }
+	 }
+
+	 // Draw text inside the box (with padding)
+	 if (innerW > 0 && innerH > 0 && text && *text) {
+		 int textX = innerX + 2;  // 2 pixel padding
+		 int textY = innerY + 2;  // 2 pixel padding
+		 int textW = innerW - 4;  // Account for padding on both sides
+		 int textH = innerH - 4;  // Account for padding on both sides
+		 
+		 if (textW > 0 && textH > 0 && textX >= 0 && textY >= 0 && textX < OVL_W && textY < OVL_H) {
+			 uint8 mapped = map_overlay_color(color);
+			 uint8* dest = currentXBuf + textY * OVL_W + textX;
+			 
+			 // Use DrawTextTransWH with border=0 (no text border, we have box border)
+			 DrawTextTransWH(dest, OVL_W, (uint8*)text, mapped, textW, textH, 0);
+		 }
+	 }
+
 	 g_overlayDirty = true;
 	 return 0;
  }
@@ -3948,6 +4335,13 @@ int lua_ismemorywritable(lua_State *L) {
 	 // Register FCEU functions
 	 lua_register(luaState, "drawtext", lua_drawtext);
 	 lua_register(luaState, "drawtextwh", lua_drawtextwh);
+	 lua_register(luaState, "drawtextscaled", lua_drawtextscaled);
+	 lua_register(luaState, "drawtextrotated", lua_drawtextrotated);
+	 lua_pushcfunction(luaState, lua_gettextwidth);
+	 lua_setglobal(luaState, "gettextwidth");
+	 lua_pushcfunction(luaState, lua_gettextheight);
+	 lua_setglobal(luaState, "gettextheight");
+	 lua_register(luaState, "drawtextbox", lua_drawtextbox);
 	 lua_register(luaState, "drawpixel", lua_drawpixel);
 	 lua_register(luaState, "drawline", lua_drawline);
 	 lua_register(luaState, "drawthickline", lua_drawthickline);
@@ -4033,6 +4427,13 @@ static void EnsureLuaInit() {
 	#define REG(n,f) lua_register(luaState, n, f)
 	REG("drawtext",       lua_drawtext);
 	REG("drawtextwh",     lua_drawtextwh);
+	REG("drawtextscaled", lua_drawtextscaled);
+	REG("drawtextrotated", lua_drawtextrotated);
+	lua_pushcfunction(luaState, lua_gettextwidth);
+	lua_setglobal(luaState, "gettextwidth");
+	lua_pushcfunction(luaState, lua_gettextheight);
+	lua_setglobal(luaState, "gettextheight");
+	REG("drawtextbox",    lua_drawtextbox);
 	REG("drawpixel",      lua_drawpixel);
 	REG("drawline",       lua_drawline);
 	REG("drawthickline",  lua_drawthickline);
@@ -5163,11 +5564,6 @@ void FCEU_ReloadLuaCode(void) {
  // Update Lua at 30Hz, but composite the last overlay every frame to prevent flicker
  // Double-buffered: only publish new overlay if Lua succeeds (fail-safe)
  void FCEU_LuaGui(uint8 *XBuf) {
-	 if (s_luaDisabled) {
-		 ClearOverlaysIfAny();
-		 return; // no composite, no "LUA OFF" banner, truly silent
-	 }
-	 
 	 // Safety check: ensure overlay is initialized before proceeding
 	 EnsureOverlay();
 	 if (!s_overlay_back || !s_overlay_front) {
@@ -5175,13 +5571,24 @@ void FCEU_ReloadLuaCode(void) {
 		 return;
 	 }
 	 
+	 // If console is visible, we need to draw it even when Lua is disabled
+	 // Otherwise, if Lua is disabled, clear overlays and return early
+	 if (s_luaDisabled && !s_consoleVisible) {
+		 ClearOverlaysIfAny();
+		 return; // no composite, no "LUA OFF" banner, truly silent
+	 }
+	 
      static DWORD lastGuiTime = 0;
      static bool prevConsoleVisible = false;
      DWORD now = GetTickCount();
      DWORD step = s_scriptIntervalMs; // script()-cadence (default 33ms)
 	 
+	 // Check if console visibility changed - if so, force an update immediately
+	 bool consoleVisibilityChanged = (s_consoleVisible != prevConsoleVisible);
+	 
 	 // Update overlay contents at ~30Hz (only when Lua needs to run)
-	 if (now - lastGuiTime >= step) {
+	 // Also update immediately if console visibility changed
+	 if (now - lastGuiTime >= step || consoleVisibilityChanged) {
 		 lastGuiTime = now;
 		 
 		 // Always start fresh to avoid "ghost" rectangles from prior frames
@@ -5224,7 +5631,8 @@ void FCEU_ReloadLuaCode(void) {
 		 bool ok = false;  // Track if Lua succeeded
 		 g_overlayDirty = false;  // Reset before calling Lua
 		 
-		 if (luaInitialized && luaState != NULL) {
+		 // Only run Lua scripts if Lua is enabled and initialized
+		 if (!s_luaDisabled && luaInitialized && luaState != NULL) {
 			 // Point Lua draw calls at the back buffer, not the front buffer
 			 currentXBuf = s_overlay_back;
 			 

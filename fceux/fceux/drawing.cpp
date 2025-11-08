@@ -29,7 +29,7 @@
 #include "movie.h"
 #include "driver.h"
 
-static uint8 Font6x7[792] =
+uint8 Font6x7[792] =
 {
 	6,  0,  0,  0,  0,  0,  0,  0,
 	3, 64, 64, 64, 64, 64,  0, 64,
@@ -414,12 +414,12 @@ void FCEU_DrawNumberRow(uint8 *XBuf, int *nstatus, int cur)
 		}
 }  
 
-static int FixJoedChar(uint8 ch)
+int FixJoedChar(uint8 ch)
 {
 	int c = ch; c -= 32;
 	return (c < 0 || c > 98) ? 0 : c;
 }
-static int JoedCharWidth(uint8 ch)
+int JoedCharWidth(uint8 ch)
 {
 	return Font6x7[FixJoedChar(ch)*8];
 }
@@ -545,4 +545,70 @@ void DrawTextTrans(uint8 *dest, uint32 width, uint8 *textmsg, uint8 fgcolor)
 {
 	// Borderless glyph-only draw
 	DrawTextTransWH(dest, width, textmsg, fgcolor, 256, 16, 0);
+}
+
+void DrawTextTransScaled(uint8 *dest, uint32 width, uint8 *textmsg, uint8 fgcolor, float scaleX, float scaleY)
+{
+	assert(width == 256);
+	
+	// Clamp scale values to valid range (0.5-4.0)
+	if (scaleX < 0.5f) scaleX = 0.5f;
+	if (scaleX > 4.0f) scaleX = 4.0f;
+	if (scaleY < 0.5f) scaleY = 0.5f;
+	if (scaleY > 4.0f) scaleY = 4.0f;
+	
+	unsigned x = 0;
+	unsigned y = 0;
+	
+	for (; *textmsg; ++textmsg)
+	{
+		if (*textmsg == '\n') {
+			x = 0;
+			y += (unsigned)(8 * scaleY + 0.5f);
+			if (y >= 240) break;
+			continue;
+		}
+		
+		int ch = FixJoedChar(*textmsg);
+		int srcWid = JoedCharWidth(*textmsg);
+		int scaledWid = (int)(srcWid * scaleX + 0.5f);
+		
+		// Draw each source pixel scaled
+		for (int srcY = 0; srcY < 7; ++srcY)
+		{
+			uint8 d = Font6x7[ch * 8 + 1 + srcY];
+			int dstY = (int)(y + srcY * scaleY + 0.5f);
+			
+			if (dstY >= 240) break;
+			
+			for (int srcX = 0; srcX < srcWid; ++srcX)
+			{
+				if ((d >> (7 - srcX)) & 1)
+				{
+					// Draw scaled pixel block
+					int dstXStart = (int)(x + srcX * scaleX + 0.5f);
+					int dstXEnd = (int)(x + (srcX + 1) * scaleX + 0.5f);
+					int dstYStart = (int)(y + srcY * scaleY + 0.5f);
+					int dstYEnd = (int)(y + (srcY + 1) * scaleY + 0.5f);
+					
+					for (int dy = dstYStart; dy < dstYEnd && dy < 240; ++dy)
+					{
+						if (dy < 0) continue;
+						for (int dx = dstXStart; dx < dstXEnd && dx < 256; ++dx)
+						{
+							if (dx >= 0)
+								dest[dy * width + dx] = fgcolor;
+						}
+					}
+				}
+			}
+		}
+		
+		x += scaledWid;
+		if (x >= 256) {
+			x = 0;
+			y += (unsigned)(8 * scaleY + 0.5f);
+			if (y >= 240) break;
+		}
+	}
 }
