@@ -7,7 +7,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.7.0** — *ROM counter display + separator handling improvements + all prior features from v0.6.1–v0.6.9*
+* Current release: **v0.7.2** — *New Lua API functions: getromname(), pressbutton(), releasebutton(), and input recording functions + all prior features from v0.7.1–v0.6.1*
 
 ---
 
@@ -15,6 +15,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.7.2 - New Lua API Functions](#whats-new-v072)
   - [v0.7.1 - Text Measurement and Rotation API Functions](#whats-new-v071)
   - [v0.7.0 - ROM Counter Display](#whats-new-v070)
   - [v0.6.9 - Famicom Disk System Support](#whats-new-v069)
@@ -90,6 +91,65 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
   * Completes the VSync frame pacing implementation
 
 * **Includes Previous Features:**
+  * All v0.6.8 features: VSync frame pacing with texture latching
+  * All v0.6.7 features: Drawing API enhancements and advanced memory functions
+  * All prior features from v0.6.1–v0.6.6
+
+---
+
+## What's new (v0.7.2)
+
+* **New Lua API Functions:** Added **6 powerful new API functions** for ROM detection, precise input control, and input recording/playback!
+
+  * **ROM Detection Function:**
+    * `getromname()` - Get current ROM filename with extension (e.g., "Super Mario Bros.nes" or "game.fds")
+    * Works for both NES and FDS games
+    * Handles zip archive format: extracts filename from "path.zip|internal.nes" format
+    * Returns empty string if no game is loaded
+    * Useful for game detection, ROM-specific scripts, or displaying current game name
+    * Added to Monitoring Functions section
+
+  * **One-Frame Input Control Functions:**
+    * `pressbutton(player, button)` - Press a button for **one frame only**, automatically released on next frame
+      * Perfect for menu navigation, single-frame actions, and precise timing requirements
+      * Works alongside `setjoypad()` - one-frame presses are applied on top of persistent overrides
+      * Multiple calls in the same frame combine (OR'd together)
+      * Must be called in `beforeframe()` callback for proper timing
+    * `releasebutton(player, button)` - Release a button for **one frame only**, automatically returns to previous state
+      * Useful for creating brief button releases while maintaining a held state
+      * Works alongside `setjoypad()` and `pressbutton()` - one-frame releases applied after presses
+      * Multiple calls in the same frame combine (OR'd together)
+      * Must be called in `beforeframe()` callback for proper timing
+
+  * **Input Recording Functions:**
+    * `startinputrecording()` - Start recording input for all players (0-3)
+      * Begins frame-by-frame input recording
+      * Clears any existing recording data when starting new recording
+      * Returns `true` if recording started successfully, `false` if already recording
+      * Recording continues until `stopinputrecording()` is called
+    * `stopinputrecording()` - Stop recording and return recorded data
+      * Stops the current input recording and returns recorded data as a Lua table
+      * Returns table with frame-by-frame button states for all players
+      * Table structure is compatible with `playinputrecording()` for playback
+      * Returns `nil` if no recording was active
+    * `playinputrecording(data)` - Play back recorded input
+      * Plays back recorded input from a table returned by `stopinputrecording()`
+      * Overrides all input (hardware and Lua) until playback finishes
+      * Useful for TAS (Tool-Assisted Speedrun) tools, input replay, and automated testing
+      * Playback is frame-accurate and matches the original recording exactly
+
+* **Use Cases:**
+  * **ROM Detection:** Game-specific scripts, ROM change detection, displaying current game name
+  * **One-Frame Input:** Menu navigation, precise timing requirements, single-frame actions
+  * **Input Recording:** TAS tools, input replay, automated testing, speedrun practice
+
+* **Full Documentation:** Complete API reference with examples in **[Lua Scripting API](#lua-scripting-api)** section below!
+
+* **Includes Previous Features:**
+  * All v0.7.1 features: Text measurement and rotation API functions
+  * All v0.7.0 features: ROM counter display and separator handling improvements
+  * All v0.6.9 features: Famicom Disk System support and alphabetical ROM sorting
+  * All v0.6.8.1 features: VSync synchronization hotfix
   * All v0.6.8 features: VSync frame pacing with texture latching
   * All v0.6.7 features: Drawing API enhancements and advanced memory functions
   * All prior features from v0.6.1–v0.6.6
@@ -680,6 +740,33 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
   - [Monitoring Functions](#monitoring-functions)
     - [`getfps()`](#getfps)
       - Parameters, Returns, Notes, Basic & Advanced Examples
+    - [`getjoypad(player)`](#getjoypadplayer)
+      - Parameters, Returns, Button Bitmask, Notes, Examples
+    - [`isbuttonpressed(player, button)`](#isbuttonpressedplayer-button)
+      - Parameters, Returns, Button Names, Notes, Examples
+    - [`getbuttonname(buttonMask)`](#getbuttonnamebuttonmask)
+      - Parameters, Returns, Notes, Examples
+    - [`getbuttonmask(buttonName)`](#getbuttonmaskbuttonname)
+      - Parameters, Returns, Notes, Examples
+    - [`getromname()`](#getromname)
+      - Parameters, Returns, Notes, Examples
+  - [`gethardwarejoypad(player)`](#gethardwarejoypadplayer)
+    - Parameters, Returns, Notes, Examples
+  - [`setjoypad(player, buttons)`](#setjoypadplayer-buttons)
+      - Parameters, Returns, Notes, Examples
+    - [`clearjoypad(player)`](#clearjoypadplayer)
+      - Parameters, Returns, Notes, Examples
+    - [`pressbutton(player, button)`](#pressbuttonplayer-button)
+      - Parameters, Returns, Notes, Examples
+    - [`releasebutton(player, button)`](#releasebuttonplayer-button)
+      - Parameters, Returns, Notes, Examples
+  - [Input Recording Functions](#input-recording-functions)
+    - [`startinputrecording()`](#startinputrecording)
+      - Parameters, Returns, Notes, Examples
+    - [`stopinputrecording()`](#stopinputrecording)
+      - Parameters, Returns, Notes, Examples
+    - [`playinputrecording(data)`](#playinputrecordingdata)
+      - Parameters, Returns, Notes, Examples
   - [Memory Reading Functions](#memory-reading-functions)
     - [`readbyte(address)`](#readbyteaddress)
       - Parameters, Returns, Notes, Examples
@@ -743,6 +830,8 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
     - Backward Compatibility: `gui()` is also supported
   - [`joypad(player, buttons)`](#joypadplayer-buttons-optional) - *Optional callback*
     - Button Bitmask Reference, Bitwise Operations, Multiple Examples
+  - [`beforeframe()`](#beforeframe-optional) - *Optional callback*
+    - When Called, Important Notes, TAS Examples
 - [Complete Examples](#complete-examples)
   - [FPS Display](#fps-display)
   - [On-Screen Timer](#on-screen-timer)
@@ -2726,6 +2815,1025 @@ function gui()
     drawtext(4, 4, string.format("FPS: %.1f", fps), 0x39)
     drawtext(4, 12, string.format("Avg: %.1f", avgFPS), 0x30)
 end
+```
+
+##### `getjoypad(player)`
+Gets the current controller state for a specified player as a raw button bitmask.
+
+**Parameters:**
+- `player` (integer): Player number (0-3)
+  - `0` = Player 1 (first controller)
+  - `1` = Player 2 (second controller)
+  - `2` = Player 3 (third controller, if connected)
+  - `3` = Player 4 (fourth controller, if connected)
+
+**Returns:**
+- `integer` - Button state as a bitmask (0x00-0xFF)
+
+**Button Bitmask:**
+The returned value is a bitmask where each bit represents a button:
+- Bit 0 (0x01): A
+- Bit 1 (0x02): B
+- Bit 2 (0x04): Select
+- Bit 3 (0x08): Start
+- Bit 4 (0x10): Up
+- Bit 5 (0x20): Down
+- Bit 6 (0x40): Left
+- Bit 7 (0x80): Right
+
+**Notes:**
+- Returns the current button state at the time of the call
+- Useful for reading controller input in `gui()` function
+- Can be used for input logging, input-based cheats, or visual feedback
+- To check if a button is pressed, use: `math.floor(buttons / mask) % 2 == 1` (Lua 5.1 doesn't have bitwise &)
+- The bitmask format matches the `joypad()` callback parameter
+
+**Example: Display Pressed Buttons:**
+```lua
+function gui()
+    local buttons = getjoypad(0)  -- Get Player 1 state
+    
+    -- Check which buttons are pressed (Lua 5.1 bit checking)
+    local buttonsPressed = {}
+    if math.floor(buttons / 0x01) % 2 == 1 then table.insert(buttonsPressed, "A") end
+    if math.floor(buttons / 0x02) % 2 == 1 then table.insert(buttonsPressed, "B") end
+    if math.floor(buttons / 0x04) % 2 == 1 then table.insert(buttonsPressed, "Select") end
+    if math.floor(buttons / 0x08) % 2 == 1 then table.insert(buttonsPressed, "Start") end
+    if math.floor(buttons / 0x10) % 2 == 1 then table.insert(buttonsPressed, "Up") end
+    if math.floor(buttons / 0x20) % 2 == 1 then table.insert(buttonsPressed, "Down") end
+    if math.floor(buttons / 0x40) % 2 == 1 then table.insert(buttonsPressed, "Left") end
+    if math.floor(buttons / 0x80) % 2 == 1 then table.insert(buttonsPressed, "Right") end
+    
+    -- Display button state
+    local status = #buttonsPressed > 0 and table.concat(buttonsPressed, ", ") or "None"
+    drawtext(4, 4, "P1 Buttons: " .. status, 0x20)
+    drawtext(4, 12, string.format("Raw: 0x%02X", buttons), 0x2D)
+end
+```
+
+**Example: Input-Based Cheat:**
+```lua
+local lastHealth = 0
+
+function gui()
+    -- Check if Start + Select are pressed (health restore cheat)
+    local buttons = getjoypad(0)
+    local startPressed = math.floor(buttons / 0x08) % 2 == 1
+    local selectPressed = math.floor(buttons / 0x04) % 2 == 1
+    
+    if startPressed and selectPressed then
+        -- Trigger health restore (implementation depends on game)
+        drawtext(4, 4, "CHEAT ACTIVATED", 0x29)
+    end
+end
+```
+
+**Example: Input Logging:**
+```lua
+local inputLog = {}
+
+function gui()
+    local buttons = getjoypad(0)
+    
+    -- Log input changes
+    if buttons ~= 0 then
+        table.insert(inputLog, string.format("Frame %d: 0x%02X", getfps(), buttons))
+    end
+    
+    -- Display last few inputs
+    local y = 4
+    for i = math.max(1, #inputLog - 5), #inputLog do
+        drawtext(4, y, inputLog[i], 0x2D)
+        y = y + 8
+    end
+end
+```
+
+##### `isbuttonpressed(player, button)`
+Checks if a specific button is pressed for a specified player.
+
+**Parameters:**
+- `player` (integer): Player number (0-3)
+  - `0` = Player 1 (first controller)
+  - `1` = Player 2 (second controller)
+  - `2` = Player 3 (third controller, if connected)
+  - `3` = Player 4 (fourth controller, if connected)
+- `button` (string): Button name (case-insensitive)
+  - Valid buttons: `"A"`, `"B"`, `"SELECT"`, `"START"`, `"UP"`, `"DOWN"`, `"LEFT"`, `"RIGHT"`
+
+**Returns:**
+- `boolean` - `true` if the button is pressed, `false` otherwise
+
+**Notes:**
+- Button names are case-insensitive (e.g., `"A"`, `"a"`, `"Up"`, `"UP"` all work)
+- Returns the current button state at the time of the call
+- More convenient than manually checking bits from `getjoypad()`
+- Useful for conditional logic based on button state
+
+**Example: Simple Button Check:**
+```lua
+function gui()
+    if isbuttonpressed(0, "A") then
+        drawtext(4, 4, "A Button Pressed!", 0x29)
+    end
+    
+    if isbuttonpressed(0, "B") then
+        drawtext(4, 12, "B Button Pressed!", 0x29)
+    end
+end
+```
+
+**Example: Button Combination:**
+```lua
+function gui()
+    -- Check for Start + Select combo
+    if isbuttonpressed(0, "START") and isbuttonpressed(0, "SELECT") then
+        drawtext(4, 4, "Start+Select Combo!", 0x37)
+    end
+end
+```
+
+**Example: Multiple Buttons:**
+```lua
+function gui()
+    local buttons = {}
+    if isbuttonpressed(0, "UP") then table.insert(buttons, "UP") end
+    if isbuttonpressed(0, "DOWN") then table.insert(buttons, "DOWN") end
+    if isbuttonpressed(0, "LEFT") then table.insert(buttons, "LEFT") end
+    if isbuttonpressed(0, "RIGHT") then table.insert(buttons, "RIGHT") end
+    
+    if #buttons > 0 then
+        drawtext(4, 4, "D-Pad: " .. table.concat(buttons, ", "), 0x20)
+    end
+end
+```
+
+##### `getbuttonname(buttonMask)`
+Converts a button bitmask to a comma-separated string of button names.
+
+**Parameters:**
+- `buttonMask` (integer): Button state bitmask (0x00-0xFF)
+
+**Returns:**
+- `string` - Comma-separated list of pressed button names, or empty string if no buttons are pressed
+
+**Button Bitmask:**
+The bitmask uses the same format as `getjoypad()`:
+- Bit 0 (0x01): A
+- Bit 1 (0x02): B
+- Bit 2 (0x04): Select
+- Bit 3 (0x08): Start
+- Bit 4 (0x10): Up
+- Bit 5 (0x20): Down
+- Bit 6 (0x40): Left
+- Bit 7 (0x80): Right
+
+**Notes:**
+- Returns button names in uppercase (e.g., "A, B", "START, SELECT")
+- Button names are in the order: A, B, SELECT, START, UP, DOWN, LEFT, RIGHT
+- Returns empty string (`""`) if no buttons are pressed (bitmask = 0x00)
+- Useful for displaying pressed buttons in a human-readable format
+- Perfect for use with `getjoypad()` to convert raw bitmask to readable text
+
+**Example: Display Button Names:**
+```lua
+function gui()
+    local buttons = getjoypad(0)  -- Get Player 1 state
+    local buttonNames = getbuttonname(buttons)  -- Convert to string
+    
+    if buttonNames == "" then
+        drawtext(4, 4, "No buttons pressed", 0x2D)
+    else
+        drawtext(4, 4, "Buttons: " .. buttonNames, 0x29)
+    end
+end
+```
+
+**Example: Input Logging with Names:**
+```lua
+local inputLog = {}
+
+function gui()
+    local buttons = getjoypad(0)
+    
+    if buttons ~= 0 then
+        local names = getbuttonname(buttons)
+        table.insert(inputLog, string.format("0x%02X: %s", buttons, names))
+    end
+    
+    -- Display last few inputs
+    local y = 4
+    for i = math.max(1, #inputLog - 5), #inputLog do
+        drawtext(4, y, inputLog[i], 0x2D)
+        y = y + 8
+    end
+end
+```
+
+**Example: Direct Bitmask Conversion:**
+```lua
+-- Convert specific bitmasks to names
+print(getbuttonname(0x01))  -- "A"
+print(getbuttonname(0x03))  -- "A, B"
+print(getbuttonname(0x0C))  -- "SELECT, START"
+print(getbuttonname(0xF0))  -- "UP, DOWN, LEFT, RIGHT"
+print(getbuttonname(0x00))  -- "" (empty string)
+```
+
+##### `getbuttonmask(buttonName)`
+Converts a button name to its corresponding bitmask value.
+
+**Parameters:**
+- `buttonName` (string): Button name (case-insensitive)
+  - Valid buttons: `"A"`, `"B"`, `"SELECT"`, `"START"`, `"UP"`, `"DOWN"`, `"LEFT"`, `"RIGHT"`
+
+**Returns:**
+- `integer` - Button bitmask value (0x01-0x80)
+
+**Button Bitmask Values:**
+- `"A"` → 0x01
+- `"B"` → 0x02
+- `"SELECT"` → 0x04
+- `"START"` → 0x08
+- `"UP"` → 0x10
+- `"DOWN"` → 0x20
+- `"LEFT"` → 0x40
+- `"RIGHT"` → 0x80
+
+**Notes:**
+- Button names are case-insensitive (e.g., `"A"`, `"a"`, `"Up"`, `"UP"` all work)
+- This is the inverse function of `getbuttonname()` - converts names to bitmasks
+- Useful for building bitmasks from button names or combining multiple buttons
+- Can be used with `getjoypad()` to check button states manually
+
+**Example: Get Button Bitmask:**
+```lua
+local aMask = getbuttonmask("A")      -- Returns 0x01
+local bMask = getbuttonmask("B")      -- Returns 0x02
+local startMask = getbuttonmask("START")  -- Returns 0x08
+```
+
+**Example: Combine Multiple Buttons:**
+```lua
+function gui()
+    local buttons = getjoypad(0)
+    
+    -- Check if A and B are both pressed using bitmasks
+    local aMask = getbuttonmask("A")
+    local bMask = getbuttonmask("B")
+    local bothPressed = (math.floor(buttons / aMask) % 2 == 1) and 
+                        (math.floor(buttons / bMask) % 2 == 1)
+    
+    if bothPressed then
+        drawtext(4, 4, "A and B pressed!", 0x29)
+    end
+end
+```
+
+**Example: Round-Trip Conversion:**
+```lua
+-- Convert name to mask and back to name
+local buttonName = "A"
+local mask = getbuttonmask(buttonName)      -- 0x01
+local name = getbuttonname(mask)            -- "A"
+print(string.format('"%s" -> 0x%02X -> "%s"', buttonName, mask, name))
+```
+
+**Example: Building Custom Bitmasks:**
+```lua
+-- Create a bitmask for Start + Select combo
+local startMask = getbuttonmask("START")
+local selectMask = getbuttonmask("SELECT")
+local comboMask = startMask | selectMask  -- Note: Lua 5.1 doesn't have |, use addition
+-- Actually, for Lua 5.1: comboMask = startMask + selectMask (if bits don't overlap)
+
+-- Check if combo is pressed
+local buttons = getjoypad(0)
+local startPressed = math.floor(buttons / startMask) % 2 == 1
+local selectPressed = math.floor(buttons / selectMask) % 2 == 1
+if startPressed and selectPressed then
+    drawtext(4, 4, "Start+Select combo!", 0x37)
+end
+```
+
+##### `gethardwarejoypad(player)`
+Gets the raw hardware controller state for a specified player **before** any Lua override is applied. This is useful for detecting real controller input even when `setjoypad()` is active.
+
+**Parameters:**
+- `player` (integer): Player number (0-3)
+  - `0` = Player 1 (first controller)
+  - `1` = Player 2 (second controller)
+  - `2` = Player 3 (third controller, if connected)
+  - `3` = Player 4 (fourth controller, if connected)
+
+**Returns:**
+- `integer` - Hardware button state as a bitmask (0x00-0xFF)
+
+**Button Bitmask:**
+The returned value uses the same bitmask format as `getjoypad()`:
+- Bit 0 (0x01): A
+- Bit 1 (0x02): B
+- Bit 2 (0x04): Select
+- Bit 3 (0x08): Start
+- Bit 4 (0x10): Up
+- Bit 5 (0x20): Down
+- Bit 6 (0x40): Left
+- Bit 7 (0x80): Right
+
+**Notes:**
+- Returns the **hardware** button state, not the emulated state
+- Useful for detecting real controller input when `setjoypad()` is overriding input
+- Perfect for toggle mechanisms in TAS scripts - you can detect when the user presses a button on the real controller even while the script is controlling Mario
+- The hardware state is captured before `setjoypad()` overrides are applied
+- Use `getjoypad()` to get the final emulated state (after Lua overrides)
+
+**Example: TAS Toggle Detection:**
+```lua
+local autoMode = false
+local lastSelectState = false
+
+function beforeframe()
+    -- Use gethardwarejoypad to detect real controller input
+    -- This works even when setjoypad() is controlling Mario
+    local hw = gethardwarejoypad(0)
+    local selectMask = getbuttonmask("SELECT")
+    local selectPressed = (math.floor(hw / selectMask) % 2 == 1)
+    
+    -- Edge detection: toggle only on rising edge
+    if selectPressed and not lastSelectState then
+        autoMode = not autoMode
+    end
+    lastSelectState = selectPressed
+    
+    -- If auto mode is on, control Mario with setjoypad()
+    if autoMode then
+        local buttons = getbuttonmask("RIGHT") + getbuttonmask("B")
+        setjoypad(0, buttons)
+    else
+        clearjoypad(0)  -- Allow hardware input
+    end
+end
+```
+
+**Example: Compare Hardware vs Emulated:**
+```lua
+function gui()
+    local hw = gethardwarejoypad(0)      -- Real controller
+    local emu = getjoypad(0)              -- After Lua override
+    
+    drawtext(4, 4, string.format("Hardware: 0x%02X", hw), 0x20)
+    drawtext(4, 12, string.format("Emulated: 0x%02X", emu), 0x29)
+    
+    if hw ~= emu then
+        drawtext(4, 20, "Lua override active!", 0x37)
+    end
+end
+```
+
+##### `getromname()`
+Gets the current ROM filename (without path) as a string. Works for both NES and FDS games.
+
+**Parameters:** None
+
+**Returns:**
+- `string` - Current ROM filename with extension (e.g., `"Super Mario Bros.nes"` or `"game.fds"`)
+- Returns empty string (`""`) if no game is loaded
+
+**Notes:**
+- Returns just the filename, not the full path
+- Works for both NES (`.nes`) and FDS (`.fds`) games
+- Handles zip archive format: extracts filename from `"path.zip|internal.nes"` format
+- Useful for game detection, ROM-specific scripts, or displaying current game name
+- The filename includes the extension (`.nes`, `.fds`, etc.)
+
+**Example: Display Current ROM:**
+```lua
+function gui()
+    local romName = getromname()
+    if romName ~= "" then
+        drawtext(4, 4, "ROM: " .. romName, 0x20)
+    else
+        drawtext(4, 4, "No ROM loaded", 0x2D)
+    end
+end
+```
+
+**Example: Game-Specific Script:**
+```lua
+local lastRomName = ""
+
+function gui()
+    local romName = getromname()
+    
+    -- Detect ROM change
+    if romName ~= lastRomName then
+        print("ROM changed: " .. romName)
+        lastRomName = romName
+        
+        -- Initialize game-specific variables
+        if romName:find("Mario") then
+            print("Mario game detected!")
+        elseif romName:find("%.fds$") then
+            print("FDS game detected!")
+        end
+    end
+    
+    -- Display ROM name
+    drawtext(4, 4, romName, 0x20)
+end
+```
+
+**Example: Log ROM Changes:**
+```lua
+local lastRomName = ""
+
+function gui()
+    local romName = getromname()
+    
+    -- Log when ROM changes
+    if romName ~= "" and romName ~= lastRomName then
+        print("Loaded: " .. romName)
+        lastRomName = romName
+    end
+end
+```
+
+##### `setjoypad(player, buttons)`
+Sets the controller state for a specified player, overriding hardware input. This allows Lua scripts to control the game programmatically, enabling TAS (Tool-Assisted Speedrun) tools and automated input.
+
+**Parameters:**
+- `player` (integer): Player number (0-3)
+  - `0` = Player 1 (first controller)
+  - `1` = Player 2 (second controller)
+  - `2` = Player 3 (third controller, if connected)
+  - `3` = Player 4 (fourth controller, if connected)
+- `buttons` (integer): Button state bitmask (0x00-0xFF)
+  - Use `getbuttonmask()` to build bitmasks from button names
+  - Combine multiple buttons by adding their bitmasks: `RIGHT + B + A`
+
+**Returns:**
+- Nothing
+
+**Button Bitmask:**
+The bitmask uses the same format as `getjoypad()`:
+- Bit 0 (0x01): A
+- Bit 1 (0x02): B
+- Bit 2 (0x04): Select
+- Bit 3 (0x08): Start
+- Bit 4 (0x10): Up
+- Bit 5 (0x20): Down
+- Bit 6 (0x40): Left
+- Bit 7 (0x80): Right
+
+**Notes:**
+- **Override persists** until `clearjoypad()` is called or the script ends
+- Must be called in `beforeframe()` callback for proper timing (before input polling)
+- The override takes effect immediately and persists across frames
+- Hardware input is completely overridden while the override is active
+- Use `gethardwarejoypad()` to read real controller input even when override is active
+- **Important:** Do not call `setjoypad()` in `gui()` - use `beforeframe()` instead for frame-accurate input
+
+**Example: Simple Automated Input:**
+```lua
+local frameCount = 0
+
+function beforeframe()
+    frameCount = frameCount + 1
+    
+    -- Run right and jump every 60 frames
+    local buttons = getbuttonmask("RIGHT") + getbuttonmask("B")
+    if frameCount % 60 == 0 then
+        buttons = buttons + getbuttonmask("A")
+    end
+    
+    setjoypad(0, buttons)
+end
+```
+
+**Example: TAS Script (SMB1):**
+```lua
+local frameCount = 0
+local tasStarted = false
+
+-- Jump windows: {startFrame, endFrame}
+local JUMPS = {
+    {30, 60},   -- First Goomba
+    {100, 140}, -- First pipe
+    {170, 210}, -- Second pipe
+}
+
+function beforeframe()
+    -- Toggle with SELECT (use gethardwarejoypad to detect real input)
+    local hw = gethardwarejoypad(0)
+    local selectMask = getbuttonmask("SELECT")
+    local selectPressed = (math.floor(hw / selectMask) % 2 == 1)
+    -- ... toggle logic ...
+    
+    if tasStarted then
+        frameCount = frameCount + 1
+        
+        -- Always run right at full speed
+        local buttons = getbuttonmask("RIGHT") + getbuttonmask("B")
+        
+        -- Check if we're in a jump window
+        for i = 1, #JUMPS do
+            if frameCount >= JUMPS[i][1] and frameCount <= JUMPS[i][2] then
+                buttons = buttons + getbuttonmask("A")
+                break
+            end
+        end
+        
+        setjoypad(0, buttons)
+    else
+        clearjoypad(0)  -- Allow hardware input
+    end
+end
+```
+
+**Example: Combining Buttons:**
+```lua
+function beforeframe()
+    -- Run right + hold B (run fast) + press A (jump)
+    local right = getbuttonmask("RIGHT")
+    local b = getbuttonmask("B")
+    local a = getbuttonmask("A")
+    
+    local buttons = right + b + a  -- All three buttons pressed
+    setjoypad(0, buttons)
+end
+```
+
+##### `clearjoypad(player)`
+Clears the Lua override for a specified player, allowing hardware input to take control again.
+
+**Parameters:**
+- `player` (integer): Player number (-1, 0-3)
+  - `-1` = Clear override for all players (0-3)
+  - `0` = Player 1 (first controller)
+  - `1` = Player 2 (second controller)
+  - `2` = Player 3 (third controller, if connected)
+  - `3` = Player 4 (fourth controller, if connected)
+
+**Returns:**
+- Nothing
+
+**Notes:**
+- Clears the override set by `setjoypad()` for the specified player(s)
+- After calling `clearjoypad()`, hardware input will control the player again
+- Use `-1` to clear overrides for all players at once
+- Should be called in `beforeframe()` callback for proper timing
+- If `setjoypad()` is not active, this function has no effect (safe to call)
+
+**Example: Toggle Auto Mode:**
+```lua
+local autoMode = false
+
+function beforeframe()
+    -- Toggle with SELECT (detect real hardware input)
+    local hw = gethardwarejoypad(0)
+    local selectPressed = (math.floor(hw / getbuttonmask("SELECT")) % 2 == 1)
+    
+    if selectPressed and not lastSelectState then
+        autoMode = not autoMode
+    end
+    lastSelectState = selectPressed
+    
+    if autoMode then
+        -- Control Mario with script
+        local buttons = getbuttonmask("RIGHT") + getbuttonmask("B")
+        setjoypad(0, buttons)
+    else
+        -- Allow hardware input
+        clearjoypad(0)
+    end
+end
+```
+
+**Example: Clear All Players:**
+```lua
+function beforeframe()
+    -- Stop all automated input
+    clearjoypad(-1)  -- Clear all players
+end
+```
+
+**Example: Conditional Override:**
+```lua
+function beforeframe()
+    local hw = gethardwarejoypad(0)
+    
+    -- Only override if user is not pressing anything
+    if hw == 0 then
+        -- User not pressing anything, use automated input
+        setjoypad(0, getbuttonmask("RIGHT"))
+    else
+        -- User is pressing buttons, let hardware control
+        clearjoypad(0)
+    end
+end
+```
+
+##### `pressbutton(player, button)`
+Simulates pressing a button for **one frame only**. The button is automatically released on the next frame. This is useful for single-frame inputs like menu navigation or precise timing requirements.
+
+**Parameters:**
+- `player` (integer): Player number (0-3)
+  - `0` = Player 1 (first controller)
+  - `1` = Player 2 (second controller)
+  - `2` = Player 3 (third controller, if connected)
+  - `3` = Player 4 (fourth controller, if connected)
+- `button` (string): Button name (case-insensitive)
+  - Valid buttons: `"A"`, `"B"`, `"SELECT"`, `"START"`, `"UP"`, `"DOWN"`, `"LEFT"`, `"RIGHT"`
+
+**Returns:**
+- Nothing
+
+**Notes:**
+- The button is pressed for **one frame only** and automatically released on the next frame
+- Multiple calls to `pressbutton()` in the same frame will combine (OR'd together)
+- Works alongside `setjoypad()` - one-frame presses are applied on top of any persistent override
+- Must be called in `beforeframe()` callback for proper timing (before input polling)
+- Unlike `setjoypad()`, you don't need to call `clearjoypad()` - the button is automatically released
+- Perfect for menu navigation, single-frame actions, or precise timing requirements
+
+**Example: Single-Frame Menu Navigation:**
+```lua
+local frameCount = 0
+
+function beforeframe()
+    frameCount = frameCount + 1
+    
+    -- Press A button every 60 frames (one-frame press)
+    if frameCount % 60 == 0 then
+        pressbutton(0, "A")
+    end
+    
+    -- Press RIGHT button every 30 frames (one-frame press)
+    if frameCount % 30 == 0 then
+        pressbutton(0, "RIGHT")
+    end
+end
+
+function gui()
+    local buttons = getjoypad(0)
+    local buttonNames = getbuttonname(buttons)
+    drawtext(4, 4, "Buttons: " .. (buttonNames == "" and "(none)" or buttonNames), 0x29)
+end
+```
+
+**Example: Multiple Buttons in One Frame:**
+```lua
+function beforeframe()
+    -- Press multiple buttons for one frame
+    pressbutton(0, "A")
+    pressbutton(0, "B")
+    pressbutton(0, "RIGHT")
+    -- All three buttons will be pressed for one frame, then released
+end
+```
+
+**Example: Comparison with setjoypad():**
+```lua
+local frameCount = 0
+local usePressButton = true
+
+function beforeframe()
+    frameCount = frameCount + 1
+    
+    if usePressButton then
+        -- pressbutton(): Press A every 60 frames (one frame only)
+        if frameCount % 60 == 0 then
+            pressbutton(0, "A")
+        end
+    else
+        -- setjoypad(): Hold A continuously (until cleared)
+        setjoypad(0, getbuttonmask("A"))
+    end
+end
+
+function gui()
+    local mode = usePressButton and "pressbutton()" or "setjoypad()"
+    drawtext(4, 4, "Mode: " .. mode, 0x20)
+    
+    local buttons = getjoypad(0)
+    if buttons ~= 0 then
+        local names = getbuttonname(buttons)
+        drawtext(4, 12, "Buttons: " .. names, 0x29)
+    end
+end
+```
+
+**Example: Precise Timing (Menu Selection):**
+```lua
+local frameCount = 0
+local menuIndex = 0
+
+function beforeframe()
+    frameCount = frameCount + 1
+    
+    -- Navigate menu: press UP/DOWN every 30 frames (one-frame press)
+    if frameCount % 30 == 0 then
+        if menuIndex < 3 then
+            pressbutton(0, "DOWN")  -- Move down in menu
+            menuIndex = menuIndex + 1
+        else
+            pressbutton(0, "A")  -- Select item
+        end
+    end
+end
+```
+
+##### `releasebutton(player, button)`
+Simulates releasing a button for **one frame only**. The button is automatically pressed again on the next frame (if it was being held). This is useful for creating brief button releases while maintaining a held state, or for precise timing requirements.
+
+**Parameters:**
+- `player` (integer): Player number (0-3)
+  - `0` = Player 1 (first controller)
+  - `1` = Player 2 (second controller)
+  - `2` = Player 3 (third controller, if connected)
+  - `3` = Player 4 (fourth controller, if connected)
+- `button` (string): Button name (case-insensitive)
+  - Valid buttons: `"A"`, `"B"`, `"SELECT"`, `"START"`, `"UP"`, `"DOWN"`, `"LEFT"`, `"RIGHT"`
+
+**Returns:**
+- Nothing
+
+**Notes:**
+- The button is released for **one frame only** and automatically returns to its previous state on the next frame
+- If the button was being held (via `setjoypad()` or hardware input), it will be held again after the one-frame release
+- Multiple calls to `releasebutton()` in the same frame will combine (OR'd together)
+- Works alongside `setjoypad()` and `pressbutton()` - one-frame releases are applied after presses
+- Must be called in `beforeframe()` callback for proper timing (before input polling)
+- Unlike `clearjoypad()`, this only releases the button for one frame, not permanently
+- Perfect for creating brief button releases while maintaining a held state, or for precise timing requirements
+
+**Example: Brief Release While Holding:**
+```lua
+local frameCount = 0
+
+function beforeframe()
+    frameCount = frameCount + 1
+    
+    -- Hold A and RIGHT continuously
+    local buttons = getbuttonmask("A") + getbuttonmask("RIGHT")
+    setjoypad(0, buttons)
+    
+    -- Release A button every 60 frames (one-frame release)
+    if frameCount % 60 == 0 then
+        releasebutton(0, "A")
+    end
+    
+    -- Release RIGHT button every 30 frames (one-frame release)
+    if frameCount % 30 == 0 then
+        releasebutton(0, "RIGHT")
+    end
+end
+
+function gui()
+    local buttons = getjoypad(0)
+    local buttonNames = getbuttonname(buttons)
+    drawtext(4, 4, "Buttons: " .. (buttonNames == "" and "(none)" or buttonNames), 0x29)
+end
+```
+
+**Example: Multiple Buttons Released in One Frame:**
+```lua
+function beforeframe()
+    -- Hold A, B, and RIGHT continuously
+    local buttons = getbuttonmask("A") + getbuttonmask("B") + getbuttonmask("RIGHT")
+    setjoypad(0, buttons)
+    
+    -- Release multiple buttons for one frame
+    releasebutton(0, "A")
+    releasebutton(0, "B")
+    -- Both A and B will be released for one frame, then held again
+end
+```
+
+**Example: Comparison with pressbutton():**
+```lua
+local frameCount = 0
+local useReleaseButton = true
+
+function beforeframe()
+    frameCount = frameCount + 1
+    
+    if useReleaseButton then
+        -- releasebutton(): Hold A continuously, release every 60 frames (one frame only)
+        setjoypad(0, getbuttonmask("A"))
+        if frameCount % 60 == 0 then
+            releasebutton(0, "A")
+        end
+    else
+        -- pressbutton(): Press A every 60 frames (one frame only)
+        if frameCount % 60 == 0 then
+            pressbutton(0, "A")
+        end
+    end
+end
+
+function gui()
+    local mode = useReleaseButton and "releasebutton()" or "pressbutton()"
+    drawtext(4, 4, "Mode: " .. mode, 0x20)
+    
+    local buttons = getjoypad(0)
+    if buttons ~= 0 then
+        local names = getbuttonname(buttons)
+        drawtext(4, 12, "Buttons: " .. names, 0x29)
+    end
+end
+```
+
+**Example: Precise Timing (Menu Navigation):**
+```lua
+local frameCount = 0
+local holdingRight = true
+
+function beforeframe()
+    frameCount = frameCount + 1
+    
+    if holdingRight then
+        -- Hold RIGHT continuously
+        setjoypad(0, getbuttonmask("RIGHT"))
+        
+        -- Release RIGHT every 30 frames to prevent menu scrolling too fast
+        if frameCount % 30 == 0 then
+            releasebutton(0, "RIGHT")
+        end
+    end
+end
+```
+
+### Input Recording Functions
+
+#### `startinputrecording()`
+Starts recording input for all players (0-3). The recording captures button states frame-by-frame until `stopinputrecording()` is called.
+
+**Parameters:** None
+
+**Returns:**
+- `boolean` - `true` if recording started successfully, `false` if already recording
+
+**Notes:**
+- Clears any existing recording data when starting a new recording
+- Records input for all players simultaneously
+- Must be called before `stopinputrecording()` to get recorded data
+- Recording continues until `stopinputrecording()` is called
+- Input is recorded frame-by-frame, capturing the final button state after all overrides
+
+**Example: Start Recording:**
+```lua
+function beforeframe()
+    -- Start recording when SELECT is pressed
+    local hw = gethardwarejoypad(0)
+    local selectPressed = (math.floor(hw / getbuttonmask("SELECT")) % 2 == 1)
+    
+    if selectPressed and not lastSelectState then
+        if startinputrecording() then
+            print("Recording started")
+        else
+            print("Already recording")
+        end
+    end
+    lastSelectState = selectPressed
+end
+```
+
+#### `stopinputrecording()`
+Stops recording input and returns the recorded data as a Lua table.
+
+**Parameters:** None
+
+**Returns:**
+- `table` - Recorded input data with the following structure:
+  ```lua
+  {
+      player0 = {buttonState1, buttonState2, ...},  -- Frame-by-frame button states for Player 1
+      player1 = {buttonState1, buttonState2, ...},  -- Frame-by-frame button states for Player 2
+      player2 = {buttonState1, buttonState2, ...},  -- Frame-by-frame button states for Player 3
+      player3 = {buttonState1, buttonState2, ...}   -- Frame-by-frame button states for Player 4
+  }
+  ```
+  Each button state is an integer bitmask (0x00-0xFF) representing the buttons pressed that frame.
+
+**Notes:**
+- Returns a Lua error if called when not recording
+- The returned table can be saved and passed to `playinputrecording()` later
+- Each player's data is a 1-indexed array of button states
+- Empty arrays are returned for players that had no input during recording
+- The table structure is compatible with `playinputrecording()`
+
+**Example: Record and Save:**
+```lua
+local recordedData = nil
+local isRecording = false
+
+function beforeframe()
+    local hw = gethardwarejoypad(0)
+    local selectPressed = (math.floor(hw / getbuttonmask("SELECT")) % 2 == 1)
+    
+    if selectPressed and not lastSelectState then
+        if not isRecording then
+            startinputrecording()
+            isRecording = true
+        else
+            recordedData = stopinputrecording()
+            isRecording = false
+            print("Recording stopped, captured " .. #recordedData.player0 .. " frames")
+        end
+    end
+    lastSelectState = selectPressed
+end
+```
+
+#### `playinputrecording(data)`
+Plays back recorded input from a table returned by `stopinputrecording()`. The playback overrides all input (hardware and Lua) until the recording finishes.
+
+**Parameters:**
+- `data` (table): Recorded input data from `stopinputrecording()`
+  - Must have keys `"player0"`, `"player1"`, `"player2"`, `"player3"` (or at least one)
+  - Each player's data must be a table of integer button states (0x00-0xFF)
+
+**Returns:**
+- Nothing
+
+**Notes:**
+- Playback overrides **all** input (hardware, `setjoypad()`, `pressbutton()`, etc.) while active
+- Playback starts from frame 0 of the recording
+- Each player's playback runs independently - if one player's data is shorter, that player's playback finishes early
+- Playback automatically stops when all players' data is exhausted
+- Can be called multiple times to replay the same recording
+- The recording data can be modified before playback (e.g., to edit input sequences)
+
+**Example: Record and Playback:**
+```lua
+local recordedData = nil
+local isRecording = false
+local lastSelectState = false
+local lastAState = false
+
+function beforeframe()
+    local hw = gethardwarejoypad(0)
+    local selectMask = getbuttonmask("SELECT")
+    local aMask = getbuttonmask("A")
+    
+    local selectPressed = (math.floor(hw / selectMask) % 2 == 1)
+    local aPressed = (math.floor(hw / aMask) % 2 == 1)
+    
+    -- Toggle recording with SELECT
+    if selectPressed and not lastSelectState then
+        if not isRecording then
+            startinputrecording()
+            isRecording = true
+        else
+            recordedData = stopinputrecording()
+            isRecording = false
+        end
+    end
+    lastSelectState = selectPressed
+    
+    -- Play back with A button
+    if aPressed and not lastAState then
+        if recordedData ~= nil then
+            playinputrecording(recordedData)
+        end
+    end
+    lastAState = aPressed
+end
+
+function gui()
+    if isRecording then
+        drawtext(4, 4, "RECORDING...", 0x29)
+    elseif recordedData ~= nil then
+        drawtext(4, 4, "Ready to play (press A)", 0x2D)
+    else
+        drawtext(4, 4, "Press SELECT to record", 0x2D)
+    end
+end
+```
+
+**Example: Edit Recording Before Playback:**
+```lua
+local recordedData = stopinputrecording()
+
+-- Modify the recording: add a jump at frame 10
+if recordedData.player0 and recordedData.player0[10] then
+    local aMask = getbuttonmask("A")
+    recordedData.player0[10] = recordedData.player0[10] | aMask
+end
+
+-- Play back the modified recording
+playinputrecording(recordedData)
+```
+
+**Example: Save Recording to File (Conceptual):**
+```lua
+-- Note: File I/O functions would need to be implemented separately
+local recordedData = stopinputrecording()
+
+-- The table can be serialized and saved for later use
+-- This is a conceptual example - actual file I/O depends on available functions
+-- saveToFile("recording.lua", recordedData)
 ```
 
 ##### `readbyte(address)`
@@ -4772,14 +5880,14 @@ Optional callback - Called when the emulator reads controller input. Allows you 
 
 **Button Bitmask Reference:**
 The `buttons` parameter is a bitmask where each bit represents a button:
-- Bit 0 (0x01): Right
-- Bit 1 (0x02): Left
-- Bit 2 (0x04): Down
-- Bit 3 (0x08): Up
-- Bit 4 (0x10): Start
-- Bit 5 (0x20): Select
-- Bit 6 (0x40): B
-- Bit 7 (0x80): A
+- Bit 0 (0x01): A
+- Bit 1 (0x02): B
+- Bit 2 (0x04): Select
+- Bit 3 (0x08): Start
+- Bit 4 (0x10): Up
+- Bit 5 (0x20): Down
+- Bit 6 (0x40): Left
+- Bit 7 (0x80): Right
 
 **Notes:**
 - This function is called every frame when reading controller input
@@ -4801,7 +5909,7 @@ function joypad(player, buttons)
         autoFireFrame = autoFireFrame + 1
         -- Press A button every other frame (30 Hz auto-fire)
         if (autoFireFrame % 2) == 0 then
-            return buttons | 0x80  -- Set A button (bit 7)
+            return buttons | 0x01  -- Set A button (bit 0)
         end
     end
     return buttons  -- Pass through unmodified
@@ -4818,7 +5926,7 @@ function joypad(player, buttons)
         -- Fast turbo (every 2 frames)
         if (turboFrame % 2) == 0 then
             -- Toggle A and B buttons for turbo effect
-            return buttons ^ (0x80 | 0x40)
+            return buttons ^ (0x01 | 0x02)
         end
     end
     return buttons
@@ -4830,8 +5938,9 @@ end
 function joypad(player, buttons)
     if player == 0 then
         -- If B is pressed, also press Right (useful for some games)
-        if (buttons & 0x40) ~= 0 then  -- B button pressed
-            return buttons | 0x01  -- Also press Right
+        -- Note: Lua 5.1 doesn't have bitwise &, use math.floor(buttons / 0x02) % 2 == 1
+        if math.floor(buttons / 0x02) % 2 == 1 then  -- B button pressed (bit 1)
+            return buttons | 0x80  -- Also press Right (bit 7)
         end
     end
     return buttons
@@ -4844,6 +5953,99 @@ function joypad(player, buttons)
     -- You can log or monitor input without modifying it
     -- Just return the original buttons value
     return buttons
+end
+```
+
+#### `beforeframe()` *(Optional)*
+Optional callback - Called **before** input polling each frame. This is the ideal place to call `setjoypad()` and `clearjoypad()` for frame-accurate input control in TAS scripts.
+
+**Parameters:** None
+
+**Returns:** Nothing (return values are ignored)
+
+**When Called:**
+- Automatically called by the emulator **before** `FCEU_UpdateInput()` is called
+- Runs once per frame, before the game polls controller input
+- Called before `script()` / `gui()` callback
+- The overlay is not ready for drawing in this callback - use `script()` / `gui()` for drawing
+
+**Important Notes:**
+- **Must use `beforeframe()` for `setjoypad()` and `clearjoypad()`** - calling these in `script()` / `gui()` will cause input to be applied one frame late
+- Perfect for TAS (Tool-Assisted Speedrun) scripts that need frame-accurate input control
+- Use `gethardwarejoypad()` to detect real controller input even when `setjoypad()` is active
+- Do **not** call drawing functions (`drawtext`, etc.) in `beforeframe()` - the overlay is not ready
+- Keep this function lightweight for best performance
+
+**Example: Simple TAS Script:**
+```lua
+local frameCount = 0
+
+function beforeframe()
+    frameCount = frameCount + 1
+    
+    -- Run right and jump every 60 frames
+    local buttons = getbuttonmask("RIGHT") + getbuttonmask("B")
+    if frameCount % 60 == 0 then
+        buttons = buttons + getbuttonmask("A")
+    end
+    
+    setjoypad(0, buttons)
+end
+
+function gui()
+    -- Draw status (drawing must be in gui(), not beforeframe())
+    drawtext(4, 4, string.format("Frame: %d", frameCount), 0x20)
+end
+```
+
+**Example: TAS with Toggle:**
+```lua
+local frameCount = 0
+local autoMode = false
+local lastSelectState = false
+
+function beforeframe()
+    -- Detect real hardware input for toggle (even when setjoypad is active)
+    local hw = gethardwarejoypad(0)
+    local selectMask = getbuttonmask("SELECT")
+    local selectPressed = (math.floor(hw / selectMask) % 2 == 1)
+    
+    -- Edge detection: toggle only on rising edge
+    if selectPressed and not lastSelectState then
+        autoMode = not autoMode
+    end
+    lastSelectState = selectPressed
+    
+    if autoMode then
+        frameCount = frameCount + 1
+        local buttons = getbuttonmask("RIGHT") + getbuttonmask("B")
+        setjoypad(0, buttons)
+    else
+        clearjoypad(0)  -- Allow hardware input
+    end
+end
+
+function gui()
+    drawtext(4, 4, autoMode and "AUTO MODE: ON" or "AUTO MODE: OFF", 0x29)
+    if autoMode then
+        drawtext(4, 12, string.format("Frame: %d", frameCount), 0x2D)
+    end
+end
+```
+
+**Example: Conditional Override:**
+```lua
+function beforeframe()
+    local hw = gethardwarejoypad(0)
+    
+    -- Only override if user is not pressing anything
+    if hw == 0 then
+        -- User not pressing anything, use automated input
+        setjoypad(0, getbuttonmask("RIGHT"))
+    else
+        -- User is pressing buttons, let hardware control
+        clearjoypad(0)
+    end
 end
 ```
 
@@ -4990,6 +6192,58 @@ FCEUX360-<version>-xex.zip
 ---
 
 ## Changelog
+
+* **v0.7.2**
+
+  * feat(lua): Added `getromname()` function for ROM filename detection
+    * Returns current ROM filename with extension (e.g., "Super Mario Bros.nes")
+    * Works for both NES and FDS games
+    * Handles zip archive format (extracts filename from "path.zip|internal.nes")
+    * Returns empty string if no game is loaded
+    * Useful for game detection, ROM-specific scripts, and displaying current game name
+
+  * feat(lua): Added `pressbutton(player, button)` for one-frame button presses
+    * Simulates pressing a button for exactly one frame, automatically released on next frame
+    * Perfect for menu navigation, single-frame actions, and precise timing requirements
+    * Works alongside `setjoypad()` - one-frame presses are applied on top of persistent overrides
+    * Multiple calls in the same frame combine (OR'd together)
+    * Must be called in `beforeframe()` callback for proper timing
+
+  * feat(lua): Added `releasebutton(player, button)` for one-frame button releases
+    * Simulates releasing a button for exactly one frame, automatically returns to previous state
+    * Useful for creating brief button releases while maintaining a held state
+    * Works alongside `setjoypad()` and `pressbutton()` - one-frame releases applied after presses
+    * Multiple calls in the same frame combine (OR'd together)
+    * Must be called in `beforeframe()` callback for proper timing
+
+  * feat(lua): Added input recording API functions
+    * `startinputrecording()` - Start recording input for all players (0-3)
+      * Begins frame-by-frame input recording
+      * Clears any existing recording data when starting new recording
+      * Returns `true` if recording started successfully, `false` if already recording
+    * `stopinputrecording()` - Stop recording and return recorded data
+      * Stops the current input recording and returns recorded data as a Lua table
+      * Returns table with frame-by-frame button states for all players
+      * Table structure is compatible with `playinputrecording()` for playback
+      * Returns `nil` if no recording was active
+    * `playinputrecording(data)` - Play back recorded input
+      * Plays back recorded input from a table returned by `stopinputrecording()`
+      * Overrides all input (hardware and Lua) until playback finishes
+      * Useful for TAS (Tool-Assisted Speedrun) tools, input replay, and automated testing
+      * Playback is frame-accurate and matches the original recording exactly
+
+  * docs(lua): Added complete API documentation for all new functions
+    * `getromname()` added to Monitoring Functions section in table of contents
+    * `pressbutton()` and `releasebutton()` added to Input Control Functions section
+    * Input recording functions added to Input Recording Functions section
+    * All functions include parameters, returns, notes, and multiple examples
+    * Complete documentation added to README.md
+
+  * tech(lua): Registered all new functions in `InitLua()` and `EnsureLuaInit()`
+    * Input recording uses frame-by-frame capture of final button states
+    * One-frame button functions use separate state tracking from persistent overrides
+    * ROM name extraction handles zip archives and path normalization
+    * Functions follow existing API patterns and error handling
 
 * **v0.7.0**
 
