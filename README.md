@@ -15,6 +15,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.7.1 - Text Measurement and Rotation API Functions](#whats-new-v071)
   - [v0.7.0 - ROM Counter Display](#whats-new-v070)
   - [v0.6.9 - Famicom Disk System Support](#whats-new-v069)
   - [v0.6.8.1 - VSync Synchronization Hotfix](#whats-new-v0681)
@@ -89,6 +90,58 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
   * Completes the VSync frame pacing implementation
 
 * **Includes Previous Features:**
+  * All v0.6.8 features: VSync frame pacing with texture latching
+  * All v0.6.7 features: Drawing API enhancements and advanced memory functions
+  * All prior features from v0.6.1–v0.6.6
+
+---
+
+## What's new (v0.7.1)
+
+* **Text Rotation Function:** Added `drawtextrotated(x, y, text, color, angle)` for rotating text at any angle!
+  * **Rotation Support:** Rotate text at any angle from 0-360 degrees with automatic angle normalization
+  * **Rotation Origin:** Text rotates around the (x, y) point (top-left corner of unrotated text)
+  * **Angle Convention:** 
+    - `0°` = Text points right (normal, unrotated)
+    - `90°` = Text points down (rotated 90° clockwise)
+    - `180°` = Text points left (upside down)
+    - `270°` = Text points up (rotated 270° clockwise)
+  * **Multi-line Support:** Supports newline characters (`\n`) for multi-line rotated text
+  * **Performance:** Fast path for unrotated text (angle = 0°) uses `drawtext()` directly for better performance
+  * **Clipping:** Individual pixel clipping ensures rotated text stays within screen bounds (0-255, 0-239)
+  * **Blending:** Rotated text respects the current drawing mode set by `setdrawmode()`
+
+* **Text Width Measurement:** Added `gettextwidth(text)` for calculating text pixel width!
+  * **Accurate Measurement:** Uses same variable-width font metrics (`Font6x7` + `JoedCharWidth`) as text drawing functions, so measurements match exactly how text is rendered
+  * **Multi-line Support:** Returns width of longest line for multi-line text (not total width of all lines)
+  * **Tab Handling:** Tab characters (`\t`) are treated as 4 spaces with proper width calculation
+  * **Empty Strings:** Returns 0 for empty strings or strings containing only whitespace/newlines
+  * **Carriage Returns:** Carriage return characters (`\r`) are ignored (handles Windows-style line endings `\r\n`)
+
+* **Text Height Measurement:** Added `gettextheight(text)` for calculating text pixel height!
+  * **Line-based Calculation:** Returns number of lines × 8 pixels (glyph height `GLYPH_H = 8`)
+  * **Trailing Newlines:** Trailing `\n` counts as an extra empty line (e.g., `"Hello\n"` = 2 lines = 16 pixels)
+  * **Empty String Handling:** Returns 0 for empty strings or null input
+  * **Single-line Text:** A single-line string (no newlines) has height 8 pixels
+
+* **Use Cases:**
+  * **Text Rotation:** Rotating labels, circular layouts, compass directions, special effects, creative HUDs
+  * **Text Width:** Text centering, right-alignment, layout calculations, text fitting checks, dynamic layouts
+  * **Text Height:** Vertical layout calculations, text fitting checks, vertical centering, spacing calculations
+
+* **Technical Details:**
+  * `drawtextrotated` uses rotation matrix with screen coordinate system (Y-down) for correct visual rotation
+  * `gettextwidth` uses `JoedCharWidth` for accurate variable-width font measurements
+  * `gettextheight` uses `GLYPH_H = 8` matching all text drawing functions
+  * All functions registered in `InitLua()` and `EnsureLuaInit()`
+  * Font data (`Font6x7`, `FixJoedChar`, `JoedCharWidth`) made accessible from `drawing.cpp` to `fceulua.cpp`
+
+* **Full Documentation:** Complete API reference with examples in **[Lua Scripting API](#lua-scripting-api)** section below!
+
+* **Includes Previous Features:**
+  * All v0.7.0 features: ROM counter display and separator handling improvements
+  * All v0.6.9 features: Famicom Disk System support and alphabetical ROM sorting
+  * All v0.6.8.1 features: VSync synchronization hotfix
   * All v0.6.8 features: VSync frame pacing with texture latching
   * All v0.6.7 features: Drawing API enhancements and advanced memory functions
   * All prior features from v0.6.1–v0.6.6
@@ -560,6 +613,16 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
       - Parameters, Returns, Notes, Examples, Common Colors
     - [`drawtextwh(x, y, text, color, max_w, max_h, border)`](#drawtextwhx-y-text-color-max_w-max_h-border)
       - Parameters (including border details), Returns, Notes, Border Styles, Examples
+    - [`drawtextscaled(x, y, text, color, scaleX, scaleY)`](#drawtextscaledx-y-text-color-scalex-scaley)
+      - Parameters, Returns, Notes, Scale Range, Examples
+    - [`drawtextrotated(x, y, text, color, angle)`](#drawtextrotatedx-y-text-color-angle)
+      - Parameters, Returns, Notes, Angle Range, Examples
+    - [`gettextwidth(text)`](#gettextwidthtext)
+      - Parameters, Returns, Notes, Examples
+    - [`gettextheight(text)`](#gettextheighttext)
+      - Parameters, Returns, Notes, Examples
+    - [`drawtextbox(x, y, width, height, text, color, bgColor, borderColor)`](#drawtextboxx-y-width-height-text-color-bgcolor-bordercolor)
+      - Parameters, Returns, Notes, Examples
     - [`drawpixel(x, y, color)`](#drawpixelx-y-color)
       - Parameters, Returns, Notes, Examples
     - [`drawline(x1, y1, x2, y2, color)`](#drawlinex1-y1-x2-y2-color)
@@ -743,9 +806,9 @@ Draws **borderless** text on the screen overlay using FCEUX's built-in font rend
 
 **Example:**
 ```lua
-drawtext(4, 4, "Hello World!", 0x20)        -- White text at top-left (no border)
+drawtext(4, 4, "Hello World!", 0x20)        -- Bright white text at top-left (no border)
 drawtext(100, 120, "Score: 1000", 0x39)     -- Yellow-green text centered (no border)
-drawtext(4, 232, "Bottom text", 0x0F)       -- Near bottom of screen (no border)
+drawtext(4, 232, "Bottom text", 0x20)       -- Near bottom of screen (no border)
 ```
 
 ##### `drawtextwh(x, y, text, color, max_w, max_h, border)`
@@ -784,11 +847,11 @@ drawtextwh(4, 4, "FPS: 60.0", 0x39, 200, 16, 0)
 drawtextwh(10, 50, "Line 1\nLine 2\nLine 3", 0x20, 150, 32, 1)
 
 -- Text with thick border for maximum contrast
-drawtextwh(10, 100, "IMPORTANT!", 0x0F, 200, 16, 2)
+drawtextwh(10, 100, "IMPORTANT!", 0x20, 200, 16, 2)
 
 -- Wrapped text with border in a panel
-fillrect(5, 115, 120, 60, 0x10)           -- Dark background panel
-drawrect(5, 115, 120, 60, 0x20)           -- White border
+fillrect(5, 115, 120, 60, 0x10)           -- Light gray background panel
+drawrect(5, 115, 120, 60, 0x20)           -- Bright white border
 drawtextwh(10, 120, "Status:\nHealth: 100\nScore: 5000", 0x39, 110, 50, 1)
 ```
 
@@ -796,6 +859,335 @@ drawtextwh(10, 120, "Status:\nHealth: 100\nScore: 5000", 0x39, 110, 50, 1)
 - **`border = 0`:** Clean glyph-only rendering, no background interference. Fastest, least visual impact.
 - **`border = 1`:** Thin outline provides good contrast on most backgrounds. Slightly dimmed background.
 - **`border = 2`:** Thick outline with enhanced background for maximum readability. Best for text over complex or moving backgrounds.
+
+##### `drawtextscaled(x, y, text, color, scaleX, scaleY)`
+Draws text on the screen overlay with custom X and Y scaling. This function allows you to render text at different sizes, from smaller (0.5x) to much larger (4.0x), with independent horizontal and vertical scaling for special effects.
+
+**Parameters:**
+- `x` (integer): X coordinate (0-255). NES horizontal resolution is 256 pixels.
+- `y` (integer): Y coordinate (0-239). NES vertical resolution is 240 pixels.
+- `text` (string): Text string to display. Supports newline characters (`\n`) for multi-line text.
+- `color` (integer): Palette color index. Valid range is 0x00-0x3F (automatically mapped to NES palette range).
+- `scaleX` (float): Horizontal scaling factor. Valid range is 0.5-4.0. Values outside this range are automatically clamped.
+- `scaleY` (float): Vertical scaling factor. Valid range is 0.5-4.0. Values outside this range are automatically clamped.
+
+**Returns:** Nothing
+
+**Notes:**
+- Text is drawn using an 8×8 pixel font. Each character is scaled independently based on `scaleX` and `scaleY`.
+- **Scaling method:** Uses nearest-neighbor scaling, where each source pixel is expanded to a block of pixels. This provides crisp, pixelated scaling suitable for retro-style graphics.
+- **Scale range:** Both `scaleX` and `scaleY` are clamped to the range 0.5-4.0. Values below 0.5 are set to 0.5, values above 4.0 are set to 4.0.
+- **Anisotropic scaling:** You can use different values for `scaleX` and `scaleY` to create wide or tall text effects (e.g., `scaleX=2.0, scaleY=1.0` for wide text, or `scaleX=1.0, scaleY=2.0` for tall text).
+- **Multi-line support:** Use newline characters (`\n`) in the text string to create multi-line displays. Line spacing scales with `scaleY`.
+- **Borderless rendering:** This function draws only the glyph pixels with no background, outline, or shadow effects (similar to `drawtext()`).
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- Text drawn outside the visible area (0-255, 0-239) will be clipped automatically.
+- The overlay is composited on top of the NES frame, so Lua-drawn text appears above game graphics.
+- For simple text without scaling, `drawtext()` is more efficient. For text with borders, use `drawtextwh()`.
+
+**Example:**
+```lua
+-- Normal size text (1.0x scale)
+drawtextscaled(4, 4, "Normal Text", 0x20, 1.0, 1.0)
+
+-- Small text (0.5x scale - minimum)
+drawtextscaled(4, 20, "Small Text", 0x30, 0.5, 0.5)
+
+-- Large text (2.0x scale)
+drawtextscaled(4, 36, "Large Text", 0x20, 2.0, 2.0)
+
+-- Very large text (4.0x scale - maximum)
+drawtextscaled(4, 60, "HUGE!", 0x20, 4.0, 4.0)
+
+-- Wide text (stretched horizontally)
+drawtextscaled(4, 100, "Wide Text", 0x39, 2.0, 1.0)
+
+-- Tall text (stretched vertically)
+drawtextscaled(4, 120, "Tall", 0x37, 1.0, 2.0)
+
+-- Anisotropic scaling (different X and Y scales)
+drawtextscaled(4, 150, "Aniso", 0x26, 1.5, 2.5)
+
+-- Multi-line scaled text
+drawtextscaled(4, 180, "Line 1\nLine 2\nLine 3", 0x20, 1.5, 1.5)
+
+-- Comparison: Same character at different scales
+drawtextscaled(4, 200, "A", 0x20, 0.5, 0.5)  -- Small
+drawtextscaled(12, 200, "A", 0x20, 1.0, 1.0)  -- Normal
+drawtextscaled(24, 200, "A", 0x20, 2.0, 2.0)  -- Large
+drawtextscaled(48, 200, "A", 0x20, 3.0, 3.0)  -- Very Large
+```
+
+**Use Cases:**
+- **Larger text:** Use scales > 1.0 for emphasis, titles, or better visibility
+- **Smaller text:** Use scales < 1.0 to fit more information in limited space
+- **Special effects:** Use anisotropic scaling (different X/Y) for creative text effects
+- **Headings:** Use larger scales for section headers or important messages
+- **Compact displays:** Use smaller scales for detailed information displays
+
+##### `drawtextrotated(x, y, text, color, angle)`
+Draws text on the screen overlay rotated by a specified angle in degrees. The text rotates around its top-left origin point (x, y).
+
+**Parameters:**
+- `x` (integer): X coordinate (0-255). NES horizontal resolution is 256 pixels. This is the rotation origin point.
+- `y` (integer): Y coordinate (0-239). NES vertical resolution is 240 pixels. This is the rotation origin point.
+- `text` (string): Text string to display. Supports newline characters (`\n`) for multi-line text.
+- `color` (integer): Palette color index. Valid range is 0x00-0x3F (automatically mapped to NES palette range).
+- `angle` (integer): Rotation angle in degrees. Valid range is 0-360. Values outside this range are automatically normalized (e.g., 370° becomes 10°, -10° becomes 350°).
+
+**Returns:** Nothing
+
+**Notes:**
+- **Rotation origin:** Text rotates around the (x, y) point, which is the top-left corner of the unrotated text.
+- **Angle convention:** 
+  - `0°` = Text points right (normal, unrotated)
+  - `90°` = Text points down (rotated 90° clockwise)
+  - `180°` = Text points left (upside down)
+  - `270°` = Text points up (rotated 270° clockwise)
+- **Angle wrapping:** Angles are automatically normalized to 0-360 range. Negative angles and angles > 360 are wrapped (e.g., -10° → 350°, 370° → 10°).
+- **Multi-line support:** Use newline characters (`\n`) in the text string to create multi-line displays. Each line advances 8 pixels vertically in the unrotated coordinate space.
+- **Borderless rendering:** This function draws only the glyph pixels with no background, outline, or shadow effects (similar to `drawtext()`).
+- **Performance:** For unrotated text (angle = 0°), the function uses a fast path that calls `drawtext()` directly for better performance.
+- **Clipping:** Rotated text pixels are individually clipped to the screen bounds (0-255, 0-239). Text that rotates outside the visible area will be clipped.
+- **Blending:** Rotated text respects the current drawing mode set by `setdrawmode()`.
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- The overlay is composited on top of the NES frame, so Lua-drawn text appears above game graphics.
+- For simple unrotated text, `drawtext()` is more efficient. For text with borders, use `drawtextwh()`. For scaled text, use `drawtextscaled()`.
+
+**Example:**
+```lua
+-- Normal text (0 degrees - unrotated)
+drawtextrotated(128, 120, "Hello", 0x20, 0)
+
+-- Text rotated 90 degrees (points down)
+drawtextrotated(128, 120, "Down", 0x39, 90)
+
+-- Text rotated 180 degrees (upside down)
+drawtextrotated(128, 120, "Upside", 0x20, 180)
+
+-- Text rotated 270 degrees (points up)
+drawtextrotated(128, 120, "Up", 0x3C, 270)
+
+-- Text at 45 degree increments
+drawtextrotated(128, 120, "45", 0x2A, 45)
+drawtextrotated(128, 120, "135", 0x2A, 135)
+drawtextrotated(128, 120, "225", 0x2A, 225)
+drawtextrotated(128, 120, "315", 0x2A, 315)
+
+-- Animated rotating text
+local frameCount = 0
+function gui()
+    frameCount = frameCount + 1
+    local angle = frameCount % 360
+    drawtextrotated(128, 120, "SPIN", 0x20, angle)
+end
+
+-- Text positioned in a circle (each label rotated to point outward)
+local centerX, centerY = 128, 120
+drawtextrotated(centerX, centerY - 40, "0", 0x20, 0)      -- Top, points right
+drawtextrotated(centerX + 40, centerY, "90", 0x39, 90)    -- Right, points down
+drawtextrotated(centerX, centerY + 40, "180", 0x20, 180)  -- Bottom, points left
+drawtextrotated(centerX - 40, centerY, "270", 0x3C, 270)  -- Left, points up
+```
+
+**Use Cases:**
+- **Rotating labels:** Create animated rotating text effects
+- **Circular layouts:** Position text labels around a circle, each rotated to point outward
+- **Special effects:** Create unique visual effects with rotated text
+- **Compass directions:** Display directional indicators with text pointing in the correct direction
+- **Creative HUDs:** Design custom HUDs with rotated text elements
+
+##### `gettextwidth(text)`
+Returns the pixel width of the longest line in a text string, using the same variable-width font metrics as the text drawing functions. This is useful for centering text, calculating layout, and determining if text will fit in a given space.
+
+**Parameters:**
+- `text` (string): Text string to measure. Supports newline characters (`\n`) for multi-line text, tabs (`\t`) which are treated as 4 spaces, and carriage returns (`\r`) which are ignored.
+
+**Returns:** Integer - The pixel width of the longest line in the text string. Returns 0 for empty strings.
+
+**Notes:**
+- **Variable-width font:** Uses the same font metrics (`Font6x7` + `JoedCharWidth`) as `drawtext()`, `drawtextwh()`, `drawtextscaled()`, and `drawtextrotated()`, so measurements match exactly how text is rendered.
+- **Multi-line handling:** For text with newlines, returns the width of the longest line, not the total width of all lines.
+- **Tab handling:** Tab characters (`\t`) are treated as 4 spaces. The width of a tab is calculated as 4 × the width of a space character.
+- **Empty strings:** Returns 0 for empty strings or strings containing only whitespace/newlines.
+- **Carriage returns:** Carriage return characters (`\r`) are ignored (handles Windows-style line endings `\r\n`).
+- **Non-printable characters:** Characters that don't map to valid font glyphs contribute 0 pixels to the width.
+- This function is useful for:
+  - Centering text: `centerX = 128 - math.floor(gettextwidth(text) / 2)`
+  - Right-aligning text: `rightX = maxX - gettextwidth(text)`
+  - Checking if text fits: `if gettextwidth(text) <= availableWidth then ...`
+  - Calculating layout and spacing
+
+**Example:**
+```lua
+-- Measure single-line text
+local width = gettextwidth("Hello")
+print(string.format("'Hello' is %d pixels wide", width))
+
+-- Measure multi-line text (returns longest line)
+local multiWidth = gettextwidth("Line 1\nLine 2\nLine 3 is longer")
+print(string.format("Longest line is %d pixels wide", multiWidth))
+
+-- Center text on screen
+local text = "CENTERED"
+local textWidth = gettextwidth(text)
+local centerX = 128 - math.floor(textWidth / 2)  -- Screen center is 128
+drawtext(centerX, 120, text, 0x20)
+
+-- Right-align text
+local rightText = "RIGHT"
+local rightWidth = gettextwidth(rightText)
+local rightX = 256 - rightWidth  -- Screen width is 256
+drawtext(rightX, 120, rightText, 0x20)
+
+-- Check if text fits before drawing
+local longText = "This is a very long text string"
+local maxWidth = 200
+if gettextwidth(longText) <= maxWidth then
+    drawtext(4, 4, longText, 0x20)
+else
+    drawtext(4, 4, "Text too long!", 0x20)
+end
+
+-- Measure text with tabs
+local tabText = "Name\tValue"
+local tabWidth = gettextwidth(tabText)  -- Tab treated as 4 spaces
+print(string.format("Tab text width: %d px", tabWidth))
+```
+
+**Use Cases:**
+- **Text centering:** Calculate the X position to center text horizontally
+- **Text alignment:** Right-align or justify text by calculating positions
+- **Layout calculations:** Determine spacing and positioning for UI elements
+- **Text fitting:** Check if text will fit in a given space before drawing
+- **Dynamic layouts:** Build responsive layouts that adapt to text width
+- **Text wrapping:** Determine where to break lines in custom text rendering
+
+##### `gettextheight(text)`
+Returns the pixel height of a text string, calculated as the number of lines multiplied by 8 pixels (the glyph height). This is useful for calculating vertical layout, determining if text will fit in a given height, and positioning multi-line text.
+
+**Parameters:**
+- `text` (string): Text string to measure. Supports newline characters (`\n`) which separate lines. Trailing newlines count as an extra empty line.
+
+**Returns:** Integer - The pixel height of the text string. Returns 0 for empty strings. Each line contributes 8 pixels to the total height.
+
+**Notes:**
+- **Line counting:** The function counts lines separated by `\n` characters. A single-line string (no newlines) has height 8 pixels.
+- **Trailing newlines:** A trailing `\n` adds an extra empty line. For example, `"Hello\n"` has 2 lines = 16 pixels.
+- **Empty strings:** Returns 0 for empty strings or null input.
+- **Glyph height:** Each line is 8 pixels tall (`GLYPH_H = 8`), matching the font used by all text drawing functions.
+- **Tabs and other characters:** Tab characters and other non-newline characters don't affect the height calculation - only `\n` characters create new lines.
+- This function is useful for:
+  - Calculating vertical layout: `totalHeight = gettextheight(multiLineText)`
+  - Checking if text fits: `if gettextheight(text) <= availableHeight then ...`
+  - Centering text vertically: `centerY = 120 - math.floor(gettextheight(text) / 2)`
+  - Calculating spacing between text blocks
+
+**Example:**
+```lua
+-- Measure single-line text
+local height = gettextheight("Hello")
+print(string.format("'Hello' is %d pixels tall", height))  -- 8 pixels
+
+-- Measure multi-line text
+local multiHeight = gettextheight("Line 1\nLine 2\nLine 3")
+print(string.format("3 lines = %d pixels tall", multiHeight))  -- 24 pixels
+
+-- Trailing newline adds extra line
+local trailingHeight = gettextheight("Hello\n")
+print(string.format("'Hello\\n' = %d pixels", trailingHeight))  -- 16 pixels
+
+-- Check if text fits vertically
+local longText = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5"
+local textHeight = gettextheight(longText)
+local maxHeight = 32
+if textHeight <= maxHeight then
+    drawtext(4, 4, longText, 0x20)
+else
+    drawtext(4, 4, "Text too tall!", 0x20)
+end
+
+-- Center text vertically
+local text = "Centered\nText"
+local textHeight = gettextheight(text)
+local centerY = 120 - math.floor(textHeight / 2)  -- Screen center is 120
+drawtext(4, centerY, text, 0x20)
+
+-- Calculate total height for layout
+local title = "Title"
+local body = "Line 1\nLine 2\nLine 3"
+local totalHeight = gettextheight(title) + gettextheight(body) + 8  -- +8 for spacing
+print(string.format("Total layout height: %d px", totalHeight))
+```
+
+**Use Cases:**
+- **Vertical layout:** Calculate total height needed for multi-line text blocks
+- **Text fitting:** Check if text will fit in a given vertical space
+- **Vertical centering:** Calculate Y position to center text vertically
+- **Dynamic layouts:** Build responsive layouts that adapt to text height
+- **Spacing calculations:** Determine spacing between text elements
+- **Scrollable text:** Calculate total height for scrollable text areas
+
+##### `drawtextbox(x, y, width, height, text, color, bgColor, borderColor)`
+Draws text in a bordered box with an optional background. This is useful for creating dialog boxes, message displays, info panels, and other UI elements that need visual boundaries.
+
+**Parameters:**
+- `x` (integer): X coordinate of the top-left corner of the box (0-255).
+- `y` (integer): Y coordinate of the top-left corner of the box (0-239).
+- `width` (integer): Width of the box in pixels. Must be positive.
+- `height` (integer): Height of the box in pixels. Must be positive.
+- `text` (string): Text string to display inside the box. Supports newline characters (`\n`) for multi-line text.
+- `color` (integer): Text color. Valid range is 0x00-0x3F (automatically mapped to NES palette range).
+- `bgColor` (integer, optional): Background color for the box interior. Valid range is 0x00-0x3F. If `nil` or omitted, no background is drawn.
+- `borderColor` (integer, optional): Border color for the box. Valid range is 0x00-0x3F. If `nil` or omitted, no border is drawn. The border is 3 pixels thick.
+
+**Returns:** Nothing
+
+**Notes:**
+- **Border thickness:** The border is always 3 pixels thick when `borderColor` is specified.
+- **Text padding:** Text is drawn with 2 pixels of padding from the inner edges of the box (after accounting for the border).
+- **Text wrapping:** Text automatically wraps within the available space inside the box.
+- **Multi-line support:** Supports newline characters (`\n`) for explicit line breaks.
+- **Optional parameters:** Both `bgColor` and `borderColor` are optional. You can specify:
+  - Both: Full box with background and border
+  - Only `bgColor`: Box with background but no border
+  - Only `borderColor`: Box with border but no background (transparent interior)
+  - Neither: Just text (no box, equivalent to `drawtext()`)
+- **Coordinate clamping:** The box is automatically clamped to screen bounds if it extends beyond the visible area.
+- **Text clipping:** Text that doesn't fit in the box is clipped to the available space.
+
+**Example:**
+```lua
+-- Full box with background and border
+drawtextbox(10, 10, 100, 40, "Dialog Box", 0x20, 0x10, 0x20)
+
+-- Background only (no border)
+drawtextbox(10, 60, 100, 40, "Info Panel", 0x20, 0x10, nil)
+
+-- Border only (no background, transparent interior)
+drawtextbox(10, 110, 100, 40, "Border Only", 0x20, nil, 0x20)
+
+-- Multi-line text in a box
+drawtextbox(120, 10, 100, 60, "Line 1\nLine 2\nLine 3", 0x20, 0x10, 0x20)
+
+-- Different colors for text, background, and border
+drawtextbox(10, 160, 120, 50, "Colored Box", 0x20, 0x30, 0x20)
+
+-- Message box with long text that wraps
+drawtextbox(20, 20, 200, 80, "This is a longer message that will automatically wrap inside the box boundaries.", 0x20, 0x10, 0x20)
+
+-- Simple text box (no background, no border)
+drawtextbox(10, 220, 100, 20, "Plain Text", 0x20, nil, nil)
+```
+
+**Use Cases:**
+- **Dialog boxes:** Create message boxes and dialog windows
+- **Info panels:** Display information in visually distinct boxes
+- **UI elements:** Build custom UI components with borders and backgrounds
+- **Message displays:** Show notifications or messages in bordered containers
+- **Status displays:** Create status panels with clear visual boundaries
+- **Menu systems:** Build menu items with background and border styling
+- **Tooltips:** Display tooltip text in small bordered boxes
 
 ##### `drawpixel(x, y, color)`
 Draws a single pixel at the specified coordinates.
@@ -821,7 +1213,7 @@ for i = 0, 20 do
 end
 
 -- Draw a single pixel
-drawpixel(128, 120, 0x20)  -- White pixel at screen center
+drawpixel(128, 120, 0x20)  -- Bright white pixel at screen center
 ```
 
 ##### `drawline(x1, y1, x2, y2, color)`
@@ -847,8 +1239,8 @@ Draws a line between two points using Bresenham's line algorithm.
 **Example:**
 ```lua
 -- Draw a crosshair at screen center
-drawline(108, 120, 148, 120, 0x3F)  -- Horizontal line
-drawline(128, 100, 128, 140, 0x3F)  -- Vertical line
+drawline(108, 120, 148, 120, 0x20)  -- Horizontal line
+drawline(128, 100, 128, 140, 0x20)  -- Vertical line
 
 -- Draw a box using lines
 drawline(200, 30, 250, 30, 0x39)    -- Top
@@ -885,31 +1277,31 @@ Draws a thick line between two points with a specified thickness using perpendic
 **Example:**
 ```lua
 -- Draw horizontal thick lines with different thicknesses
-drawthickline(20, 30, 80, 30, 1, 0x20)   -- White, thickness 1 (same as drawline)
+drawthickline(20, 30, 80, 30, 1, 0x20)   -- Bright white, thickness 1 (same as drawline)
 drawthickline(20, 40, 80, 40, 3, 0x39)   -- Yellow-green, thickness 3
-drawthickline(20, 50, 80, 50, 5, 0x16)   -- Red, thickness 5
-drawthickline(20, 60, 80, 60, 7, 0x29)   -- Green/teal, thickness 7
+drawthickline(20, 50, 80, 50, 5, 0x16)   -- Red / orange-red, thickness 5
+drawthickline(20, 60, 80, 60, 7, 0x29)   -- Medium bright green, thickness 7
 
 -- Draw vertical thick lines
-drawthickline(100, 30, 100, 80, 2, 0x20) -- White, thickness 2
+drawthickline(100, 30, 100, 80, 2, 0x20) -- Bright white, thickness 2
 drawthickline(110, 30, 110, 80, 4, 0x39) -- Yellow-green, thickness 4
-drawthickline(120, 30, 120, 80, 6, 0x16) -- Red, thickness 6
+drawthickline(120, 30, 120, 80, 6, 0x16) -- Red / orange-red, thickness 6
 
 -- Draw diagonal thick lines
-drawthickline(140, 30, 180, 70, 3, 0x20) -- White diagonal, thickness 3
+drawthickline(140, 30, 180, 70, 3, 0x20) -- Bright white diagonal, thickness 3
 drawthickline(140, 70, 180, 30, 5, 0x39) -- Yellow-green diagonal, thickness 5
 
 -- Draw very thick line
-drawthickline(50, 100, 150, 120, 10, 0x37) -- Yellow, very thick (thickness 10)
+drawthickline(50, 100, 150, 120, 10, 0x37) -- Bright yellow, very thick (thickness 10)
 
 -- Draw arrows using thick lines
-drawthickline(200, 100, 230, 110, 6, 0x16) -- Red arrow shaft
+drawthickline(200, 100, 230, 110, 6, 0x16) -- Red / orange-red arrow shaft
 drawthickline(225, 105, 230, 110, 4, 0x16) -- Arrow head (left side)
 drawthickline(225, 115, 230, 110, 4, 0x16) -- Arrow head (right side)
 
 -- Draw crosshair with thick lines
-drawthickline(108, 120, 148, 120, 3, 0x3F)  -- Horizontal thick line
-drawthickline(128, 100, 128, 140, 3, 0x3F)  -- Vertical thick line
+drawthickline(108, 120, 148, 120, 3, 0x20)  -- Horizontal thick line
+drawthickline(128, 100, 128, 140, 3, 0x20)  -- Vertical thick line
 ```
 
 ##### `drawrect(x, y, w, h, color)`
@@ -935,15 +1327,15 @@ Draws a rectangle outline (border only) at the specified position and size.
 **Example:**
 ```lua
 -- Draw a simple rectangle border
-drawrect(10, 50, 60, 40, 0x20)  -- White outline rectangle
+drawrect(10, 50, 60, 40, 0x20)  -- Bright white outline rectangle
 
 -- Draw multiple rectangles with different colors
-drawrect(10, 50, 60, 40, 0x20)   -- White outline
+drawrect(10, 50, 60, 40, 0x20)   -- Bright white outline
 drawrect(80, 50, 60, 40, 0x39)   -- Yellow-green outline
-drawrect(150, 50, 50, 30, 0x3F)  -- Bright outline
+drawrect(150, 50, 50, 30, 0x20)  -- Bright white outline
 
 -- Draw a border around an area (you can use multiple drawrect calls for nested borders)
-drawrect(5, 115, 120, 60, 0x20) -- White border around panel
+drawrect(5, 115, 120, 60, 0x20) -- Bright white border around panel
 ```
 
 ##### `fillrect(x, y, w, h, color)`
@@ -969,23 +1361,23 @@ Draws a filled rectangle (solid color) at the specified position and size.
 **Example:**
 ```lua
 -- Draw a simple filled rectangle
-fillrect(10, 50, 60, 40, 0x10)  -- Dark gray filled rectangle
+fillrect(10, 50, 60, 40, 0x10)  -- Light gray filled rectangle
 
 -- Draw a progress bar
 local barWidth = 100  -- Progress percentage
 fillrect(10, 100, barWidth, 8, 0x39)  -- Filled progress bar
-drawrect(10, 100, 100, 8, 0x3F)        -- Border around progress bar
+drawrect(10, 100, 100, 8, 0x20)        -- Border around progress bar
 
 -- Draw a background panel with border
-fillrect(5, 115, 120, 60, 0x10)       -- Dark background
-drawrect(5, 115, 120, 60, 0x20)      -- White border around panel
+fillrect(5, 115, 120, 60, 0x10)       -- Light gray background
+drawrect(5, 115, 120, 60, 0x20)      -- Bright white border around panel
 
 -- Draw multiple filled rectangles with varying colors
 for i = 0, 7 do
     local x = 180 + (i % 4) * 18
     local y = 170 + math.floor(i / 4) * 18
     fillrect(x, y, 15, 15, 0x20 + i)  -- Varying colors
-    drawrect(x, y, 15, 15, 0x3F)      -- Border on each
+    drawrect(x, y, 15, 15, 0x20)      -- Border on each
 end
 ```
 
@@ -1068,11 +1460,11 @@ drawimage(10, 10, spriteData, 8, 8)
 local largeSprite = {}
 for i = 1, 256 do  -- 16x16 = 256 pixels
     if i % 3 == 0 then
-        largeSprite[i] = 0x3F  -- Bright color
+        largeSprite[i] = 0x20  -- Bright white color
     elseif i % 3 == 1 then
         largeSprite[i] = 0x39  -- Yellow-green
     else
-        largeSprite[i] = 0x16  -- Red/orange
+        largeSprite[i] = 0x16  -- Red / orange-red
     end
 end
 drawimage(150, 100, largeSprite, 16, 16)
@@ -1111,10 +1503,10 @@ Draws an image using indexed palette mapping. The image data contains palette in
 **Example:**
 ```lua
 -- Define a 4-color palette
-local palette1 = {0x20, 0x39, 0x16, 0x3F}  -- White, Yellow-green, Red/orange, Bright
+local palette1 = {0x20, 0x39, 0x16, 0x3D}  -- Bright white, Yellow-green, Red / orange-red, Silver
 
 -- 8x8 sprite data using palette indices (1-4, Lua 1-based)
--- Index 1 = white, Index 2 = yellow-green, Index 3 = red/orange, Index 4 = bright
+-- Index 1 = bright white, Index 2 = yellow-green, Index 3 = red / orange-red, Index 4 = silver
 local spriteData = {
     1, 2, 1, 2, 1, 2, 1, 2,  -- Row 1
     2, 1, 2, 1, 2, 1, 2, 1,  -- Row 2
@@ -1130,15 +1522,15 @@ local spriteData = {
 drawimageindexed(10, 10, spriteData, palette1, 8, 8)
 
 -- Reuse the same sprite data with a different palette
-local palette2 = {0x0F, 0x16, 0x26, 0x37}  -- Different color scheme
+local palette2 = {0x20, 0x16, 0x26, 0x37}  -- Different color scheme (bright white, red / orange-red, coral red, bright yellow)
 drawimageindexed(100, 10, spriteData, palette2, 8, 8)
 
 -- Another palette variation
-local palette3 = {0x00, 0x10, 0x20, 0x3F}
+local palette3 = {0x00, 0x10, 0x20, 0x3D}  -- Dark gray, light gray, bright white, silver
 drawimageindexed(190, 10, spriteData, palette3, 8, 8)
 
 -- Example with a 2-color palette
-local smallPalette = {0x20, 0x16}  -- White and Red/orange
+local smallPalette = {0x20, 0x16}  -- Bright white and Red / orange-red
 local smallSprite = {
     1, 2, 1, 2,
     2, 1, 2, 1,
@@ -1274,7 +1666,7 @@ Sets the drawing mode for all subsequent drawing operations. This allows you to 
 - All blend modes operate on the color index values (0-63) before mapping to the overlay range.
 - **Additive mode** (`"add"`): Best for creating glow effects, highlighting, or brightening areas. When colors overlap, they become brighter.
 - **Subtractive mode** (`"sub"`): Best for creating shadows, darkening effects, or dimming overlays. When colors overlap, they become darker.
-- **Multiply mode** (`"multiply"`): Best for creating darker overlays, shadows, or dimming effects. White (0x20) has no effect, darker colors darken more.
+- **Multiply mode** (`"multiply"`): Best for creating darker overlays, shadows, or dimming effects. Bright white (0x20) has no effect, darker colors darken more.
 - **Alpha mode** (`"alpha"`): Best for creating smooth transitions, semi-transparent overlays, or blending effects. Creates a 50/50 mix of source and destination.
 - The drawing mode applies to all drawing functions: `drawpixel`, `drawline`, `drawthickline`, `drawrect`, `fillrect`, `drawimage`, `drawimageindexed`, `drawtile`, `drawchrtile`, `drawcircle`, `fillcircle`, `drawtriangle`, `filltriangle`, `drawellipse`, `fillellipse`, `drawarc`, `fillarc`, `drawpolygon`, `fillpolygon`, and `drawpolyline`.
 - Text rendering (`drawtext`, `drawtextwh`) does not use blend modes and always uses normal mode.
@@ -1289,11 +1681,11 @@ function gui()
     
     -- Draw base shape in normal mode
     setdrawmode("normal")
-    fillrect(10, 10, 80, 80, 0x20)  -- White base rectangle
+    fillrect(10, 10, 80, 80, 0x20)  -- Bright white base rectangle
     
     -- Draw overlapping shape with additive blending (brightens)
     setdrawmode("add")
-    fillrect(50, 50, 80, 80, 0x16)  -- Red/orange overlapping (should brighten)
+    fillrect(50, 50, 80, 80, 0x16)  -- Red / orange-red overlapping (should brighten)
     
     -- Draw another shape with subtractive blending (darkens)
     setdrawmode("sub")
@@ -1303,11 +1695,11 @@ function gui()
     setdrawmode("normal")
     fillrect(150, 10, 60, 60, 0x39)  -- Yellow-green base
     setdrawmode("multiply")
-    fillrect(170, 30, 40, 40, 0x20)  -- White (multiply should darken)
+    fillrect(170, 30, 40, 40, 0x20)  -- Bright white (multiply should darken)
     
     -- Test alpha mode
     setdrawmode("normal")
-    fillrect(150, 90, 60, 60, 0x16)  -- Red/orange base
+    fillrect(150, 90, 60, 60, 0x16)  -- Red / orange-red base
     setdrawmode("alpha")
     fillrect(170, 110, 40, 40, 0x39)  -- Yellow-green (should blend)
     
@@ -1334,7 +1726,7 @@ end
 function gui()
     -- Draw base shape
     setdrawmode("normal")
-    fillrect(50, 50, 60, 60, 0x20)  -- White rectangle
+    fillrect(50, 50, 60, 60, 0x20)  -- Bright white rectangle
     
     -- Draw shadow with subtractive blending
     setdrawmode("sub")
@@ -1384,10 +1776,10 @@ function gui()
     setclipregion(50, 50, 100, 80)  -- Clip region: x=50, y=50, width=100, height=80
     
     -- Draw a large rectangle - will be clipped to the region
-    fillrect(40, 40, 120, 100, 0x16)  -- Red/orange rectangle (clipped)
+    fillrect(40, 40, 120, 100, 0x16)  -- Red / orange-red rectangle (clipped)
     
     -- Draw a circle - will be clipped
-    fillcircle(100, 90, 40, 0x20)  -- White circle (clipped)
+    fillcircle(100, 90, 40, 0x20)  -- Bright white circle (clipped)
     
     -- Reset clipping (disable by setting to full screen)
     setclipregion(0, 0, 256, 240)
@@ -1402,10 +1794,10 @@ function gui()
     setclipregion(20, 20, 200, 150)
     
     -- Draw panel background
-    fillrect(20, 20, 200, 150, 0x10)  -- Dark gray background
+    fillrect(20, 20, 200, 150, 0x10)  -- Light gray background
     
     -- Draw panel border
-    drawrect(20, 20, 200, 150, 0x20)  -- White border
+    drawrect(20, 20, 200, 150, 0x20)  -- Bright white border
     
     -- Draw content inside panel (will be clipped if it goes outside)
     drawtext(25, 25, "Panel Title", 0x39)
@@ -1419,12 +1811,12 @@ end
 function gui()
     -- Left half of screen
     setclipregion(0, 0, 128, 240)
-    fillrect(0, 0, 128, 240, 0x16)  -- Red background (left)
+    fillrect(0, 0, 128, 240, 0x16)  -- Red / orange-red background (left)
     drawtext(10, 10, "LEFT", 0x20)
     
     -- Right half of screen
     setclipregion(128, 0, 128, 240)
-    fillrect(128, 0, 128, 240, 0x29)  -- Green background (right)
+    fillrect(128, 0, 128, 240, 0x29)  -- Medium bright green background (right)
     drawtext(138, 10, "RIGHT", 0x20)
     
     -- Reset clipping
@@ -1456,13 +1848,13 @@ function gui()
     setclipregion(50, 50, 100, 80)
     
     -- Draw a rectangle - will be clipped to the region
-    fillrect(40, 40, 120, 100, 0x16)  -- Red/orange rectangle (clipped)
+    fillrect(40, 40, 120, 100, 0x16)  -- Red / orange-red rectangle (clipped)
     
     -- Clear the clipping region
     clearclipregion()
     
     -- Now draw outside the previous clip region - should be visible
-    fillrect(10, 10, 30, 30, 0x3F)  -- Bright white rectangle (now visible)
+    fillrect(10, 10, 30, 30, 0x20)  -- Bright white rectangle (now visible)
     drawtext(10, 20, "NOT CLIPPED", 0x16)  -- Text outside old clip region
     
     -- Set a new clipping region
@@ -1470,14 +1862,14 @@ function gui()
     
     -- Draw only in this new region
     for i = 0, 4 do
-        drawline(150, 150 + i * 10, 210, 150 + i * 10, 0x3F)
+        drawline(150, 150 + i * 10, 210, 150 + i * 10, 0x20)
     end
     
     -- Clear clipping again
     clearclipregion()
     
     -- Draw something that should be visible everywhere
-    fillcircle(128, 120, 30, 0x16)  -- Large red circle in center
+    fillcircle(128, 120, 30, 0x16)  -- Large red / orange-red circle in center
 end
 
 -- Create a windowed panel, then clear clipping to draw outside
@@ -1486,8 +1878,8 @@ function gui()
     setclipregion(20, 20, 200, 150)
     
     -- Draw panel content (clipped)
-    fillrect(20, 20, 200, 150, 0x10)  -- Dark gray background
-    drawrect(20, 20, 200, 150, 0x20)  -- White border
+    fillrect(20, 20, 200, 150, 0x10)  -- Light gray background
+    drawrect(20, 20, 200, 150, 0x20)  -- Bright white border
     drawtext(25, 25, "Panel Content", 0x39)
     
     -- Clear clipping to draw outside the panel
@@ -1516,16 +1908,16 @@ Sets the default drawing color for drawing functions that don't specify a color 
 
 **Example:**
 ```lua
--- Set default drawing color to red/orange
+-- Set default drawing color to red / orange-red
 setdrawcolor(0x16)
 
 -- Set default drawing color to yellow-green
 setdrawcolor(0x39)
 
--- Set default drawing color to white
+-- Set default drawing color to bright white
 setdrawcolor(0x20)
 
--- Set default drawing color to green/teal
+-- Set default drawing color to medium bright green
 setdrawcolor(0x29)
 
 -- Note: Current drawing functions all require explicit color parameters,
@@ -1535,15 +1927,15 @@ function gui()
     setdrawcolor(0x39)  -- Yellow-green
     
     -- Draw with explicit colors (current functions require this)
-    fillrect(10, 10, 60, 60, 0x16)  -- Red/orange (explicit)
-    fillcircle(50, 50, 20, 0x20)    -- White (explicit)
+    fillrect(10, 10, 60, 60, 0x16)  -- Red / orange-red (explicit)
+    fillcircle(50, 50, 20, 0x20)    -- Bright white (explicit)
     
     -- Change default color
-    setdrawcolor(0x20)  -- White
+    setdrawcolor(0x20)  -- Bright white
     
     -- Draw with explicit colors
-    fillrect(80, 10, 60, 60, 0x29)  -- Green/teal (explicit)
-    fillcircle(110, 40, 20, 0x16)   -- Red/orange (explicit)
+    fillrect(80, 10, 60, 60, 0x29)  -- Medium bright green (explicit)
+    fillcircle(110, 40, 20, 0x16)   -- Red / orange-red (explicit)
 end
 ```
 
@@ -1570,13 +1962,13 @@ Draws a circle outline at the specified center position and radius.
 ```lua
 -- Draw circles at different positions
 drawcircle(128, 120, 30, 0x39)    -- Yellow-green circle at center
-drawcircle(50, 50, 10, 0x29)      -- Green/Teal circle
-drawcircle(200, 180, 20, 0x16)    -- Red circle
-drawcircle(90, 180, 12, 0x37)     -- Yellow circle
+drawcircle(50, 50, 10, 0x29)      -- Medium bright green circle
+drawcircle(200, 180, 20, 0x16)    -- Red / orange-red circle
+drawcircle(90, 180, 12, 0x37)     -- Bright yellow circle
 
 -- Draw multiple concentric circles
 for i = 5, 25, 5 do
-    drawcircle(128, 120, i, 0x20)  -- White circles
+    drawcircle(128, 120, i, 0x20)  -- Bright white circles
 end
 ```
 
@@ -1604,14 +1996,14 @@ Draws a filled circle (solid color) at the specified center position and radius.
 ```lua
 -- Draw filled circles at different positions
 fillcircle(128, 120, 30, 0x39)    -- Filled yellow-green circle at center
-fillcircle(50, 50, 10, 0x29)      -- Filled green/teal circle
-fillcircle(200, 180, 20, 0x16)    -- Filled red circle
-fillcircle(90, 180, 12, 0x37)     -- Filled yellow circle
+fillcircle(50, 50, 10, 0x29)      -- Filled medium bright green circle
+fillcircle(200, 180, 20, 0x16)    -- Filled red / orange-red circle
+fillcircle(90, 180, 12, 0x37)     -- Filled bright yellow circle
 
 -- Draw concentric filled circles
-fillcircle(128, 120, 25, 0x20)    -- White circle
-fillcircle(128, 120, 15, 0x16)    -- Red circle inside
-fillcircle(128, 120, 5, 0x3F)     -- Bright white center
+fillcircle(128, 120, 25, 0x20)    -- Bright white circle
+fillcircle(128, 120, 15, 0x16)    -- Red / orange-red circle inside
+fillcircle(128, 120, 5, 0x20)     -- Bright white center
 
 -- Progress indicator using filled circles
 local progress = 0.75  -- 75% progress
@@ -1645,18 +2037,18 @@ Draws an ellipse outline at the specified center position with separate horizont
 **Example:**
 ```lua
 -- Draw horizontal ellipses (wide ovals)
-drawellipse(128, 60, 50, 25, 0x20)    -- Wide white ellipse
+drawellipse(128, 60, 50, 25, 0x20)    -- Wide bright white ellipse
 drawellipse(200, 60, 40, 20, 0x26)    -- Wide coral red ellipse
 
 -- Draw vertical ellipses (tall ovals)
-drawellipse(50, 120, 20, 40, 0x29)     -- Tall green ellipse
-drawellipse(50, 180, 15, 35, 0x37)     -- Tall yellow ellipse
+drawellipse(50, 120, 20, 40, 0x29)     -- Tall medium bright green ellipse
+drawellipse(50, 180, 15, 35, 0x37)     -- Tall bright yellow ellipse
 
 -- Draw a circle (rx == ry, same as drawcircle)
 drawellipse(128, 120, 30, 30, 0x39)    -- Circle (yellow-green)
 
 -- Draw ellipses of different sizes
-drawellipse(100, 100, 25, 15, 0x16)    -- Small horizontal ellipse (red)
+drawellipse(100, 100, 25, 15, 0x16)    -- Small horizontal ellipse (red / orange-red)
 drawellipse(180, 100, 15, 25, 0x1C)    -- Small vertical ellipse (cyan)
 ```
 
@@ -1687,23 +2079,23 @@ Draws a filled ellipse (solid color) at the specified center position with separ
 **Example:**
 ```lua
 -- Draw filled horizontal ellipses (wide ovals)
-fillellipse(128, 60, 50, 25, 0x20)    -- Filled wide white ellipse
+fillellipse(128, 60, 50, 25, 0x20)    -- Filled wide bright white ellipse
 fillellipse(200, 60, 40, 20, 0x26)    -- Filled wide coral red ellipse
 
 -- Draw filled vertical ellipses (tall ovals)
-fillellipse(50, 120, 20, 40, 0x29)     -- Filled tall green ellipse
-fillellipse(50, 180, 15, 35, 0x37)     -- Filled tall yellow ellipse
+fillellipse(50, 120, 20, 40, 0x29)     -- Filled tall medium bright green ellipse
+fillellipse(50, 180, 15, 35, 0x37)     -- Filled tall bright yellow ellipse
 
 -- Draw a filled circle (rx == ry, same as fillcircle)
 fillellipse(128, 120, 30, 30, 0x39)    -- Filled circle (yellow-green)
 
 -- Draw filled ellipses of different sizes
-fillellipse(100, 100, 25, 15, 0x16)    -- Small horizontal filled ellipse (red)
+fillellipse(100, 100, 25, 15, 0x16)    -- Small horizontal filled ellipse (red / orange-red)
 fillellipse(180, 100, 15, 25, 0x1C)    -- Small vertical filled ellipse (cyan)
 
 -- Combine outline and filled for effect
-fillellipse(128, 120, 40, 25, 0x16)     -- Filled red ellipse
-drawellipse(128, 120, 40, 25, 0x20)     -- White outline on top
+fillellipse(128, 120, 40, 25, 0x16)     -- Filled red / orange-red ellipse
+drawellipse(128, 120, 40, 25, 0x20)     -- Bright white outline on top
 ```
 
 ##### `drawarc(x, y, radius, startAngle, endAngle, color)`
@@ -1782,13 +2174,13 @@ Draws a filled circular arc (pie slice) between two angles.
 **Example:**
 ```lua
 -- Draw four quadrant pie slices
-fillarc(64, 60, 40, 0, 90, 0x20)    -- Top-right quadrant (white)
-fillarc(192, 60, 40, 90, 180, 0x26)  -- Top-left quadrant (orange)
-fillarc(64, 180, 40, 180, 270, 0x29) -- Bottom-left quadrant (green)
-fillarc(192, 180, 40, 270, 360, 0x37) -- Bottom-right quadrant (yellow)
+fillarc(64, 60, 40, 0, 90, 0x20)    -- Top-right quadrant (bright white)
+fillarc(192, 60, 40, 90, 180, 0x26)  -- Top-left quadrant (coral red)
+fillarc(64, 180, 40, 180, 270, 0x29) -- Bottom-left quadrant (medium bright green)
+fillarc(192, 180, 40, 270, 360, 0x37) -- Bottom-right quadrant (bright yellow)
 
 -- Draw half circle pie slices
-fillarc(128, 40, 35, 0, 180, 0x16)     -- Top half (red)
+fillarc(128, 40, 35, 0, 180, 0x16)     -- Top half (red / orange-red)
 fillarc(128, 200, 35, 180, 360, 0x1C)  -- Bottom half (cyan)
 
 -- Progress indicators (different percentages)
@@ -1797,11 +2189,11 @@ fillarc(206, 120, 30, 0, 180, 0x21)    -- 50% progress (light blue)
 fillarc(128, 120, 30, 0, 270, 0x28)    -- 75% progress (yellow)
 
 -- Small diagonal pie slices
-fillarc(32, 220, 15, 45, 135, 0x23)   -- Small diagonal slice (light purple)
-fillarc(224, 220, 15, 225, 315, 0x24)  -- Small opposite diagonal (pink)
+fillarc(32, 220, 15, 45, 135, 0x23)   -- Small diagonal slice (sky blue)
+fillarc(224, 220, 15, 225, 315, 0x24)  -- Small opposite diagonal (lavander)
 
 -- Full circle (should fill entire circle when angles span 360)
-fillarc(128, 120, 25, 0, 360, 0x2B)   -- Full circle (gray/blue)
+fillarc(128, 120, 25, 0, 360, 0x2B)   -- Full circle (aqua-green)
 ```
 
 ##### `drawroundrect(x, y, w, h, radius, color)`
@@ -1830,28 +2222,28 @@ Draws a rounded rectangle outline (rectangle with rounded corners).
 **Example:**
 ```lua
 -- Small radius (subtle rounding)
-drawroundrect(10, 10, 60, 40, 5, 0x20)   -- White outline, radius 5
+drawroundrect(10, 10, 60, 40, 5, 0x20)   -- Bright white outline, radius 5
 
 -- Medium radius (moderate rounding)
-drawroundrect(80, 10, 60, 40, 10, 0x26)  -- Orange outline, radius 10
+drawroundrect(80, 10, 60, 40, 10, 0x26)  -- Coral red outline, radius 10
 
 -- Large radius (strong rounding)
-drawroundrect(150, 10, 60, 40, 15, 0x29) -- Green outline, radius 15
+drawroundrect(150, 10, 60, 40, 15, 0x29) -- Medium bright green outline, radius 15
 
 -- Very large radius (almost pill-shaped)
-drawroundrect(10, 60, 100, 30, 15, 0x37)  -- Yellow outline, radius 15
+drawroundrect(10, 60, 100, 30, 15, 0x37)  -- Bright yellow outline, radius 15
 
 -- Square with small rounding
-drawroundrect(120, 60, 50, 50, 8, 0x16)   -- Red outline, radius 8
+drawroundrect(120, 60, 50, 50, 8, 0x16)   -- Red / orange-red outline, radius 8
 
 -- Wide rectangle with medium rounding
 drawroundrect(10, 120, 180, 40, 12, 0x1C) -- Cyan outline, radius 12
 
 -- Tall rectangle with small rounding
-drawroundrect(200, 10, 40, 100, 8, 0x23)  -- Light purple outline, radius 8
+drawroundrect(200, 10, 40, 100, 8, 0x23)  -- Sky blue outline, radius 8
 
 -- Radius 0 (should draw as regular rectangle, same as drawrect)
-drawroundrect(10, 170, 80, 30, 0, 0x2B)   -- Gray outline, radius 0
+drawroundrect(10, 170, 80, 30, 0, 0x2B)   -- Aqua-green outline, radius 0
 ```
 
 ##### `fillroundrect(x, y, w, h, radius, color)`
@@ -1880,28 +2272,28 @@ Draws a filled rounded rectangle (rectangle with rounded corners, filled interio
 **Example:**
 ```lua
 -- Small radius (subtle rounding)
-fillroundrect(10, 10, 60, 40, 5, 0x20)   -- White fill, radius 5
+fillroundrect(10, 10, 60, 40, 5, 0x20)   -- Bright white fill, radius 5
 
 -- Medium radius (moderate rounding)
-fillroundrect(80, 10, 60, 40, 10, 0x26)  -- Orange fill, radius 10
+fillroundrect(80, 10, 60, 40, 10, 0x26)  -- Coral red fill, radius 10
 
 -- Large radius (strong rounding)
-fillroundrect(150, 10, 60, 40, 15, 0x29) -- Green fill, radius 15
+fillroundrect(150, 10, 60, 40, 15, 0x29) -- Medium bright green fill, radius 15
 
 -- Very large radius (almost pill-shaped)
-fillroundrect(10, 60, 100, 30, 15, 0x37)  -- Yellow fill, radius 15
+fillroundrect(10, 60, 100, 30, 15, 0x37)  -- Bright yellow fill, radius 15
 
 -- Square with small rounding
-fillroundrect(120, 60, 50, 50, 8, 0x16)   -- Red fill, radius 8
+fillroundrect(120, 60, 50, 50, 8, 0x16)   -- Red / orange-red fill, radius 8
 
 -- Wide rectangle with medium rounding
 fillroundrect(10, 120, 180, 40, 12, 0x1C) -- Cyan fill, radius 12
 
 -- Tall rectangle with small rounding
-fillroundrect(200, 10, 40, 100, 8, 0x23)  -- Light purple fill, radius 8
+fillroundrect(200, 10, 40, 100, 8, 0x23)  -- Sky blue fill, radius 8
 
 -- Radius 0 (should fill as regular rectangle, same as fillrect)
-fillroundrect(10, 170, 80, 30, 0, 0x2B)   -- Gray fill, radius 0
+fillroundrect(10, 170, 80, 30, 0, 0x2B)   -- Aqua-green fill, radius 0
 ```
 
 ##### `drawtriangle(x1, y1, x2, y2, x3, y3, color)`
@@ -1930,16 +2322,16 @@ Draws a triangle outline by connecting three vertices with lines.
 **Example:**
 ```lua
 -- Draw triangles pointing in different directions
-drawtriangle(128, 50, 100, 80, 156, 80, 0x20)    -- Pointing up (white)
+drawtriangle(128, 50, 100, 80, 156, 80, 0x20)    -- Pointing up (bright white)
 drawtriangle(128, 190, 100, 160, 156, 160, 0x39) -- Pointing down (yellow-green)
-drawtriangle(50, 120, 80, 100, 80, 140, 0x16)     -- Pointing right (red)
-drawtriangle(206, 120, 176, 100, 176, 140, 0x29)  -- Pointing left (green/teal)
+drawtriangle(50, 120, 80, 100, 80, 140, 0x16)     -- Pointing right (red / orange-red)
+drawtriangle(206, 120, 176, 100, 176, 140, 0x29)  -- Pointing left (medium bright green)
 
 -- Draw multiple triangles for decorative effects
 for i = 1, 5 do
     local x = 40 + i * 35
     local size = 15
-    drawtriangle(x, 30, x + size, 30 + size, x - size/2, 30 + size, 0x37)  -- Yellow triangles
+    drawtriangle(x, 30, x + size, 30 + size, x - size/2, 30 + size, 0x37)  -- Bright yellow triangles
 end
 
 -- Draw a diamond shape using two triangles
@@ -1975,16 +2367,16 @@ Draws a filled triangle (solid color) by filling the interior area defined by th
 **Example:**
 ```lua
 -- Draw filled triangles pointing in different directions
-filltriangle(128, 50, 100, 80, 156, 80, 0x20)    -- Pointing up (white)
+filltriangle(128, 50, 100, 80, 156, 80, 0x20)    -- Pointing up (bright white)
 filltriangle(128, 190, 100, 160, 156, 160, 0x39) -- Pointing down (yellow-green)
-filltriangle(50, 120, 80, 100, 80, 140, 0x16)     -- Pointing right (red)
-filltriangle(206, 120, 176, 100, 176, 140, 0x29)  -- Pointing left (green/teal)
+filltriangle(50, 120, 80, 100, 80, 140, 0x16)     -- Pointing right (red / orange-red)
+filltriangle(206, 120, 176, 100, 176, 140, 0x29)  -- Pointing left (medium bright green)
 
 -- Draw multiple filled triangles for decorative effects
 for i = 1, 5 do
     local x = 40 + i * 35
     local size = 15
-    filltriangle(x, 30, x + size, 30 + size, x - size/2, 30 + size, 0x37)  -- Yellow triangles
+    filltriangle(x, 30, x + size, 30 + size, x - size/2, 30 + size, 0x37)  -- Bright yellow triangles
 end
 
 -- Draw a diamond shape using two filled triangles
@@ -1992,8 +2384,8 @@ filltriangle(128, 80, 148, 120, 108, 120, 0x20)   -- Top triangle
 filltriangle(128, 160, 148, 120, 108, 120, 0x20)  -- Bottom triangle
 
 -- Combine outline and filled for effect
-filltriangle(100, 50, 156, 50, 128, 100, 0x16)     -- Filled red triangle
-drawtriangle(100, 50, 156, 50, 128, 100, 0x20)    -- White outline on top
+filltriangle(100, 50, 156, 50, 128, 100, 0x16)     -- Filled red / orange-red triangle
+drawtriangle(100, 50, 156, 50, 128, 100, 0x20)    -- Bright white outline on top
 ```
 
 ##### `drawpolygon(x1, y1, x2, y2, ..., color)`
@@ -2026,13 +2418,13 @@ Draws a polygon outline by connecting multiple vertices with lines and automatic
 **Example:**
 ```lua
 -- Draw a square (4 points)
-drawpolygon(50, 50, 100, 50, 100, 100, 50, 100, 0x20)  -- White square outline
+drawpolygon(50, 50, 100, 50, 100, 100, 50, 100, 0x20)  -- Bright white square outline
 
 -- Draw a pentagon (5 points)
 drawpolygon(128, 30, 148, 60, 128, 90, 108, 60, 118, 30, 0x39)  -- Yellow-green pentagon
 
 -- Draw a star shape (5 points)
-drawpolygon(128, 20, 132, 50, 160, 50, 138, 70, 148, 100, 128, 80, 108, 100, 118, 70, 96, 50, 124, 50, 0x37)  -- Yellow star
+drawpolygon(128, 20, 132, 50, 160, 50, 138, 70, 148, 100, 128, 80, 108, 100, 118, 70, 96, 50, 124, 50, 0x37)  -- Bright yellow star
 
 -- Draw a hexagon (6 points)
 local cx, cy, radius = 128, 120, 30
@@ -2047,10 +2439,10 @@ drawpolygon(
 )
 
 -- Draw an irregular polygon
-drawpolygon(50, 30, 80, 20, 100, 40, 90, 70, 60, 80, 40, 60, 0x16)  -- Red irregular shape
+drawpolygon(50, 30, 80, 20, 100, 40, 90, 70, 60, 80, 40, 60, 0x16)  -- Red / orange-red irregular shape
 
 -- Draw a triangle using drawpolygon (drawtriangle is more efficient for this)
-drawpolygon(128, 50, 100, 80, 156, 80, 0x20)  -- White triangle
+drawpolygon(128, 50, 100, 80, 156, 80, 0x20)  -- Bright white triangle
 ```
 
 ##### `drawpolyline(x1, y1, x2, y2, ..., color)`
@@ -2083,25 +2475,25 @@ Draws an open polyline (connected line segments) by connecting multiple vertices
 **Example:**
 ```lua
 -- Draw a simple L-shaped path (doesn't close)
-drawpolyline(20, 40, 60, 40, 60, 80, 0x20)  -- White L-shape
+drawpolyline(20, 40, 60, 40, 60, 80, 0x20)  -- Bright white L-shape
 
 -- Draw a zigzag pattern
 drawpolyline(20, 120, 40, 100, 60, 120, 80, 100, 100, 120, 0x39)  -- Yellow-green zigzag
 
 -- Draw a curved-looking path (multiple points)
-drawpolyline(130, 40, 140, 50, 150, 45, 160, 55, 170, 50, 180, 60, 0x16)  -- Red curved path
+drawpolyline(130, 40, 140, 50, 150, 45, 160, 55, 170, 50, 180, 60, 0x16)  -- Red / orange-red curved path
 
 -- Draw an arrow shape (open path)
-drawpolyline(200, 100, 220, 100, 220, 90, 230, 110, 220, 130, 220, 120, 200, 120, 0x29)  -- Green/teal arrow
+drawpolyline(200, 100, 220, 100, 220, 90, 230, 110, 220, 130, 220, 120, 200, 120, 0x29)  -- Medium bright green arrow
 
 -- Draw a wave pattern
-drawpolyline(50, 150, 70, 140, 90, 150, 110, 140, 130, 150, 150, 140, 0x37)  -- Yellow wave
+drawpolyline(50, 150, 70, 140, 90, 150, 110, 140, 130, 150, 150, 140, 0x37)  -- Bright yellow wave
 
 -- Draw a simple path between points
-drawpolyline(100, 50, 120, 70, 140, 50, 160, 70, 0x20)  -- White connecting path
+drawpolyline(100, 50, 120, 70, 140, 50, 160, 70, 0x20)  -- Bright white connecting path
 
 -- Note: drawpolyline does NOT close - compare with drawpolygon
-drawpolyline(100, 100, 150, 100, 150, 150, 100, 150, 0x16)  -- Red open square (missing top edge)
+drawpolyline(100, 100, 150, 100, 150, 150, 100, 150, 0x16)  -- Red / orange-red open square (missing top edge)
 drawpolygon(100, 100, 150, 100, 150, 150, 100, 150, 0x39)   -- Yellow-green closed square (complete)
 ```
 
@@ -2135,7 +2527,7 @@ Draws a filled polygon (solid color) by filling the interior area defined by mul
 **Example:**
 ```lua
 -- Draw a filled square (4 points)
-fillpolygon(50, 50, 100, 50, 100, 100, 50, 100, 0x20)  -- White filled square
+fillpolygon(50, 50, 100, 50, 100, 100, 50, 100, 0x20)  -- Bright white filled square
 
 -- Draw a filled pentagon (5 points)
 fillpolygon(128, 30, 148, 60, 128, 90, 108, 60, 118, 30, 0x39)  -- Yellow-green filled pentagon
@@ -2145,7 +2537,7 @@ fillpolygon(
     128, 20, 132, 50, 160, 50, 138, 70, 148, 100,
     128, 80, 108, 100, 118, 70, 96, 50, 124, 50,
     0x37
-)  -- Yellow filled star
+)  -- Bright yellow filled star
 
 -- Draw a filled hexagon (6 points)
 local cx, cy, radius = 128, 120, 30
@@ -2160,19 +2552,19 @@ fillpolygon(
 )
 
 -- Draw a filled irregular polygon
-fillpolygon(50, 30, 80, 20, 100, 40, 90, 70, 60, 80, 40, 60, 0x16)  -- Red filled irregular shape
+fillpolygon(50, 30, 80, 20, 100, 40, 90, 70, 60, 80, 40, 60, 0x16)  -- Red / orange-red filled irregular shape
 
 -- Draw a filled triangle using fillpolygon (filltriangle is more efficient for this)
-fillpolygon(128, 50, 100, 80, 156, 80, 0x20)  -- White filled triangle
+fillpolygon(128, 50, 100, 80, 156, 80, 0x20)  -- Bright white filled triangle
 
 -- Combine outline and filled for effect
-fillpolygon(128, 60, 148, 90, 128, 120, 108, 90, 0x16)  -- Red filled pentagon
-drawpolygon(128, 60, 148, 90, 128, 120, 108, 90, 0x20)  -- White outline on top
+fillpolygon(128, 60, 148, 90, 128, 120, 108, 90, 0x16)  -- Red / orange-red filled pentagon
+drawpolygon(128, 60, 148, 90, 128, 120, 108, 90, 0x20)  -- Bright white outline on top
 ```
 
 ### NES Palette Reference for Lua Overlays
 
-FCE360 Enhanced exposes the full NES 64-color palette (`0x00`–`0x3F`) to Lua for overlay rendering. Each color index corresponds to one of the system's internal palette entries and automatically maps to the overlay range (`0x80–0xBF`). Use these values in all drawing API calls such as `drawtext()`, `fillrect()`, and `drawline()`.
+FCE360 Enhanced exposes the full NES 64-color palette (`0x00`–`0x3F`) to Lua for overlay rendering. Each color index corresponds to one of the system's internal palette entries and automatically maps to the overlay range (`0x80–0xBF`). Use these values in all drawing API calls such as `drawtext()`, `drawtextscaled()`, `fillrect()`, and `drawline()`.
 
 #### General Notes
 
@@ -2186,11 +2578,11 @@ FCE360 Enhanced exposes the full NES 64-color palette (`0x00`–`0x3F`) to Lua f
 
 | Use Case                   | Suggested Colors                                             |
 | -------------------------- | ------------------------------------------------------------ |
-| **Text / HUD**             | `0x20` (bright white), `0x39` (yellow-green), `0x3F` (bright white) |
-| **Panels / Backgrounds**   | `0x10` (medium-dark gray), `0x2D` (light gray)                     |
-| **Outlines / Borders**     | `0x3F` (bright white)                                        |
-| **Warnings / Alerts**      | `0x16` (red-orange), `0x26` (orange-red), `0x37` (bright yellow)    |
-| **Highlights / Status OK** | `0x29` (light green-teal), `0x39` (yellow-green)                  |
+| **Text / HUD**             | `0x20` (bright white), `0x39` (yellow-green), `0x3D` (silver) |
+| **Panels / Backgrounds**   | `0x10` (light gray), `0x2D` (light gray)                     |
+| **Outlines / Borders**     | `0x20` (bright white), `0x3D` (silver)                                        |
+| **Warnings / Alerts**      | `0x16` (red / orange-red), `0x26` (coral red), `0x37` (bright yellow)    |
+| **Highlights / Status OK** | `0x29` (medium bright green), `0x39` (yellow-green)                  |
 
 #### Complete Palette Table
 
@@ -2400,12 +2792,12 @@ local barX = 10
 local barY = 100
 
 -- Draw health bar background
-fillrect(barX, barY, barWidth, barHeight, 0x16)  -- Red background
+fillrect(barX, barY, barWidth, barHeight, 0x16)  -- Red / orange-red background
 
 -- Draw health bar fill
 local healthPercent = health / maxHealth
 if healthPercent > 0 then
-    fillrect(barX, barY, math.floor(barWidth * healthPercent), barHeight, 0x28)  -- Green fill
+    fillrect(barX, barY, math.floor(barWidth * healthPercent), barHeight, 0x28)  -- Yellow fill
 end
 
 drawtext(barX, barY + 10, string.format("HP: %d/%d", health, maxHealth), 0x20)
@@ -2479,12 +2871,12 @@ local barX = 10
 local barY = 100
 
 -- Draw health bar background
-fillrect(barX, barY, barWidth, barHeight, 0x16)  -- Red background
+fillrect(barX, barY, barWidth, barHeight, 0x16)  -- Red / orange-red background
 
 -- Draw health bar fill
 local healthPercent = health / maxHealth
 if healthPercent > 0 then
-    fillrect(barX, barY, math.floor(barWidth * healthPercent), barHeight, 0x28)  -- Green fill
+    fillrect(barX, barY, math.floor(barWidth * healthPercent), barHeight, 0x28)  -- Yellow fill
 end
 
 drawtext(barX, barY + 10, string.format("HP: %d/%d", health, maxHealth), 0x20)
