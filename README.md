@@ -7,7 +7,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.6.9** — *Famicom Disk System (.fds) support + alphabetical ROM sorting + all prior features from v0.6.1–v0.6.8.1*
+* Current release: **v0.7.0** — *ROM counter display + separator handling improvements + all prior features from v0.6.1–v0.6.9*
 
 ---
 
@@ -15,6 +15,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.7.0 - ROM Counter Display](#whats-new-v070)
   - [v0.6.9 - Famicom Disk System Support](#whats-new-v069)
   - [v0.6.8.1 - VSync Synchronization Hotfix](#whats-new-v0681)
   - [v0.6.8 - VSync Frame Pacing Fix](#whats-new-v068)
@@ -88,6 +89,49 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
   * Completes the VSync frame pacing implementation
 
 * **Includes Previous Features:**
+  * All v0.6.8 features: VSync frame pacing with texture latching
+  * All v0.6.7 features: Drawing API enhancements and advanced memory functions
+  * All prior features from v0.6.1–v0.6.6
+
+---
+
+## What's new (v0.7.0)
+
+* **ROM Counter Display:** Added proper ROM counter showing "current/total" format (e.g., "5/100")!
+  * **Accurate Counting:** Counter now accurately counts only selectable ROM items (excludes separators)
+  * **Fixed "Stuck at 0" Issue:** Changed from CXuiControl to CXuiTextElement for proper SetText() support
+  * **Real-time Updates:** Counter updates immediately after list population and selection changes
+  * **Separator Handling:** Shows "1/total" instead of "0/total" when sitting on a separator (if items exist)
+  * **Visual Feedback:** Provides clear indication of position in ROM list for better navigation
+
+* **Separator Handling Improvements:**
+  * **Smart Counting:** Counter correctly skips separator items ("---") when counting
+  * **Edge Case Handling:** Prevents confusing "0/N" display when selection is on non-selectable items
+  * **Proper Identification:** Separators are properly identified by empty path/filename
+
+* **Technical Details:**
+  * Changed XuiRomCounter from CXuiControl to CXuiTextElement for proper SetText() support
+  * Added IsSelectable() helper function to identify selectable ROM items
+  * Added CountSelectableUpTo() helper function to count selectable items up to index
+  * Improved UpdateRomCounter() logic to handle separators correctly
+  * Counter updates after SetCurSel/SetTopItem in ApplySearchFilter()
+  * Added debug output (OutputDebugStringA) if counter control not found in XUR
+
+* **UI Improvements:**
+  * **Position Feedback:** Counter provides visual feedback of position in ROM list
+  * **Large Collections:** Makes it easier to navigate large ROM collections
+  * **Clear Indication:** Shows how many games are available vs. current position
+  * **Multi-Section Support:** Works correctly with Recent Games, Favorites, and general ROM list sections
+
+* **Impact:**
+  * Users can now see their position in the ROM list at a glance
+  * No more confusing "0/N" display when browsing
+  * Better UX for navigating large ROM collections
+  * Counter accurately reflects actual selectable items (not separators)
+
+* **Includes Previous Features:**
+  * All v0.6.9 features: Famicom Disk System support and alphabetical ROM sorting
+  * All v0.6.8.1 features: VSync synchronization hotfix
   * All v0.6.8 features: VSync frame pacing with texture latching
   * All v0.6.7 features: Drawing API enhancements and advanced memory functions
   * All prior features from v0.6.1–v0.6.6
@@ -4554,6 +4598,20 @@ FCEUX360-<version>-xex.zip
 ---
 
 ## Changelog
+
+* **v0.7.0**
+
+  * feat(ui): Added ROM counter display showing "current/total" format (e.g., "5/100").
+  * feat(ui): Counter accurately counts only selectable ROM items (excludes separators).
+  * fix(ui): Fixed counter stuck at "0" by changing from CXuiControl to CXuiTextElement.
+  * fix(ui): Counter now updates immediately after list population and selection changes.
+  * fix(ui): Improved separator handling - shows "1/total" instead of "0/total" when on separator.
+  * tech(ui): Added IsSelectable() helper function to identify selectable ROM items.
+  * tech(ui): Added CountSelectableUpTo() helper function to count selectable items up to index.
+  * tech(ui): Improved UpdateRomCounter() logic to handle separators correctly.
+  * tech(ui): Counter updates after SetCurSel/SetTopItem in ApplySearchFilter().
+  * tech(ui): Added debug output (OutputDebugStringA) if counter control not found in XUR.
+  * docs(ui): Counter provides visual feedback of position in ROM list for better navigation.
 
 * **v0.6.9**
 
