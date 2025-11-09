@@ -7,7 +7,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.7.3** — *New Lua API functions: getromsize(), getprgsize(), getchrsize(), getmapper(), getmapperstring(), hasbattery() + all prior features from v0.7.2–v0.6.1*
+* Current release: **v0.7.4** — *New Lua API functions: isframeadvancing(), isrewinding(), isfastforwarding(), getgamegeniecode(), decodegamegenie(), getframecount(), getelapsedtime(), getelapsedframes() + all prior features from v0.7.3–v0.6.1*
 
 ---
 
@@ -15,6 +15,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.7.4 - Game State, Game Genie, and Timing Lua API Functions](#whats-new-v074)
   - [v0.7.3 - ROM Information Lua API Functions](#whats-new-v073)
   - [v0.7.2 - New Lua API Functions](#whats-new-v072)
   - [v0.7.1 - Text Measurement and Rotation API Functions](#whats-new-v071)
@@ -73,6 +74,79 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 📹 **[Watch Fast Scrolling Demo](https://github.com/frankischilling/fce360-enhanced/raw/main/img/fastScrolling.mp4)** (MP4 video)
 
 *Note: Click the link above to view the video demonstration. GitHub README files don't support embedded video playback.*
+
+---
+
+## What's new (v0.7.4)
+
+* **New Lua API Functions:** Added **8 powerful new API functions** for game state detection, Game Genie code generation/decoding, and frame/time tracking!
+
+  * **Game State Detection Functions:**
+    * `isframeadvancing()` - Check if emulation is advancing frames (returns false if paused)
+      * Returns boolean indicating if emulation is advancing frames
+      * Returns false when emulation is paused
+      * Useful for detecting pause state in scripts
+    * `isrewinding()` - Check if the emulator is currently rewinding
+      * Returns boolean indicating if the emulator is currently rewinding
+      * Useful for disabling scripts during rewind or detecting rewind state
+      * Lua scripts can now detect and respond to rewind state
+    * `isfastforwarding()` - Check if the emulator is currently fast-forwarding
+      * Returns boolean indicating if the emulator is currently fast-forwarding
+      * Useful for adjusting script behavior during fast-forward
+      * Fast-forward state tracked via right trigger input
+
+  * **Game Genie Code Functions:**
+    * `getgamegeniecode(address, value, compare)` - Generate a Game Genie code from address, value, and optional compare
+      * Parameters: address (integer), value (integer), compare (integer, optional)
+      * Returns: string (6 or 8 character Game Genie code)
+      * Useful for cheat code generation
+      * Follows standard NES Game Genie encoding algorithm
+      * Validates address range (0x8000-0xFFFF) and value/compare ranges
+    * `decodegamegenie(code)` - Decode a Game Genie code string into address, value, and optional compare
+      * Parameters: code (string, must be 6 or 8 characters)
+      * Returns: table {address, value, compare} (compare may be nil for 6-char codes)
+      * Useful for cheat code parsing and validation
+      * Follows standard NES Game Genie decoding algorithm
+      * Validates code length and character set
+
+  * **Frame and Time Tracking Functions:**
+    * `getframecount()` - Get total frame count since game start
+      * Returns integer representing total frames since ROM was loaded
+      * Useful for timing, frame-accurate scripts, and frame counting
+      * Resets to 0 when game is closed
+    * `getelapsedtime()` - Get elapsed time since game start in seconds
+      * Returns float with sub-second precision
+      * Useful for timers, elapsed time display, and time-based logic
+      * Calculated from frame count divided by NTSC frame rate (60.0988118623484 Hz)
+      * Can be formatted into hours:minutes:seconds for display
+    * `getelapsedframes()` - Get elapsed frames since game start
+      * Returns integer representing total frames elapsed
+      * Useful for frame-based timing
+      * Same value as getframecount() but with name that pairs with getelapsedtime()
+
+* **Use Cases:**
+  * **Game State Detection:** Detect pause, rewind, and fast-forward states to adjust script behavior
+  * **Cheat Code Generation:** Generate and decode Game Genie codes programmatically
+  * **Frame-Accurate Timing:** Track frames and time for precise script timing and synchronization
+  * **Performance Monitoring:** Monitor frame counts and elapsed time for performance analysis
+
+* **Technical Enhancements:**
+  * Enhanced Cemulator class with IsRewinding() and IsFastForwarding() public methods
+  * Implemented frame cycle counting and latching mechanism for accurate cycle tracking
+  * Lua scripts can now detect and respond to rewind and fast-forward states
+  * Frame counting uses static counter that increments every frame and resets on game close
+
+* **Documentation:**
+  * All functions added to Monitoring Functions and Cheat Functions sections in table of contents
+  * Complete API documentation with parameters, returns, notes, and multiple examples
+  * Test scripts provided for all new functions
+
+* **Includes Previous Features:**
+  * All v0.7.3 features: getromsize(), getprgsize(), getchrsize(), getmapper(), getmapperstring(), hasbattery()
+  * All v0.7.2 features: getromname(), pressbutton(), releasebutton(), and input recording functions
+  * All v0.7.1 features: Text measurement and rotation API functions
+  * All v0.7.0 features: ROM counter display
+  * All prior features from v0.6.1–v0.6.9
 
 ---
 
@@ -136,10 +210,10 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
   * **ROM Detection Functions:**
     * `getromname()` - Get current ROM filename with extension (e.g., "Super Mario Bros.nes" or "game.fds")
-      * Works for both NES and FDS games
-      * Handles zip archive format: extracts filename from "path.zip|internal.nes" format
-      * Returns empty string if no game is loaded
-      * Useful for game detection, ROM-specific scripts, or displaying current game name
+    * Works for both NES and FDS games
+    * Handles zip archive format: extracts filename from "path.zip|internal.nes" format
+    * Returns empty string if no game is loaded
+    * Useful for game detection, ROM-specific scripts, or displaying current game name
 
 
   * **One-Frame Input Control Functions:**
@@ -773,6 +847,12 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
   - [Monitoring Functions](#monitoring-functions)
     - [`getfps()`](#getfps)
       - Parameters, Returns, Notes, Basic & Advanced Examples
+    - [`getframecount()`](#getframecount)
+      - Parameters, Returns, Notes, Examples
+    - [`getframecycles()`](#getframecycles)
+      - Parameters, Returns, Notes, Examples
+    - [`getelapsedtime()`](#getelapsedtime)
+      - Parameters, Returns, Notes, Examples
     - [`getjoypad(player)`](#getjoypadplayer)
       - Parameters, Returns, Button Bitmask, Notes, Examples
     - [`isbuttonpressed(player, button)`](#isbuttonpressedplayer-button)
@@ -791,9 +871,19 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
       - Parameters, Returns, Notes, Examples
     - [`hasbattery()`](#hasbattery)
       - Parameters, Returns, Notes, Examples
+    - [`isframeadvancing()`](#isframeadvancing)
+      - Parameters, Returns, Notes, Examples
+    - [`isrewinding()`](#isrewinding)
+      - Parameters, Returns, Notes, Examples
+    - [`isfastforwarding()`](#isfastforwarding)
+      - Parameters, Returns, Notes, Examples
     - [`getmapper()`](#getmapper)
       - Parameters, Returns, Notes, Examples
     - [`getmapperstring()`](#getmapperstring)
+      - Parameters, Returns, Notes, Examples
+    - [`getgamegeniecode(address, value, compare)`](#getgamegeniecodeaddress-value-compare)
+      - Parameters, Returns, Notes, Examples
+    - [`decodegamegenie(code)`](#decodegamegeniecode)
       - Parameters, Returns, Notes, Examples
   - [`gethardwarejoypad(player)`](#gethardwarejoypadplayer)
     - Parameters, Returns, Notes, Examples
@@ -2862,6 +2952,365 @@ function gui()
 end
 ```
 
+##### `getframecount()`
+Gets the total frame count since the game started. Returns the number of frames that have been emulated since the ROM was loaded. Useful for timing, frame-accurate scripts, and tracking game progress.
+
+**Parameters:** None
+
+**Returns:**
+- `integer` - Total number of frames emulated since game start
+- Starts at 0 when a ROM is loaded
+- Increments every frame during emulation
+- Resets to 0 when the game is closed or a new ROM is loaded
+
+**Notes:**
+- The frame counter increments every frame during normal emulation
+- The counter continues to increment during fast-forward and rewind
+- The counter resets to 0 when you close the game or load a new ROM
+- Useful for frame-accurate timing in TAS (Tool-Assisted Speedrun) scripts
+- Can be used to calculate elapsed time: `seconds = frameCount / 60.0`
+- The counter is independent of pause state (continues counting even when paused, if frames are being processed)
+
+**Example: Display Frame Count:**
+```lua
+function gui()
+    local frames = getframecount()
+    drawtext(4, 4, string.format("Frames: %d", frames), 0x20)
+end
+```
+
+**Example: Calculate Elapsed Time:**
+```lua
+function gui()
+    local frames = getframecount()
+    local seconds = math.floor(frames / 60)
+    local minutes = math.floor(seconds / 60)
+    local hours = math.floor(minutes / 60)
+    
+    drawtext(4, 4, string.format("Frames: %d", frames), 0x20)
+    
+    if hours > 0 then
+        drawtext(4, 14, string.format("Time: %d:%02d:%02d", hours, minutes % 60, seconds % 60), 0x29)
+    elseif minutes > 0 then
+        drawtext(4, 14, string.format("Time: %d:%02d", minutes, seconds % 60), 0x29)
+    else
+        drawtext(4, 14, string.format("Time: %d sec", seconds), 0x29)
+    end
+end
+```
+
+**Example: Frame-Accurate Timing:**
+```lua
+function gui()
+    local frames = getframecount()
+    
+    -- Perform action at specific frame
+    if frames == 60 then
+        print("One second has passed!")
+    end
+    
+    -- Perform action every N frames
+    if frames % 180 == 0 then  -- Every 3 seconds
+        print(string.format("Frame %d: 3 seconds passed", frames))
+    end
+    
+    drawtext(4, 4, string.format("Frame: %d", frames), 0x20)
+end
+```
+
+**Example: Track Frame Intervals:**
+```lua
+local lastFrame = 0
+local frameIntervals = {}
+
+function gui()
+    local frames = getframecount()
+    
+    -- Track frame intervals
+    if lastFrame > 0 then
+        local interval = frames - lastFrame
+        table.insert(frameIntervals, interval)
+        if #frameIntervals > 60 then
+            table.remove(frameIntervals, 1)
+        end
+    end
+    
+    lastFrame = frames
+    
+    -- Display current frame and average interval
+    drawtext(4, 4, string.format("Frame: %d", frames), 0x20)
+    
+    if #frameIntervals > 0 then
+        local sum = 0
+        for i = 1, #frameIntervals do
+            sum = sum + frameIntervals[i]
+        end
+        local avg = sum / #frameIntervals
+        drawtext(4, 14, string.format("Avg Interval: %.2f", avg), 0x29)
+    end
+end
+```
+
+**Example: Frame Counter with Reset Detection:**
+```lua
+local lastFrameCount = -1
+
+function gui()
+    local frames = getframecount()
+    
+    -- Detect when frame counter resets (new game loaded)
+    if frames < lastFrameCount then
+        print("=== New game loaded ===")
+        print("Frame counter reset to: " .. frames)
+    end
+    
+    lastFrameCount = frames
+    
+    drawtext(4, 4, string.format("Frame: %d", frames), 0x20)
+end
+```
+
+##### `getframecycles()`
+Gets the number of CPU cycles executed in the current frame. Returns the cycle count for the most recently completed frame. Useful for cycle-accurate timing, performance analysis, and understanding CPU load per frame.
+
+**Parameters:** None
+
+**Returns:**
+- `integer` - Number of CPU cycles executed in the current frame
+- Typical value: ~29,782 cycles per NTSC frame (varies slightly with DMC/DMA activity)
+- The value represents cycles accumulated during frame emulation
+- Returns the latched value from the last completed frame when called from `gui()` callback
+
+**Notes:**
+- The NES CPU runs at approximately 1.79 MHz (NTSC)
+- At 60.0988 Hz frame rate, each frame contains approximately 29,782 CPU cycles
+- The cycle count is latched at the end of each frame before the counter resets
+- When called from `gui()` (which runs after frame completion), returns the latched value
+- When called during frame emulation (e.g., from `beforeframe()`), returns the live accumulating value
+- Cycle count can vary slightly between frames due to DMC (Delta Modulation Channel) DMA and other timing-sensitive operations
+- Useful for cycle-accurate scripts, performance profiling, and understanding CPU utilization
+
+**Example: Display Frame Cycles:**
+```lua
+function gui()
+    local cycles = getframecycles()
+    drawtext(4, 4, string.format("Cycles: %d", cycles), 0x20)
+end
+```
+
+**Example: Display Frame Count and Cycles:**
+```lua
+function gui()
+    local frames = getframecount()
+    local cycles = getframecycles()
+    
+    drawtext(4, 4, string.format("Frame: %d", frames), 0x20)
+    drawtext(4, 14, string.format("Cycles: %d", cycles), 0x29)
+end
+```
+
+**Example: Calculate Cycles Per Second:**
+```lua
+function gui()
+    local cycles = getframecycles()
+    local cyclesPerSecond = cycles * 60.0988  -- NTSC frame rate
+    
+    drawtext(4, 4, string.format("Cycles/frame: %d", cycles), 0x20)
+    drawtext(4, 14, string.format("Cycles/sec: %.0f", cyclesPerSecond), 0x29)
+end
+```
+
+**Example: Track Cycle Variations:**
+```lua
+local lastCycles = 0
+local cycleHistory = {}
+
+function gui()
+    local cycles = getframecycles()
+    
+    -- Track cycle history
+    table.insert(cycleHistory, cycles)
+    if #cycleHistory > 60 then
+        table.remove(cycleHistory, 1)
+    end
+    
+    -- Calculate average
+    local sum = 0
+    for i = 1, #cycleHistory do
+        sum = sum + cycleHistory[i]
+    end
+    local avg = sum / #cycleHistory
+    
+    -- Display current and average
+    drawtext(4, 4, string.format("Cycles: %d", cycles), 0x20)
+    drawtext(4, 14, string.format("Avg: %.0f", avg), 0x29)
+    
+    -- Show variation
+    if cycles ~= lastCycles then
+        local diff = cycles - lastCycles
+        if diff ~= 0 then
+            drawtext(4, 24, string.format("Change: %+d", diff), 0x37)
+        end
+        lastCycles = cycles
+    end
+end
+```
+
+**Example: Performance Monitoring:**
+```lua
+function gui()
+    local frames = getframecount()
+    local cycles = getframecycles()
+    local fps = getfps()
+    
+    -- Display performance metrics
+    drawtext(4, 4, string.format("Frame: %d", frames), 0x20)
+    drawtext(4, 14, string.format("Cycles: %d", cycles), 0x29)
+    drawtext(4, 24, string.format("FPS: %.1f", fps), 0x37)
+    
+    -- Calculate CPU utilization (approximate)
+    local expectedCycles = 29782  -- Typical NTSC frame
+    local utilization = (cycles / expectedCycles) * 100
+    drawtext(4, 34, string.format("CPU: %.1f%%", utilization), 0x2E)
+end
+```
+
+**Example: Cycle-Accurate Timing:**
+```lua
+function gui()
+    local cycles = getframecycles()
+    
+    -- Perform action based on cycle count
+    if cycles > 30000 then
+        drawtext(4, 4, "High CPU load!", 0x2D)
+    elseif cycles < 29000 then
+        drawtext(4, 4, "Low CPU load", 0x2E)
+    else
+        drawtext(4, 4, string.format("Normal: %d cycles", cycles), 0x20)
+    end
+end
+```
+
+##### `getelapsedtime()`
+Gets the elapsed time since the game started in seconds. Returns a floating-point number representing the total time that has passed since the ROM was loaded. Useful for timers, elapsed time displays, and time-based script logic.
+
+**Parameters:** None
+
+**Returns:**
+- `number` (float) - Elapsed time in seconds since game start
+- Starts at 0.0 when a ROM is loaded
+- Increments continuously during emulation
+- Calculated from frame count divided by NTSC frame rate (60.0988118623484 Hz)
+- Resets to 0.0 when the game is closed or a new ROM is loaded
+
+**Notes:**
+- The time is calculated from the total frame count divided by the NTSC frame rate
+- Provides sub-second precision (milliseconds)
+- Time continues to advance during fast-forward and rewind
+- Useful for creating timers, stopwatches, and time-based game logic
+- Can be formatted into hours:minutes:seconds for display
+- More convenient than manually calculating from `getframecount() / 60.0988`
+
+**Example: Display Elapsed Time:**
+```lua
+function gui()
+    local time = getelapsedtime()
+    drawtext(4, 4, string.format("Time: %.2f sec", time), 0x20)
+end
+```
+
+**Example: Format as Hours:Minutes:Seconds:**
+```lua
+function gui()
+    local time = getelapsedtime()
+    local totalSeconds = math.floor(time)
+    local hours = math.floor(totalSeconds / 3600)
+    local minutes = math.floor((totalSeconds % 3600) / 60)
+    local seconds = totalSeconds % 60
+    
+    if hours > 0 then
+        drawtext(4, 4, string.format("Time: %d:%02d:%02d", hours, minutes, seconds), 0x20)
+    elseif minutes > 0 then
+        drawtext(4, 4, string.format("Time: %d:%02d", minutes, seconds), 0x20)
+    else
+        drawtext(4, 4, string.format("Time: %d sec", seconds), 0x20)
+    end
+end
+```
+
+**Example: Timer with Milliseconds:**
+```lua
+function gui()
+    local time = getelapsedtime()
+    local totalSeconds = math.floor(time)
+    local milliseconds = math.floor((time - totalSeconds) * 1000)
+    local minutes = math.floor(totalSeconds / 60)
+    local seconds = totalSeconds % 60
+    
+    drawtext(4, 4, string.format("%02d:%02d.%03d", minutes, seconds, milliseconds), 0x29)
+end
+```
+
+**Example: Compare with Frame Count:**
+```lua
+function gui()
+    local time = getelapsedtime()
+    local frames = getframecount()
+    
+    drawtext(4, 4, string.format("Time: %.3f sec", time), 0x20)
+    drawtext(4, 14, string.format("Frames: %d", frames), 0x29)
+    drawtext(4, 24, string.format("FPS: %.2f", frames / time), 0x37)
+end
+```
+
+**Example: Time-Based Actions:**
+```lua
+local lastActionTime = 0
+
+function gui()
+    local time = getelapsedtime()
+    
+    -- Perform action every 5 seconds
+    if time - lastActionTime >= 5.0 then
+        print(string.format("5 seconds passed! (%.2f total)", time))
+        lastActionTime = time
+    end
+    
+    drawtext(4, 4, string.format("Elapsed: %.2f sec", time), 0x20)
+end
+```
+
+**Example: Stopwatch Functionality:**
+```lua
+local startTime = nil
+local pausedTime = 0
+local isPaused = false
+
+function gui()
+    local currentTime = getelapsedtime()
+    
+    -- Start timer on first frame
+    if startTime == nil then
+        startTime = currentTime
+    end
+    
+    -- Calculate elapsed time (accounting for pauses)
+    local elapsed = currentTime - startTime - pausedTime
+    
+    -- Format and display
+    local totalSeconds = math.floor(elapsed)
+    local minutes = math.floor(totalSeconds / 60)
+    local seconds = totalSeconds % 60
+    local milliseconds = math.floor((elapsed - totalSeconds) * 1000)
+    
+    drawtext(4, 4, string.format("%02d:%02d.%03d", minutes, seconds, milliseconds), 0x29)
+    
+    if not isframeadvancing() then
+        drawtext(4, 14, "PAUSED", 0x2D)
+    end
+end
+```
+
 ##### `getjoypad(player)`
 Gets the current controller state for a specified player as a raw button bitmask.
 
@@ -3704,6 +4153,276 @@ function gui()
 end
 ```
 
+##### `isframeadvancing()`
+Checks if emulation is advancing frames. Returns `false` if paused. Useful for detecting pause state and adjusting script behavior accordingly.
+
+**Parameters:** None
+
+**Returns:**
+- `boolean` - `true` if frames are advancing (emulation running), `false` if paused
+- Always returns a boolean value (never nil)
+
+**Notes:**
+- Returns `true` when emulation is running and frames are being processed
+- Returns `false` when emulation is paused (frames are not advancing)
+- Useful for scripts that need to detect pause state and skip updates when paused
+- Can be used to disable expensive operations while paused
+- Frame advancement state can change at any time (user can pause/unpause)
+
+**Example: Display Pause Status:**
+```lua
+function gui()
+    local isAdvancing = isframeadvancing()
+    
+    if isAdvancing then
+        drawtext(4, 4, "Emulation: Running", 0x2E)
+        drawtext(4, 14, "Frames: Advancing", 0x29)
+    else
+        drawtext(4, 4, "Emulation: Paused", 0x37)
+        drawtext(4, 14, "Frames: Not advancing", 0x37)
+    end
+end
+```
+
+**Example: Skip Updates When Paused:**
+```lua
+function gui()
+    local isAdvancing = isframeadvancing()
+    
+    -- Only update expensive calculations when frames are advancing
+    if isAdvancing then
+        -- Perform expensive operations
+        local complexCalculation = performExpensiveOperation()
+        drawtext(4, 4, string.format("Result: %d", complexCalculation), 0x20)
+    else
+        -- Show cached or static info when paused
+        drawtext(4, 4, "Paused - updates disabled", 0x37)
+    end
+end
+```
+
+**Example: Pause State Detection:**
+```lua
+local lastAdvancing = nil
+
+function gui()
+    local isAdvancing = isframeadvancing()
+    
+    -- Detect pause state change
+    if isAdvancing ~= lastAdvancing then
+        if isAdvancing then
+            print("Emulation resumed - frames advancing")
+        else
+            print("Emulation paused - frames stopped")
+        end
+        lastAdvancing = isAdvancing
+    end
+    
+    -- Display status
+    if isAdvancing then
+        drawtext(4, 4, "Running", 0x2E)
+    else
+        drawtext(4, 4, "Paused", 0x37)
+    end
+end
+```
+
+##### `isrewinding()`
+Checks if the emulator is currently rewinding. Returns `true` if rewinding is active, `false` otherwise. Useful for disabling scripts during rewind and adjusting script behavior when game state is being restored from saved states.
+
+**Parameters:** None
+
+**Returns:**
+- `boolean` - `true` if currently rewinding, `false` otherwise
+- Always returns a boolean value (never nil)
+
+**Notes:**
+- Returns `true` when the rewind button (LT) is held and rewind is active
+- Returns `false` during normal emulation or when rewind is not active
+- Useful for scripts that need to disable expensive operations during rewind
+- Can be used to skip script updates while game state is being restored
+- Rewind state can change at any time (user can start/stop rewind)
+- During rewind, game state is being restored from saved states, so scripts should avoid modifying game state
+
+**Example: Display Rewind Status:**
+```lua
+function gui()
+    local isRewinding = isrewinding()
+    
+    if isRewinding then
+        drawtext(4, 4, "Rewind: ACTIVE", 0x37)
+        drawtext(4, 14, "Status: Rewinding", 0x37)
+    else
+        drawtext(4, 4, "Rewind: Inactive", 0x29)
+        drawtext(4, 14, "Status: Normal", 0x2E)
+    end
+end
+```
+
+**Example: Disable Scripts During Rewind:**
+```lua
+function gui()
+    local isRewinding = isrewinding()
+    
+    -- Only run expensive operations when not rewinding
+    if not isRewinding then
+        -- Perform expensive calculations
+        local complexCalculation = performExpensiveOperation()
+        drawtext(4, 4, string.format("Result: %d", complexCalculation), 0x20)
+    else
+        -- Show cached or static info when rewinding
+        drawtext(4, 4, "Rewinding - updates disabled", 0x37)
+    end
+end
+```
+
+**Example: Rewind State Detection:**
+```lua
+local lastRewinding = nil
+
+function gui()
+    local isRewinding = isrewinding()
+    
+    -- Detect rewind state change
+    if isRewinding ~= lastRewinding then
+        if isRewinding then
+            print("Rewind started - disabling script updates")
+        else
+            print("Rewind stopped - resuming script updates")
+        end
+        lastRewinding = isRewinding
+    end
+    
+    -- Display status
+    if isRewinding then
+        drawtext(4, 4, "Rewinding", 0x37)
+    else
+        drawtext(4, 4, "Normal", 0x2E)
+    end
+end
+```
+
+**Example: Skip Updates During Rewind:**
+```lua
+local lastFrameCount = 0
+
+function gui()
+    local isRewinding = isrewinding()
+    local frameCount = getframecount()
+    
+    -- Only update frame counter when not rewinding
+    if not isRewinding and frameCount ~= lastFrameCount then
+        print(string.format("Frame: %d", frameCount))
+        lastFrameCount = frameCount
+    end
+    
+    -- Display current state
+    if isRewinding then
+        drawtext(4, 4, "Rewinding...", 0x37)
+    else
+        drawtext(4, 4, string.format("Frame: %d", frameCount), 0x2E)
+    end
+end
+```
+
+##### `isfastforwarding()`
+Checks if the emulator is currently fast-forwarding. Returns `true` if fast-forward is active, `false` otherwise. Useful for adjusting script behavior during fast-forward, such as disabling expensive operations or skipping updates.
+
+**Parameters:** None
+
+**Returns:**
+- `boolean` - `true` if currently fast-forwarding, `false` otherwise
+- Always returns a boolean value (never nil)
+
+**Notes:**
+- Returns `true` when the fast-forward button (RT) is held and fast-forward is active
+- Returns `false` during normal emulation or when fast-forward is not active
+- Useful for scripts that need to disable expensive operations during fast-forward
+- Can be used to skip script updates while fast-forwarding to improve performance
+- Fast-forward state can change at any time (user can start/stop fast-forward)
+- During fast-forward, emulation runs at 2× speed, so scripts may want to reduce update frequency
+
+**Example: Display Fast-Forward Status:**
+```lua
+function gui()
+    local isFastForwarding = isfastforwarding()
+    
+    if isFastForwarding then
+        drawtext(4, 4, "Fast-Forward: ACTIVE", 0x37)
+        drawtext(4, 14, "Status: 2× Speed", 0x37)
+    else
+        drawtext(4, 4, "Fast-Forward: Inactive", 0x29)
+        drawtext(4, 14, "Status: Normal Speed", 0x2E)
+    end
+end
+```
+
+**Example: Disable Scripts During Fast-Forward:**
+```lua
+function gui()
+    local isFastForwarding = isfastforwarding()
+    
+    -- Only run expensive operations when not fast-forwarding
+    if not isFastForwarding then
+        -- Perform expensive calculations
+        local complexCalculation = performExpensiveOperation()
+        drawtext(4, 4, string.format("Result: %d", complexCalculation), 0x20)
+    else
+        -- Show cached or static info when fast-forwarding
+        drawtext(4, 4, "Fast-Forward - updates disabled", 0x37)
+    end
+end
+```
+
+**Example: Fast-Forward State Detection:**
+```lua
+local lastFastForwarding = nil
+
+function gui()
+    local isFastForwarding = isfastforwarding()
+    
+    -- Detect fast-forward state change
+    if isFastForwarding ~= lastFastForwarding then
+        if isFastForwarding then
+            print("Fast-forward started - disabling script updates")
+        else
+            print("Fast-forward stopped - resuming script updates")
+        end
+        lastFastForwarding = isFastForwarding
+    end
+    
+    -- Display status
+    if isFastForwarding then
+        drawtext(4, 4, "Fast-Forward", 0x37)
+    else
+        drawtext(4, 4, "Normal", 0x2E)
+    end
+end
+```
+
+**Example: Skip Updates During Fast-Forward:**
+```lua
+local lastFrameCount = 0
+
+function gui()
+    local isFastForwarding = isfastforwarding()
+    local frameCount = getframecount()
+    
+    -- Only update frame counter when not fast-forwarding (or update less frequently)
+    if not isFastForwarding and frameCount ~= lastFrameCount then
+        print(string.format("Frame: %d", frameCount))
+        lastFrameCount = frameCount
+    end
+    
+    -- Display current state
+    if isFastForwarding then
+        drawtext(4, 4, "Fast-Forwarding...", 0x37)
+    else
+        drawtext(4, 4, string.format("Frame: %d", frameCount), 0x2E)
+    end
+end
+```
+
 ##### `getmapper()`
 Gets the NES mapper number (0-255). Useful for mapper-specific scripts, compatibility checks, and determining which mapper chip a ROM uses.
 
@@ -3886,6 +4605,287 @@ function gui()
         print("========================")
         lastMapperString = mapperString
     end
+end
+```
+
+##### `getgamegeniecode(address, value, compare)`
+Generates a Game Genie code string from an address, value, and optional compare value. Game Genie codes are 6-character (or 8-character with compare) codes used to modify ROM reads at specific addresses, similar to cheat codes.
+
+**Parameters:**
+- `address` (integer): ROM address (0x8000-0xFFFF)
+  - Must be in the valid NES ROM address range
+  - Addresses below 0x8000 are not valid for Game Genie codes
+- `value` (integer): Value to write (0-255)
+  - The byte value that will replace the original value at the address
+- `compare` (integer, optional): Compare value (0-255)
+  - If provided, the code only applies when the current value matches this compare value
+  - If omitted or `nil`, the code applies unconditionally
+  - Used for conditional cheats that only activate when a specific value is present
+
+**Returns:**
+- `string` - Game Genie code (6 characters without compare, 8 characters with compare)
+- Returns a string using only Game Genie characters: A, P, Z, L, G, I, T, Y, E, O, X, U, K, S, V, N
+- Throws an error if parameters are invalid (address out of range, value out of range, etc.)
+
+**Notes:**
+- Game Genie codes modify ROM reads, not RAM writes
+- The generated code is in the standard NES Game Genie format
+- Codes can be entered into FCEUX's cheat system or Game Genie interface
+- To apply the code, you can either:
+  1. Use the generated Game Genie code string directly (if FCEUX supports Game Genie code entry)
+  2. Add a cheat manually using the address and value parameters
+- The address is masked to 15 bits (0x7FFF) internally as per Game Genie encoding
+- Compare values are useful for conditional cheats (e.g., "only activate if health is below a certain value")
+- Game Genie codes work by intercepting ROM reads and replacing the value at the specified address
+
+**Example: Generate Simple Game Genie Code:**
+```lua
+function gui()
+    -- Generate a code for address 0x8123 with value 0x63
+    local code = getgamegeniecode(0x8123, 0x63)
+    drawtext(4, 4, "Game Genie Code: " .. code, 0x20)
+    print("Code for 0x8123 -> 0x63: " .. code)
+end
+```
+
+**Example: Generate Code with Compare Value:**
+```lua
+function gui()
+    -- Generate a code that only applies when current value is 0x02
+    local code = getgamegeniecode(0xB456, 0x63, 0x02)
+    drawtext(4, 4, "Conditional Code: " .. code, 0x20)
+    print("Code for 0xB456 -> 0x63 (if = 0x02): " .. code)
+end
+```
+
+**Example: Generate Multiple Codes:**
+```lua
+function gui()
+    local romName = getromname()
+    
+    if romName ~= "" then
+        -- Generate several example codes
+        local code1 = getgamegeniecode(0x8123, 0x63)
+        local code2 = getgamegeniecode(0x8456, 0xFF)
+        local code3 = getgamegeniecode(0x8ABC, 0x02)
+        
+        drawtext(4, 4, "Code 1: " .. code1, 0x20)
+        drawtext(4, 14, "Code 2: " .. code2, 0x20)
+        drawtext(4, 24, "Code 3: " .. code3, 0x20)
+        
+        print("=== Generated Game Genie Codes ===")
+        print("0x8123 -> 0x63: " .. code1)
+        print("0x8456 -> 0xFF: " .. code2)
+        print("0x8ABC -> 0x02: " .. code3)
+    end
+end
+```
+
+**Example: Validate and Display Code:**
+```lua
+function gui()
+    local address = 0x8123
+    local value = 0x63
+    
+    -- Validate address range
+    if address >= 0x8000 and address <= 0xFFFF and value >= 0 and value <= 255 then
+        local code = getgamegeniecode(address, value)
+        drawtext(4, 4, string.format("Address: 0x%04X", address), 0x20)
+        drawtext(4, 14, string.format("Value: 0x%02X", value), 0x20)
+        drawtext(4, 24, "Code: " .. code, 0x29)
+        drawtext(4, 34, "Length: " .. string.len(code), 0x2E)
+    else
+        drawtext(4, 4, "Invalid address or value", 0x2D)
+    end
+end
+```
+
+**Example: Generate Codes for Cheat List:**
+```lua
+local codesGenerated = false
+
+function gui()
+    local romName = getromname()
+    
+    if romName ~= "" and not codesGenerated then
+        codesGenerated = true
+        
+        print("=== Game Genie Codes for " .. romName .. " ===")
+        
+        -- Generate codes with different parameters
+        local codes = {
+            {addr = 0x8123, val = 0x63, desc = "Infinite Lives"},
+            {addr = 0x8456, val = 0xFF, desc = "Max Health"},
+            {addr = 0x8ABC, val = 0x02, desc = "Power-Up"},
+            {addr = 0x9DEF, val = 0x99, desc = "Max Time", compare = 0x00},
+        }
+        
+        for i = 1, #codes do
+            local code
+            if codes[i].compare then
+                code = getgamegeniecode(codes[i].addr, codes[i].val, codes[i].compare)
+            else
+                code = getgamegeniecode(codes[i].addr, codes[i].val)
+            end
+            
+            print(string.format("%s: %s (0x%04X -> 0x%02X)", 
+                  codes[i].desc, code, codes[i].addr, codes[i].val))
+        end
+        
+        print("========================================")
+    end
+end
+```
+
+##### `decodegamegenie(code)`
+Decodes a Game Genie code string back into its address, value, and optional compare value. This is the inverse operation of `getgamegeniecode()`, allowing you to parse Game Genie codes and extract their components.
+
+**Parameters:**
+- `code` (string): Game Genie code string
+  - Must be exactly 6 characters (no compare) or 8 characters (with compare)
+  - Must contain only valid Game Genie characters: A, P, Z, L, G, I, T, Y, E, O, X, U, K, S, V, N
+  - Case-sensitive (must be uppercase)
+
+**Returns:**
+- `table` - A Lua table with the following keys:
+  - `address` (integer): ROM address (0x8000-0xFFFF)
+  - `value` (integer): Value to write (0-255)
+  - `compare` (integer, optional): Compare value (0-255) - only present if code is 8 characters
+- Throws an error if the code is invalid (wrong length, invalid characters, etc.)
+
+**Notes:**
+- This function reverses the encoding performed by `getgamegeniecode()`
+- 6-character codes have no compare value (unconditional cheat)
+- 8-character codes include a compare value (conditional cheat that only applies when current value matches)
+- The `compare` field will be `nil` in the returned table if the code is 6 characters
+- Useful for parsing Game Genie codes from external sources or validating codes
+- Can be used to convert Game Genie codes into cheat format (address + value + compare)
+
+**Example: Decode a Game Genie Code:**
+```lua
+function gui()
+    local code = "LTLZPA"
+    local result = decodegamegenie(code)
+    
+    drawtext(4, 4, "Code: " .. code, 0x20)
+    drawtext(4, 14, string.format("Address: 0x%04X", result.address), 0x29)
+    drawtext(4, 24, string.format("Value: 0x%02X", result.value), 0x29)
+    
+    if result.compare then
+        drawtext(4, 34, string.format("Compare: 0x%02X", result.compare), 0x29)
+    end
+end
+```
+
+**Example: Round-Trip Test (Encode then Decode):**
+```lua
+function gui()
+    local address = 0x8123
+    local value = 0x63
+    
+    -- Encode
+    local code = getgamegeniecode(address, value)
+    
+    -- Decode
+    local decoded = decodegamegenie(code)
+    
+    -- Verify round-trip
+    if decoded.address == address and decoded.value == value then
+        drawtext(4, 4, "Round-trip: PASS", 0x2E)
+    else
+        drawtext(4, 4, "Round-trip: FAIL", 0x2D)
+    end
+    
+    drawtext(4, 14, "Code: " .. code, 0x20)
+    drawtext(4, 24, string.format("Decoded: 0x%04X -> 0x%02X", decoded.address, decoded.value), 0x29)
+end
+```
+
+**Example: Decode Code with Compare Value:**
+```lua
+function gui()
+    local code = "APZLGITY"  -- 8-character code with compare
+    local result = decodegamegenie(code)
+    
+    print("=== Decoded Game Genie Code ===")
+    print("Code: " .. code)
+    print("Address: 0x" .. string.format("%04X", result.address))
+    print("Value: 0x" .. string.format("%02X", result.value))
+    
+    if result.compare then
+        print("Compare: 0x" .. string.format("%02X", result.compare))
+        print("Type: Conditional (only applies when current value = compare)")
+    else
+        print("Compare: nil")
+        print("Type: Unconditional")
+    end
+end
+```
+
+**Example: Parse Multiple Codes:**
+```lua
+function gui()
+    local codes = {"LTLZPA", "NNTIGA", "APZLGITY"}
+    
+    for i = 1, #codes do
+        local result = decodegamegenie(codes[i])
+        print(string.format("Code %d: %s", i, codes[i]))
+        print(string.format("  Address: 0x%04X", result.address))
+        print(string.format("  Value: 0x%02X", result.value))
+        if result.compare then
+            print(string.format("  Compare: 0x%02X", result.compare))
+        end
+        print("")
+    end
+end
+```
+
+**Example: Validate and Display Code Information:**
+```lua
+function gui()
+    local code = "LTLZPA"
+    
+    -- Check code length
+    if string.len(code) == 6 or string.len(code) == 8 then
+        local result = decodegamegenie(code)
+        
+        drawtext(4, 4, "Code: " .. code, 0x20)
+        drawtext(4, 14, string.format("Address: 0x%04X", result.address), 0x29)
+        drawtext(4, 24, string.format("Value: 0x%02X", result.value), 0x29)
+        
+        if result.compare then
+            drawtext(4, 34, string.format("Compare: 0x%02X", result.compare), 0x29)
+            drawtext(4, 44, "Type: Conditional", 0x37)
+        else
+            drawtext(4, 34, "Type: Unconditional", 0x2E)
+        end
+    else
+        drawtext(4, 4, "Invalid code length", 0x2D)
+    end
+end
+```
+
+**Example: Convert Game Genie Code to Cheat Format:**
+```lua
+function gui()
+    local code = "LTLZPA"
+    local decoded = decodegamegenie(code)
+    
+    -- Convert to cheat format
+    local cheatFormat
+    if decoded.compare then
+        cheatFormat = string.format("0x%04X:0x%02X:0x%02X", 
+                                    decoded.address, decoded.value, decoded.compare)
+    else
+        cheatFormat = string.format("0x%04X:0x%02X", 
+                                    decoded.address, decoded.value)
+    end
+    
+    print("Game Genie Code: " .. code)
+    print("Cheat Format: " .. cheatFormat)
+    
+    drawtext(4, 4, "Code: " .. code, 0x20)
+    drawtext(4, 14, "Cheat: " .. cheatFormat, 0x29)
 end
 ```
 
