@@ -1847,6 +1847,450 @@ static void DrawLuaConsole(uint8* buf) {
 	 return 1;
  }
 
+ // gettime() -> integer
+ // Gets current system time in milliseconds since system boot
+ // Returns: Integer (milliseconds since system boot)
+ // Use case: Time-based logic, timestamps, relative time measurements
+ // Note: This returns milliseconds since system boot, not since epoch. Use for relative timing.
+ static int lua_gettime(lua_State* L)
+ {
+	 // GetTickCount() returns milliseconds since system boot
+	 // This is useful for relative time measurements and timestamps
+	 DWORD currentTime = GetTickCount();
+	 lua_pushinteger(L, (lua_Integer)currentTime);
+	 return 1;
+ }
+
+ // getscreenwidth() -> integer
+ // Gets screen width in pixels
+ // Returns: Integer (256 for NES)
+ // Use case: Dynamic positioning, centering
+ static int lua_getscreenwidth(lua_State* L)
+ {
+	 // NES screen width is always 256 pixels
+	 lua_pushinteger(L, OVL_W);  // OVL_W is 256
+	 return 1;
+ }
+
+ // getscreenheight() -> integer
+ // Gets screen height in pixels
+ // Returns: Integer (240 for NES)
+ // Use case: Dynamic positioning
+ static int lua_getscreenheight(lua_State* L)
+ {
+	 // NES screen height is always 240 pixels
+	 lua_pushinteger(L, OVL_H);  // OVL_H is 240
+	 return 1;
+ }
+
+ // getscreensize() -> table
+ // Gets screen dimensions
+ // Returns: Table {width, height}
+ // Use case: Screen size queries
+ static int lua_getscreensize(lua_State* L)
+ {
+	 // Create a table with width and height
+	 lua_newtable(L);
+	 
+	 // Push width
+	 lua_pushstring(L, "width");
+	 lua_pushinteger(L, OVL_W);  // 256
+	 lua_settable(L, -3);
+	 
+	 // Push height
+	 lua_pushstring(L, "height");
+	 lua_pushinteger(L, OVL_H);  // 240
+	 lua_settable(L, -3);
+	 
+	 // Also push as array indices for convenience
+	 lua_pushinteger(L, 1);
+	 lua_pushinteger(L, OVL_W);
+	 lua_settable(L, -3);
+	 
+	 lua_pushinteger(L, 2);
+	 lua_pushinteger(L, OVL_H);
+	 lua_settable(L, -3);
+	 
+	 return 1;  // Return the table
+ }
+
+ // getcolorrgb(paletteIndex) -> table
+ // Gets RGB values for a palette color
+ // Parameters: paletteIndex (0-63)
+ // Returns: Table {r, g, b} (0-255 each)
+ // Use case: Color conversion, color analysis
+ static int lua_getcolorrgb(lua_State* L)
+ {
+	 int n = lua_gettop(L);
+	 if (n < 1) {
+		 return luaL_error(L, "getcolorrgb(paletteIndex) requires 1 argument");
+	 }
+	 
+	 int paletteIndex = (int)luaL_checkinteger(L, 1);
+	 
+	 // Validate palette index range (0-63)
+	 if (paletteIndex < 0 || paletteIndex > 63) {
+		 return luaL_error(L, "getcolorrgb: paletteIndex must be in range 0-63");
+	 }
+	 
+	 // Get RGB values from palette
+	 // Palette colors are stored at indices 128-191 (0x80-0xBF), not 0-63
+	 uint8 r, g, b;
+	 FCEUD_GetPalette((uint8)(128 + paletteIndex), &r, &g, &b);
+	 
+	 // Create table with 3 elements
+	 lua_createtable(L, 3, 0);
+	 
+	 // Push RGB values as array (1-indexed for Lua)
+	 lua_pushinteger(L, r);
+	 lua_rawseti(L, -2, 1);
+	 
+	 lua_pushinteger(L, g);
+	 lua_rawseti(L, -2, 2);
+	 
+	 lua_pushinteger(L, b);
+	 lua_rawseti(L, -2, 3);
+	 
+	 return 1;  // Return the table
+ }
+
+ // getpalettecolor(index) -> integer
+ // Gets palette color index for a position
+ // Parameters: index (0-31, palette index)
+ // Returns: Integer (0-63, actual color)
+ // Use case: Palette reading
+ static int lua_getpalettecolor(lua_State* L)
+ {
+	 int n = lua_gettop(L);
+	 if (n < 1) {
+		 return luaL_error(L, "getpalettecolor(index) requires 1 argument");
+	 }
+	 
+	 int index = (int)luaL_checkinteger(L, 1);
+	 
+	 // Validate palette index range (0-31)
+	 if (index < 0 || index > 31) {
+		 return luaL_error(L, "getpalettecolor: index must be in range 0-31");
+	 }
+	 
+	 // Read palette color from PALRAM
+	 uint8 colorValue = PALRAM[index] & 0x3F;  // Mask to 6 bits (0-63)
+	 
+	 lua_pushinteger(L, colorValue);
+	 return 1;  // Return the color value
+ }
+
+ // setpalettecolor(index, color) -> void
+ // Sets palette color (temporary, frame-only)
+ // Parameters: index (0-31), color (0-63)
+ // Returns: Nothing
+ // Use case: Palette effects, color cycling
+ static int lua_setpalettecolor(lua_State* L)
+ {
+	 int n = lua_gettop(L);
+	 if (n < 2) {
+		 return luaL_error(L, "setpalettecolor(index, color) requires 2 arguments");
+	 }
+	 
+	 int index = (int)luaL_checkinteger(L, 1);
+	 int color = (int)luaL_checkinteger(L, 2);
+	 
+	 // Validate palette index range (0-31)
+	 if (index < 0 || index > 31) {
+		 return luaL_error(L, "setpalettecolor: index must be in range 0-31");
+	 }
+	 
+	 // Validate color range (0-63)
+	 if (color < 0 || color > 63) {
+		 return luaL_error(L, "setpalettecolor: color must be in range 0-63");
+	 }
+	 
+	 // Mask color to 6 bits (0x3F)
+	 uint8 colorValue = (uint8)(color & 0x3F);
+	 
+	 // Write to PALRAM
+	 PALRAM[index] = colorValue;
+	 
+	 // Handle universal color mirroring (NES behavior)
+	 // Universal background color (0x00) is mirrored to 0x04, 0x08, 0x0C
+	 if (index == 0x00) {
+		 PALRAM[0x04] = colorValue;
+		 PALRAM[0x08] = colorValue;
+		 PALRAM[0x0C] = colorValue;
+	 }
+	 // Universal sprite color (0x10) is mirrored to 0x14, 0x18, 0x1C
+	 else if (index == 0x10) {
+		 PALRAM[0x14] = colorValue;
+		 PALRAM[0x18] = colorValue;
+		 PALRAM[0x1C] = colorValue;
+	 }
+	 
+	 return 0;  // Return nothing
+ }
+
+ // getnescolor(index) -> integer
+ // Gets NES color value (0-63) from RGB
+ // Parameters: index (0-63)
+ // Returns: Integer (RGB value as packed 0xRRGGBB)
+ // Use case: Color lookup
+ static int lua_getnescolor(lua_State* L)
+ {
+	 int n = lua_gettop(L);
+	 if (n < 1) {
+		 return luaL_error(L, "getnescolor(index) requires 1 argument");
+	 }
+	 
+	 int index = (int)luaL_checkinteger(L, 1);
+	 
+	 // Validate palette index range (0-63)
+	 if (index < 0 || index > 63) {
+		 return luaL_error(L, "getnescolor: index must be in range 0-63");
+	 }
+	 
+	 // Get RGB values from palette
+	 // Palette colors are stored at indices 128-191 (0x80-0xBF), not 0-63
+	 uint8 r, g, b;
+	 FCEUD_GetPalette((uint8)(128 + index), &r, &g, &b);
+	 
+	 // Pack RGB into single integer: 0xRRGGBB format
+	 uint32 rgbValue = ((uint32)r << 16) | ((uint32)g << 8) | (uint32)b;
+	 
+	 lua_pushinteger(L, rgbValue);
+	 return 1;  // Return the packed RGB value
+ }
+
+ // blendcolors(color1, color2, ratio) -> integer
+ // Blends two colors
+ // Parameters: color1, color2 (0-63), ratio (0.0-1.0)
+ // Returns: Integer (blended color index 0-63)
+ // Use case: Color mixing, gradients
+ static int lua_blendcolors(lua_State* L)
+ {
+	 int n = lua_gettop(L);
+	 if (n < 3) {
+		 return luaL_error(L, "blendcolors(color1, color2, ratio) requires 3 arguments");
+	 }
+	 
+	 int color1 = (int)luaL_checkinteger(L, 1);
+	 int color2 = (int)luaL_checkinteger(L, 2);
+	 double ratio = luaL_checknumber(L, 3);
+	 
+	 // Validate color indices (0-63)
+	 if (color1 < 0 || color1 > 63) {
+		 return luaL_error(L, "blendcolors: color1 must be in range 0-63");
+	 }
+	 if (color2 < 0 || color2 > 63) {
+		 return luaL_error(L, "blendcolors: color2 must be in range 0-63");
+	 }
+	 
+	 // Validate ratio (0.0-1.0)
+	 if (ratio < 0.0 || ratio > 1.0) {
+		 return luaL_error(L, "blendcolors: ratio must be in range 0.0-1.0");
+	 }
+	 
+	 // Get RGB values for both colors
+	 uint8 r1, g1, b1, r2, g2, b2;
+	 FCEUD_GetPalette((uint8)(128 + color1), &r1, &g1, &b1);
+	 FCEUD_GetPalette((uint8)(128 + color2), &r2, &g2, &b2);
+	 
+	 // Blend RGB components: result = color1 * (1 - ratio) + color2 * ratio
+	 int blendedR = (int)(r1 * (1.0 - ratio) + r2 * ratio + 0.5);  // Round to nearest
+	 int blendedG = (int)(g1 * (1.0 - ratio) + g2 * ratio + 0.5);
+	 int blendedB = (int)(b1 * (1.0 - ratio) + b2 * ratio + 0.5);
+	 
+	 // Clamp to valid range
+	 if (blendedR > 255) blendedR = 255;
+	 if (blendedG > 255) blendedG = 255;
+	 if (blendedB > 255) blendedB = 255;
+	 if (blendedR < 0) blendedR = 0;
+	 if (blendedG < 0) blendedG = 0;
+	 if (blendedB < 0) blendedB = 0;
+	 
+	 // Find the closest matching palette color index
+	 int bestIndex = 0;
+	 double minDistance = 999999.0;
+	 
+	 for (int i = 0; i < 64; i++) {
+		 uint8 pr, pg, pb;
+		 FCEUD_GetPalette((uint8)(128 + i), &pr, &pg, &pb);
+		 
+		 // Calculate Euclidean distance in RGB space
+		 double dr = (double)blendedR - (double)pr;
+		 double dg = (double)blendedG - (double)pg;
+		 double db = (double)blendedB - (double)pb;
+		 double distance = dr * dr + dg * dg + db * db;
+		 
+		 if (distance < minDistance) {
+			 minDistance = distance;
+			 bestIndex = i;
+		 }
+	 }
+	 
+	 lua_pushinteger(L, bestIndex);
+	 return 1;  // Return the closest matching color index
+ }
+
+ // gettimedelta() -> float
+ // Gets time since last frame in seconds
+ // Returns: Float (time in seconds since last frame)
+ // Use case: Delta time calculations, physics, frame-independent movement
+ // Note: Returns 0.0 on first call, then the actual delta time on subsequent calls
+ static int lua_gettimedelta(lua_State* L)
+ {
+	 DWORD currentTime = GetTickCount();
+	 
+	 // Get last frame time from Lua registry
+	 lua_pushstring(L, "FCEU_LAST_FRAME_TIME");
+	 lua_gettable(L, LUA_REGISTRYINDEX);
+	 
+	 if (lua_isnil(L, -1)) {
+		 // First call - no previous frame time, return 0.0
+		 lua_pop(L, 1);
+		 
+		 // Store current time for next call
+		 lua_pushstring(L, "FCEU_LAST_FRAME_TIME");
+		 lua_pushinteger(L, (lua_Integer)currentTime);
+		 lua_settable(L, LUA_REGISTRYINDEX);
+		 
+		 lua_pushnumber(L, 0.0);
+		 return 1;
+	 }
+	 
+	 // Get last frame time
+	 lua_Integer lastFrameTime = lua_tointeger(L, -1);
+	 lua_pop(L, 1);
+	 
+	 // Calculate delta in milliseconds
+	 DWORD deltaMs = currentTime - (DWORD)lastFrameTime;
+	 
+	 // Convert to seconds (float)
+	 double deltaSeconds = (double)deltaMs / 1000.0;
+	 
+	 // Update last frame time for next call
+	 lua_pushstring(L, "FCEU_LAST_FRAME_TIME");
+	 lua_pushinteger(L, (lua_Integer)currentTime);
+	 lua_settable(L, LUA_REGISTRYINDEX);
+	 
+	 lua_pushnumber(L, deltaSeconds);
+	 return 1;
+ }
+
+ // sleepframes(frames) -> nil
+ // Delays script execution for N frames
+ // Parameters: frames (integer) - number of frames to sleep
+ // Returns: Nothing
+ // Use case: Frame-accurate delays
+ // Note: Pauses emulation during sleep, freezing the game for the specified number of frames
+ static int lua_sleepframes(lua_State* L)
+ {
+	 // Get number of frames to sleep
+	 if (lua_gettop(L) < 1) {
+		 return luaL_error(L, "sleepframes() requires 1 argument (frames)");
+	 }
+	 
+	 if (!lua_isnumber(L, 1)) {
+		 return luaL_error(L, "sleepframes() argument must be a number");
+	 }
+	 
+	 lua_Integer frames = lua_tointeger(L, 1);
+	 if (frames < 0) {
+		 return luaL_error(L, "sleepframes() frames must be >= 0");
+	 }
+	 
+	 // Calculate sleep duration in milliseconds
+	 // NTSC frame rate: 60.0988118623484 Hz
+	 // Each frame is approximately 16.639 ms
+	 static const double NTSC_FRAME_RATE = 60.0988118623484;
+	 static const double MS_PER_FRAME = 1000.0 / NTSC_FRAME_RATE;
+	 
+	 DWORD sleepDurationMs = (DWORD)(frames * MS_PER_FRAME);
+	 DWORD sleepStartTime = GetTickCount();
+	 
+	 // Store sleep start time and duration in Lua registry
+	 lua_pushstring(L, "FCEU_SLEEP_START_TIME");
+	 lua_pushinteger(L, (lua_Integer)sleepStartTime);
+	 lua_settable(L, LUA_REGISTRYINDEX);
+	 
+	 lua_pushstring(L, "FCEU_SLEEP_DURATION_MS");
+	 lua_pushinteger(L, (lua_Integer)sleepDurationMs);
+	 lua_settable(L, LUA_REGISTRYINDEX);
+	 
+	 // Store original pause state so we can restore it
+	 extern int FCEUI_EmulationPaused(void);
+	 int wasPaused = FCEUI_EmulationPaused();
+	 lua_pushstring(L, "FCEU_SLEEP_WAS_PAUSED");
+	 lua_pushboolean(L, wasPaused != 0);
+	 lua_settable(L, LUA_REGISTRYINDEX);
+	 
+	 // Pause emulation to freeze the game during sleep
+	 extern void FCEUI_SetEmulationPaused(int val);
+	 FCEUI_SetEmulationPaused(1);
+	 
+	 return 0; // Returns nothing
+ }
+
+ // Helper function to check if script is currently sleeping
+ // Returns true if script should skip execution, false otherwise
+ // Also handles unpausing emulation when sleep completes
+ static bool Lua_IsSleeping(lua_State* L)
+ {
+	 // Check if sleep is active
+	 lua_pushstring(L, "FCEU_SLEEP_START_TIME");
+	 lua_gettable(L, LUA_REGISTRYINDEX);
+	 
+	 if (lua_isnil(L, -1)) {
+		 // No sleep state - not sleeping
+		 lua_pop(L, 1);
+		 return false;
+	 }
+	 
+	 // Get sleep start time and duration
+	 lua_Integer sleepStartTime = lua_tointeger(L, -1);
+	 lua_pop(L, 1);
+	 
+	 lua_pushstring(L, "FCEU_SLEEP_DURATION_MS");
+	 lua_gettable(L, LUA_REGISTRYINDEX);
+	 lua_Integer sleepDurationMs = lua_tointeger(L, -1);
+	 lua_pop(L, 1);
+	 
+	 // Get original pause state
+	 lua_pushstring(L, "FCEU_SLEEP_WAS_PAUSED");
+	 lua_gettable(L, LUA_REGISTRYINDEX);
+	 int wasPaused = lua_toboolean(L, -1);
+	 lua_pop(L, 1);
+	 
+	 // Check if sleep duration has elapsed
+	 DWORD currentTime = GetTickCount();
+	 DWORD elapsed = currentTime - (DWORD)sleepStartTime;
+	 
+	 if (elapsed >= (DWORD)sleepDurationMs) {
+		 // Sleep complete - clear sleep state and restore pause state
+		 lua_pushstring(L, "FCEU_SLEEP_START_TIME");
+		 lua_pushnil(L);
+		 lua_settable(L, LUA_REGISTRYINDEX);
+		 
+		 lua_pushstring(L, "FCEU_SLEEP_DURATION_MS");
+		 lua_pushnil(L);
+		 lua_settable(L, LUA_REGISTRYINDEX);
+		 
+		 lua_pushstring(L, "FCEU_SLEEP_WAS_PAUSED");
+		 lua_pushnil(L);
+		 lua_settable(L, LUA_REGISTRYINDEX);
+		 
+		 // Restore original pause state
+		 extern void FCEUI_SetEmulationPaused(int val);
+		 FCEUI_SetEmulationPaused(wasPaused ? 1 : 0);
+		 
+		 return false; // Sleep complete
+	 }
+	 
+	 // Still sleeping - ensure emulation is paused
+	 extern void FCEUI_SetEmulationPaused(int val);
+	 FCEUI_SetEmulationPaused(1);
+	 
+	 return true; // Still sleeping
+ }
+
  // getmapper() -> integer
  // Gets NES mapper number (0-255)
  // Returns mapper number, or 0 if no ROM is loaded
@@ -5424,6 +5868,17 @@ int lua_ismemorywritable(lua_State *L) {
 	 lua_register(luaState, "getframecycles", lua_getframecycles);
 	 lua_register(luaState, "getelapsedtime", lua_getelapsedtime);
 	 lua_register(luaState, "getelapsedframes", lua_getelapsedframes);
+	 lua_register(luaState, "gettime", lua_gettime);
+	 lua_register(luaState, "gettimedelta", lua_gettimedelta);
+	 lua_register(luaState, "getscreenwidth", lua_getscreenwidth);
+	 lua_register(luaState, "getscreenheight", lua_getscreenheight);
+	 lua_register(luaState, "getscreensize", lua_getscreensize);
+	 lua_register(luaState, "getcolorrgb", lua_getcolorrgb);
+	 lua_register(luaState, "getpalettecolor", lua_getpalettecolor);
+	 lua_register(luaState, "setpalettecolor", lua_setpalettecolor);
+	 lua_register(luaState, "getnescolor", lua_getnescolor);
+	 lua_register(luaState, "blendcolors", lua_blendcolors);
+	 lua_register(luaState, "sleepframes", lua_sleepframes);
 	 lua_register(luaState, "getromsize", lua_getromsize);
 	 lua_register(luaState, "getprgsize", lua_getprgsize);
 	 lua_register(luaState, "getchrsize", lua_getchrsize);
@@ -5549,6 +6004,17 @@ static void EnsureLuaInit() {
 	REG("getframecycles", lua_getframecycles);
 	REG("getelapsedtime", lua_getelapsedtime);
 	REG("getelapsedframes", lua_getelapsedframes);
+	REG("gettime", lua_gettime);
+	REG("gettimedelta", lua_gettimedelta);
+	REG("getscreenwidth", lua_getscreenwidth);
+	REG("getscreenheight", lua_getscreenheight);
+	REG("getscreensize", lua_getscreensize);
+	REG("getcolorrgb", lua_getcolorrgb);
+	REG("getpalettecolor", lua_getpalettecolor);
+	REG("setpalettecolor", lua_setpalettecolor);
+	REG("getnescolor", lua_getnescolor);
+	REG("blendcolors", lua_blendcolors);
+	REG("sleepframes", lua_sleepframes);
 	REG("getromsize", lua_getromsize);
 	REG("getprgsize", lua_getprgsize);
 	REG("getchrsize", lua_getchrsize);
@@ -6691,14 +7157,17 @@ void FCEU_ReloadLuaCode(void) {
 	 
 	 // Call "beforeframe" function if it exists - this runs BEFORE input polling
 	 // This allows scripts to set joypad state before FCEU_UpdateInput() is called
-	 lua_getglobal(luaState, "beforeframe");
-	 if (lua_isfunction(luaState, -1)) {
-		 if (lua_pcall(luaState, 0, 0, 0) != 0) {
-			 // Error occurred - pop error message
+	 // Check if script is sleeping - if so, skip callback execution
+	 if (!Lua_IsSleeping(luaState)) {
+		 lua_getglobal(luaState, "beforeframe");
+		 if (lua_isfunction(luaState, -1)) {
+			 if (lua_pcall(luaState, 0, 0, 0) != 0) {
+				 // Error occurred - pop error message
+				 lua_pop(luaState, 1);
+			 }
+		 } else {
 			 lua_pop(luaState, 1);
 		 }
-	 } else {
-		 lua_pop(luaState, 1);
 	 }
 	 
 	 // Note: powerpadbuf override is now handled in Cemulator::UpdateInput()
@@ -6778,17 +7247,19 @@ void FCEU_ReloadLuaCode(void) {
 		 
 		 // Only run Lua scripts if Lua is enabled and initialized
 		 if (!s_luaDisabled && luaInitialized && luaState != NULL) {
-			 // Point Lua draw calls at the back buffer, not the front buffer
-			 currentXBuf = s_overlay_back;
-			 
-		 // Call script() function if it exists (also support legacy gui() for backward compatibility)
-		 lua_getglobal(luaState, "script");
-		 if (!lua_isfunction(luaState, -1)) {
-			 lua_pop(luaState, 1);
-			 // Try legacy gui() function for backward compatibility
-			 lua_getglobal(luaState, "gui");
-		 }
-			 if (lua_isfunction(luaState, -1)) {
+			 // Check if script is sleeping - if so, skip callback execution
+			 if (!Lua_IsSleeping(luaState)) {
+				 // Point Lua draw calls at the back buffer, not the front buffer
+				 currentXBuf = s_overlay_back;
+				 
+			 // Call script() function if it exists (also support legacy gui() for backward compatibility)
+			 lua_getglobal(luaState, "script");
+			 if (!lua_isfunction(luaState, -1)) {
+				 lua_pop(luaState, 1);
+				 // Try legacy gui() function for backward compatibility
+				 lua_getglobal(luaState, "gui");
+			 }
+				 if (lua_isfunction(luaState, -1)) {
 				 if (lua_pcall(luaState, 0, 0, 0) == 0) {
 					 ok = true;  // Script executed successfully
 				 } else {
@@ -6814,6 +7285,7 @@ void FCEU_ReloadLuaCode(void) {
 			 }
 			 
 			 currentXBuf = NULL;
+			 } // End of sleep check block
 		 } else {
 			 // Lua not initialized
 			 if (s_overlay_back) {
