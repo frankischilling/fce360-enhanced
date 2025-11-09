@@ -34,6 +34,8 @@
 #include "driver.h"
 #include "ppu.h"
 #include "git.h"
+#include "cart.h"
+#include "ines.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -1483,6 +1485,179 @@ static void DrawLuaConsole(uint8* buf) {
 	 
 	 // Return the filename with extension (e.g., "Super Mario Bros.nes" or "game.fds")
 	 lua_pushstring(L, filename.c_str());
+	 return 1;
+ }
+
+ // getromsize() -> integer
+ // Gets ROM size in bytes (PRG-ROM + CHR-ROM)
+ // Returns total ROM size in bytes, or 0 if no ROM is loaded
+ static int lua_getromsize(lua_State* L)
+ {
+	 extern FCEUGI *GameInfo;
+	 extern uint32 ROM_size;
+	 extern uint32 VROM_size;
+	 
+	 // Check if a game is loaded
+	 if (!GameInfo) {
+		 lua_pushinteger(L, 0);
+		 return 1;
+	 }
+	 
+	 // Calculate total ROM size
+	 // ROM_size is in 16KB units (0x4000 bytes), VROM_size is in 8KB units (0x2000 bytes)
+	 uint32 totalSize = (ROM_size << 14) + (VROM_size << 13);
+	 
+	 lua_pushinteger(L, (int)totalSize);
+	 return 1;
+ }
+
+ // getprgsize() -> integer
+ // Gets PRG-ROM size in bytes
+ // Returns PRG-ROM size in bytes, or 0 if no ROM is loaded
+ static int lua_getprgsize(lua_State* L)
+ {
+	 extern FCEUGI *GameInfo;
+	 extern uint32 ROM_size;
+	 
+	 // Check if a game is loaded
+	 if (!GameInfo) {
+		 lua_pushinteger(L, 0);
+		 return 1;
+	 }
+	 
+	 // Calculate PRG-ROM size
+	 // ROM_size is in 16KB units (0x4000 bytes)
+	 uint32 prgSize = ROM_size << 14;
+	 
+	 lua_pushinteger(L, (int)prgSize);
+	 return 1;
+ }
+
+ // getchrsize() -> integer
+ // Gets CHR-ROM size in bytes
+ // Returns CHR-ROM size in bytes, or 0 if no ROM is loaded
+ static int lua_getchrsize(lua_State* L)
+ {
+	 extern FCEUGI *GameInfo;
+	 extern uint32 VROM_size;
+	 
+	 // Check if a game is loaded
+	 if (!GameInfo) {
+		 lua_pushinteger(L, 0);
+		 return 1;
+	 }
+	 
+	 // Calculate CHR-ROM size
+	 // VROM_size is in 8KB units (0x2000 bytes)
+	 uint32 chrSize = VROM_size << 13;
+	 
+	 lua_pushinteger(L, (int)chrSize);
+	 return 1;
+ }
+
+ // hasbattery() -> boolean
+ // Checks if ROM has battery-backed save RAM
+ // Returns true if ROM has battery, false otherwise
+ static int lua_hasbattery(lua_State* L)
+ {
+	 extern FCEUGI *GameInfo;
+	 extern CartInfo iNESCart;
+	 
+	 // Check if a game is loaded
+	 if (!GameInfo) {
+		 lua_pushboolean(L, 0);
+		 return 1;
+	 }
+	 
+	 // Return battery status (non-zero = has battery)
+	 lua_pushboolean(L, iNESCart.battery != 0);
+	 return 1;
+ }
+
+ // getmapper() -> integer
+ // Gets NES mapper number (0-255)
+ // Returns mapper number, or 0 if no ROM is loaded
+ static int lua_getmapper(lua_State* L)
+ {
+	 extern FCEUGI *GameInfo;
+	 
+	 // Check if a game is loaded
+	 if (!GameInfo) {
+		 lua_pushinteger(L, 0);
+		 return 1;
+	 }
+	 
+	 // Return mapper number (0-255)
+	 lua_pushinteger(L, GameInfo->mappernum);
+	 return 1;
+ }
+
+ // getmapperstring() -> string
+ // Gets mapper name as string (e.g., "NROM", "MMC1", "MMC3")
+ // Returns mapper name, or "Unknown" if mapper is not recognized
+ static int lua_getmapperstring(lua_State* L)
+ {
+	 extern FCEUGI *GameInfo;
+	 
+	 // Check if a game is loaded
+	 if (!GameInfo) {
+		 lua_pushstring(L, "");
+		 return 1;
+	 }
+	 
+	 int mapper = GameInfo->mappernum;
+	 
+	 // Mapper name lookup table (common mappers)
+	 const char* mapperName = NULL;
+	 
+	 switch (mapper) {
+		 case 0:  mapperName = "NROM"; break;
+		 case 1:  mapperName = "MMC1"; break;
+		 case 2:  mapperName = "UNROM"; break;
+		 case 3:  mapperName = "CNROM"; break;
+		 case 4:  mapperName = "MMC3"; break;
+		 case 5:  mapperName = "MMC5"; break;
+		 case 7:  mapperName = "AOROM"; break;
+		 case 9:  mapperName = "MMC2"; break;
+		 case 10: mapperName = "MMC4"; break;
+		 case 11: mapperName = "Color Dreams"; break;
+		 case 13: mapperName = "CPROM"; break;
+		 case 15: mapperName = "100-in1"; break;
+		 case 16: mapperName = "Bandai"; break;
+		 case 19: mapperName = "Namco 163"; break;
+		 case 21: mapperName = "VRC4"; break;
+		 case 22: mapperName = "VRC2"; break;
+		 case 23: mapperName = "VRC2"; break;
+		 case 24: mapperName = "VRC6"; break;
+		 case 25: mapperName = "VRC4"; break;
+		 case 26: mapperName = "VRC6"; break;
+		 case 34: mapperName = "BNROM"; break;
+		 case 66: mapperName = "GNROM"; break;
+		 case 68: mapperName = "Sunsoft Mapper #4"; break;
+		 case 69: mapperName = "FME-7"; break;
+		 case 71: mapperName = "Camerica"; break;
+		 case 78: mapperName = "Irem"; break;
+		 case 85: mapperName = "VRC7"; break;
+		 case 93: mapperName = "Sunsoft UNROM"; break;
+		 case 94: mapperName = "UN1ROM"; break;
+		 case 118: mapperName = "TLSROM"; break;
+		 case 119: mapperName = "TQROM"; break;
+		 case 159: mapperName = "Bandai"; break;
+		 case 232: mapperName = "Camerica"; break;
+		 default:
+			 // For unknown mappers, return "Unknown" or format as "Mapper X"
+			 if (mapper >= 0 && mapper <= 255) {
+				 static char unknownMapper[32];
+				 snprintf(unknownMapper, sizeof(unknownMapper), "Mapper %d", mapper);
+				 lua_pushstring(L, unknownMapper);
+				 return 1;
+			 } else {
+				 lua_pushstring(L, "Unknown");
+				 return 1;
+			 }
+	 }
+	 
+	 lua_pushstring(L, mapperName);
 	 return 1;
  }
 
@@ -4972,6 +5147,12 @@ int lua_ismemorywritable(lua_State *L) {
 	 lua_pushcfunction(luaState, lua_playinputrecording);
 	 lua_setglobal(luaState, "playinputrecording");
 	 lua_register(luaState, "getromname", lua_getromname);
+	 lua_register(luaState, "getromsize", lua_getromsize);
+	 lua_register(luaState, "getprgsize", lua_getprgsize);
+	 lua_register(luaState, "getchrsize", lua_getchrsize);
+	 lua_register(luaState, "hasbattery", lua_hasbattery);
+	 lua_register(luaState, "getmapper", lua_getmapper);
+	 lua_register(luaState, "getmapperstring", lua_getmapperstring);
 	 lua_register(luaState, "isbuttonpressed", lua_isbuttonpressed);
 	 lua_register(luaState, "getbuttonname", lua_getbuttonname);
 	 lua_register(luaState, "getbuttonmask", lua_getbuttonmask);
@@ -5082,6 +5263,12 @@ static void EnsureLuaInit() {
 	lua_pushcfunction(luaState, lua_playinputrecording);
 	lua_setglobal(luaState, "playinputrecording");
 	REG("getromname", lua_getromname);
+	REG("getromsize", lua_getromsize);
+	REG("getprgsize", lua_getprgsize);
+	REG("getchrsize", lua_getchrsize);
+	REG("hasbattery", lua_hasbattery);
+	REG("getmapper", lua_getmapper);
+	REG("getmapperstring", lua_getmapperstring);
 	REG("isbuttonpressed", lua_isbuttonpressed);
 	REG("getbuttonname",  lua_getbuttonname);
 	REG("getbuttonmask",  lua_getbuttonmask);
