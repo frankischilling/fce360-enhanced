@@ -74,7 +74,50 @@ class Cemulator {
 	// New sample-accurate drift tracking
 	double m_expectedSamples; // per-channel samples submitted
 	double m_errI;            // integral term (seconds)
+	
+	// --- Audio stream state (per-ROM) ---
+	std::vector<short> m_audioAccumulator; // interleaved L/R (L=R)
+	int m_accCount;
+	static const int AUDIO_POOL_SIZE = 4;   // Reduced from 8 to prevent latency buildup
+	BYTE* m_audioPool[AUDIO_POOL_SIZE];
+	int m_audioPoolHead;
+	
+	// SamplesPlayed baseline so PI uses a relative counter
+	uint64_t m_samplesPlayedBase;
+	
+	// FDS audio delay - wait until first audio buffer is submitted before setting baseline
+	bool m_fdsWaitingForFirstBuffer;
+	
+	// --- Audio latency control ---
+	static const int kBlockSamples = 512;      // ~10.7ms @48k, crisp latency
+	static const int kTargetBlocks = 2;        // target ~21ms total queued
+	static const int kMaxBlocks    = 6;        // safety cap ~64ms
+	static const int kSilenceThresh = 16;      // peak sample threshold for "silent" (conservative to avoid false positives)
+	static const int kSilenceMsLatch = 300;    // consider "long silence" after 300ms (increased to avoid accidental latching on quick pauses)
+	
+	bool     m_inLongSilence;
+	int      m_silenceSamplesAcc;
+	
+	// --- Pause-aware audio flags ---
+	bool     m_prevPaused;                      // previous pause state (for edge detection)
+	bool     m_pauseSilenceBypass;              // when true, do not trigger long-silence reset logic
+	
+	// --- ROM change tracking ---
+	bool     m_inRomChange;
+	int      m_resetCooldownMs;                // don't spam resets during transitions
+	LARGE_INTEGER m_lastResetQPC;              // last time we hard-reset audio
+	LARGE_INTEGER m_perfFreq;                  // performance counter frequency
+	int      m_warmupBlocksToDrop;             // drop 1-2 blocks right after new ROM
+	bool     m_isFDS;                          // true if current game is FDS
+	
 	void SyncAudioQueue();
+	void ResetAudioStream(); // Reset audio stream on ROM switch (hard reset - frees pool)
+	void SoftResetAudioStream(); // Soft reset - keeps pool allocations
+	void HardRecreateSourceVoice(); // Recreate source voice completely
+	void BeginRomChange(); // Called at start of ROM load
+	void EndRomChange(); // Called after ROM load completes
+	void PrimeAudioQueue(int blocks); // Prime audio queue with silent blocks
+	void OnPauseStateChanged(bool paused); // Handle pause/unpause state transitions
 
 	void SetSystemWidth(int w) { mWidth = w; };
 
