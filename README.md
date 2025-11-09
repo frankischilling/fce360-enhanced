@@ -7,7 +7,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.7.2** — *New Lua API functions: getromname(), pressbutton(), releasebutton(), and input recording functions + all prior features from v0.7.1–v0.6.1*
+* Current release: **v0.7.3** — *New Lua API functions: getromsize(), getprgsize(), getchrsize(), getmapper(), getmapperstring(), hasbattery() + all prior features from v0.7.2–v0.6.1*
 
 ---
 
@@ -15,6 +15,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.7.3 - ROM Information Lua API Functions](#whats-new-v073)
   - [v0.7.2 - New Lua API Functions](#whats-new-v072)
   - [v0.7.1 - Text Measurement and Rotation API Functions](#whats-new-v071)
   - [v0.7.0 - ROM Counter Display](#whats-new-v070)
@@ -75,25 +76,57 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 ---
 
-## What's new (v0.6.8.1)
+## What's new (v0.7.3)
 
-* **VSync Synchronization Hotfix:** Added critical `SynchronizeToPresentationInterval()` call for proper VSync on Xbox 360!
-  * **Required for Xbox 360:** This function is essential for proper VSync timing on Xbox 360 hardware
-  * **GPU Synchronization:** Ensures GPU is synchronized to presentation interval (vblank) before swapping
-  * **Completes VSync Chain:** Works with `D3DPRESENT_INTERVAL_ONE` and texture latching for perfect frame pacing
-  * **Eliminates Artifacts:** This was the missing piece that completes the VSync frame pacing fix
-  * **Technical:** Must be called before `Swap()` for reliable VSync synchronization
+* **New Lua API Functions:** Added **6 powerful new API functions** for ROM information and analysis!
 
-* **Impact:**
-  * Eliminates all remaining Hz mismatch artifacts
-  * Ensures proper vblank synchronization
-  * Perfect frame pacing with zero visual artifacts
-  * Completes the VSync frame pacing implementation
+  * **ROM Size Functions:**
+    * `getromsize()` - Get total ROM size in bytes (PRG-ROM + CHR-ROM combined)
+      * Returns total ROM size in bytes, or 0 if no ROM is loaded
+      * Useful for ROM validation, size checks, and ROM analysis
+      * Returns combined size of PRG-ROM and CHR-ROM data
+    * `getprgsize()` - Get PRG-ROM (Program ROM) size in bytes
+      * Returns PRG-ROM size in bytes, or 0 if no ROM is loaded
+      * Useful for ROM analysis and determining game complexity
+      * PRG-ROM contains the game's program code and data
+    * `getchrsize()` - Get CHR-ROM (Character/Graphics ROM) size in bytes
+      * Returns CHR-ROM size in bytes, or 0 if no ROM is loaded or if ROM uses CHR-RAM
+      * Useful for ROM analysis and determining graphics complexity
+      * CHR-ROM contains the game's graphics tiles, sprites, and character data
+
+  * **Mapper Information Functions:**
+    * `getmapper()` - Get NES mapper number (0-255)
+      * Returns mapper number, or 0 if no ROM is loaded
+      * Useful for mapper-specific scripts and compatibility checks
+      * Common mappers: 0 = NROM, 1 = MMC1, 4 = MMC3
+    * `getmapperstring()` - Get mapper name as string (e.g., "NROM", "MMC1", "MMC3")
+      * Returns mapper name string, or "Mapper X" for unknown mappers
+      * Returns empty string if no ROM is loaded
+      * Useful for displaying mapper info in a human-readable format
+
+  * **Battery Detection Function:**
+    * `hasbattery()` - Check if ROM has battery-backed save RAM
+      * Returns boolean indicating if ROM has battery-backed save RAM
+      * Returns false if no ROM is loaded
+      * Useful for save state detection and determining if a game supports persistent saves
+      * Games with battery can save progress permanently (password systems, high scores, etc.)
+
+* **Use Cases:**
+  * **ROM Analysis:** Analyze ROM structure, determine game complexity, validate ROM sizes
+  * **Mapper Detection:** Enable mapper-specific scripts, compatibility checks, display mapper information
+  * **Save State Detection:** Identify games with battery-backed saves, determine save file support
+  * **ROM Validation:** Check ROM sizes, verify ROM integrity, detect unusual ROM configurations
+
+* **Documentation:**
+  * All functions added to Monitoring Functions section in table of contents
+  * Complete API documentation with parameters, returns, notes, and multiple examples
+  * Test scripts provided for all new functions
 
 * **Includes Previous Features:**
-  * All v0.6.8 features: VSync frame pacing with texture latching
-  * All v0.6.7 features: Drawing API enhancements and advanced memory functions
-  * All prior features from v0.6.1–v0.6.6
+  * All v0.7.2 features: getromname(), pressbutton(), releasebutton(), and input recording functions
+  * All v0.7.1 features: Text measurement and rotation API functions
+  * All v0.7.0 features: ROM counter display
+  * All prior features from v0.6.1–v0.6.9
 
 ---
 
@@ -101,13 +134,13 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 * **New Lua API Functions:** Added **6 powerful new API functions** for ROM detection, precise input control, and input recording/playback!
 
-  * **ROM Detection Function:**
+  * **ROM Detection Functions:**
     * `getromname()` - Get current ROM filename with extension (e.g., "Super Mario Bros.nes" or "game.fds")
-    * Works for both NES and FDS games
-    * Handles zip archive format: extracts filename from "path.zip|internal.nes" format
-    * Returns empty string if no game is loaded
-    * Useful for game detection, ROM-specific scripts, or displaying current game name
-    * Added to Monitoring Functions section
+      * Works for both NES and FDS games
+      * Handles zip archive format: extracts filename from "path.zip|internal.nes" format
+      * Returns empty string if no game is loaded
+      * Useful for game detection, ROM-specific scripts, or displaying current game name
+
 
   * **One-Frame Input Control Functions:**
     * `pressbutton(player, button)` - Press a button for **one frame only**, automatically released on next frame
@@ -749,6 +782,18 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
     - [`getbuttonmask(buttonName)`](#getbuttonmaskbuttonname)
       - Parameters, Returns, Notes, Examples
     - [`getromname()`](#getromname)
+      - Parameters, Returns, Notes, Examples
+    - [`getromsize()`](#getromsize)
+      - Parameters, Returns, Notes, Examples
+    - [`getprgsize()`](#getprgsize)
+      - Parameters, Returns, Notes, Examples
+    - [`getchrsize()`](#getchrsize)
+      - Parameters, Returns, Notes, Examples
+    - [`hasbattery()`](#hasbattery)
+      - Parameters, Returns, Notes, Examples
+    - [`getmapper()`](#getmapper)
+      - Parameters, Returns, Notes, Examples
+    - [`getmapperstring()`](#getmapperstring)
       - Parameters, Returns, Notes, Examples
   - [`gethardwarejoypad(player)`](#gethardwarejoypadplayer)
     - Parameters, Returns, Notes, Examples
@@ -3254,6 +3299,592 @@ function gui()
     if romName ~= "" and romName ~= lastRomName then
         print("Loaded: " .. romName)
         lastRomName = romName
+    end
+end
+```
+
+##### `getromsize()`
+Gets the total ROM size in bytes (PRG-ROM + CHR-ROM combined). Useful for ROM validation, size checks, and ROM analysis.
+
+**Parameters:** None
+
+**Returns:**
+- `integer` - Total ROM size in bytes (PRG-ROM + CHR-ROM)
+- Returns `0` if no game is loaded
+
+**Notes:**
+- Returns the combined size of both PRG-ROM (program ROM) and CHR-ROM (character/graphics ROM)
+- PRG-ROM size is in 16KB units, CHR-ROM size is in 8KB units
+- Total size = (PRG-ROM × 16KB) + (CHR-ROM × 8KB)
+- Useful for validating ROM integrity, checking for expected ROM sizes, or displaying ROM information
+- Common ROM sizes:
+  - Small ROMs: 16KB-32KB (simple games like NROM)
+  - Medium ROMs: 128KB-256KB (MMC1, MMC3 games)
+  - Large ROMs: 512KB+ (complex games with large CHR-ROM)
+
+**Example: Display ROM Size:**
+```lua
+function gui()
+    local romSize = getromsize()
+    
+    if romSize == 0 then
+        drawtext(4, 4, "No ROM loaded", 0x2D)
+    else
+        local sizeKB = romSize / 1024
+        local sizeMB = sizeKB / 1024
+        
+        if sizeMB >= 1.0 then
+            drawtext(4, 4, string.format("ROM Size: %.2f MB", sizeMB), 0x20)
+        else
+            drawtext(4, 4, string.format("ROM Size: %.2f KB", sizeKB), 0x20)
+        end
+        
+        drawtext(4, 14, string.format("Bytes: %d", romSize), 0x29)
+    end
+end
+```
+
+**Example: ROM Validation:**
+```lua
+function gui()
+    local romSize = getromsize()
+    
+    if romSize > 0 then
+        -- Validate ROM size is within expected range
+        if romSize < 16384 then
+            drawtext(4, 4, "WARNING: ROM < 16KB", 0x37)
+        elseif romSize > 4194304 then
+            drawtext(4, 4, "WARNING: ROM > 4MB", 0x37)
+        else
+            drawtext(4, 4, "ROM size OK", 0x2E)
+        end
+        
+        drawtext(4, 14, string.format("Size: %d bytes", romSize), 0x20)
+    end
+end
+```
+
+**Example: ROM Analysis:**
+```lua
+local lastRomSize = 0
+
+function gui()
+    local romSize = getromsize()
+    local romName = getromname()
+    
+    -- Detect ROM change
+    if romSize ~= lastRomSize and romSize > 0 then
+        print("=== ROM Analysis ===")
+        print("ROM: " .. romName)
+        print(string.format("Size: %d bytes", romSize))
+        
+        local sizeKB = romSize / 1024
+        print(string.format("Size: %.2f KB", sizeKB))
+        
+        -- Estimate ROM type based on size
+        if romSize <= 32768 then
+            print("Type: Small ROM (likely NROM)")
+        elseif romSize <= 131072 then
+            print("Type: Medium ROM (likely MMC1)")
+        elseif romSize <= 262144 then
+            print("Type: Large ROM (likely MMC3)")
+        else
+            print("Type: Very Large ROM")
+        end
+        
+        print("===================")
+        lastRomSize = romSize
+    end
+end
+```
+
+##### `getprgsize()`
+Gets the PRG-ROM (Program ROM) size in bytes. Useful for ROM analysis, determining game complexity, and analyzing the program code size separately from graphics data.
+
+**Parameters:** None
+
+**Returns:**
+- `integer` - PRG-ROM size in bytes
+- Returns `0` if no game is loaded
+
+**Notes:**
+- Returns only the PRG-ROM size, not the total ROM size (use `getromsize()` for total)
+- PRG-ROM contains the game's program code and data
+- PRG-ROM size is in 16KB units internally, converted to bytes (ROM_size × 16KB)
+- Common PRG-ROM sizes:
+  - `16KB` = Small game (NROM, simple games)
+  - `32KB` = Small game (NROM)
+  - `64KB` = Medium game
+  - `128KB` = Medium-large game (MMC1)
+  - `256KB` = Large game (MMC3)
+  - `512KB+` = Very large game
+- CHR-ROM size can be calculated: `getromsize() - getprgsize()`
+- Useful for analyzing game complexity, as larger PRG-ROM typically indicates more game code
+
+**Example: Display PRG-ROM Size:**
+```lua
+function gui()
+    local prgSize = getprgsize()
+    
+    if prgSize == 0 then
+        drawtext(4, 4, "No ROM loaded", 0x2D)
+    else
+        local prgKB = prgSize / 1024
+        local prgMB = prgKB / 1024
+        
+        if prgMB >= 1.0 then
+            drawtext(4, 4, string.format("PRG-ROM: %.2f MB", prgMB), 0x20)
+        else
+            drawtext(4, 4, string.format("PRG-ROM: %.2f KB", prgKB), 0x20)
+        end
+        
+        drawtext(4, 14, string.format("Bytes: %d", prgSize), 0x29)
+    end
+end
+```
+
+**Example: ROM Breakdown:**
+```lua
+function gui()
+    local prgSize = getprgsize()
+    local romSize = getromsize()
+    
+    if prgSize > 0 and romSize > 0 then
+        local chrSize = romSize - prgSize
+        local prgPercent = (prgSize / romSize) * 100
+        local chrPercent = (chrSize / romSize) * 100
+        
+        drawtext(4, 4, string.format("PRG-ROM: %d bytes (%.1f%%)", prgSize, prgPercent), 0x20)
+        drawtext(4, 14, string.format("CHR-ROM: %d bytes (%.1f%%)", chrSize, chrPercent), 0x29)
+        drawtext(4, 24, string.format("Total: %d bytes", romSize), 0x2A)
+    end
+end
+```
+
+**Example: ROM Analysis:**
+```lua
+local lastPrgSize = 0
+
+function gui()
+    local prgSize = getprgsize()
+    local romName = getromname()
+    
+    -- Detect ROM change
+    if prgSize ~= lastPrgSize and prgSize > 0 then
+        print("=== PRG-ROM Analysis ===")
+        print("ROM: " .. romName)
+        print(string.format("PRG-ROM: %d bytes", prgSize))
+        
+        local prgKB = prgSize / 1024
+        print(string.format("PRG-ROM: %.2f KB", prgKB))
+        
+        -- Estimate game complexity
+        if prgSize <= 32768 then
+            print("Complexity: Simple game")
+        elseif prgSize <= 131072 then
+            print("Complexity: Medium game")
+        elseif prgSize <= 262144 then
+            print("Complexity: Complex game")
+        else
+            print("Complexity: Very complex game")
+        end
+        
+        -- Common sizes
+        if prgSize == 16384 then
+            print("Type: 16KB PRG-ROM (NROM)")
+        elseif prgSize == 32768 then
+            print("Type: 32KB PRG-ROM (NROM)")
+        elseif prgSize == 131072 then
+            print("Type: 128KB PRG-ROM (MMC1)")
+        elseif prgSize == 262144 then
+            print("Type: 256KB PRG-ROM (MMC3)")
+        end
+        
+        print("========================")
+        lastPrgSize = prgSize
+    end
+end
+```
+
+##### `getchrsize()`
+Gets the CHR-ROM (Character/Graphics ROM) size in bytes. Useful for ROM analysis, determining graphics complexity, and analyzing the graphics data size separately from program code.
+
+**Parameters:** None
+
+**Returns:**
+- `integer` - CHR-ROM size in bytes
+- Returns `0` if no game is loaded or if the ROM uses CHR-RAM instead of CHR-ROM
+
+**Notes:**
+- Returns only the CHR-ROM size, not the total ROM size (use `getromsize()` for total)
+- CHR-ROM contains the game's graphics tiles, sprites, and character data
+- CHR-ROM size is in 8KB units internally, converted to bytes (VROM_size × 8KB)
+- Common CHR-ROM sizes:
+  - `0KB` = CHR-RAM mode (uses RAM instead of ROM, common in some mappers)
+  - `8KB` = Small graphics set
+  - `16KB` = Medium graphics set
+  - `32KB` = Large graphics set
+  - `64KB` = Very large graphics set
+  - `128KB+` = Extremely large graphics set
+- PRG-ROM size can be calculated: `getromsize() - getchrsize()`
+- Useful for analyzing graphics complexity, as larger CHR-ROM typically indicates more graphics tiles and sprites
+- Some mappers use CHR-RAM (0 bytes) instead of CHR-ROM, allowing dynamic graphics
+
+**Example: Display CHR-ROM Size:**
+```lua
+function gui()
+    local chrSize = getchrsize()
+    
+    if chrSize == 0 then
+        drawtext(4, 4, "CHR-RAM mode", 0x2D)
+    else
+        local chrKB = chrSize / 1024
+        local chrMB = chrKB / 1024
+        
+        if chrMB >= 1.0 then
+            drawtext(4, 4, string.format("CHR-ROM: %.2f MB", chrMB), 0x20)
+        else
+            drawtext(4, 4, string.format("CHR-ROM: %.2f KB", chrKB), 0x20)
+        end
+        
+        drawtext(4, 14, string.format("Bytes: %d", chrSize), 0x29)
+    end
+end
+```
+
+**Example: ROM Breakdown:**
+```lua
+function gui()
+    local chrSize = getchrsize()
+    local prgSize = getprgsize()
+    local romSize = getromsize()
+    
+    if chrSize > 0 and romSize > 0 then
+        local prgPercent = (prgSize / romSize) * 100
+        local chrPercent = (chrSize / romSize) * 100
+        
+        drawtext(4, 4, string.format("PRG-ROM: %d bytes (%.1f%%)", prgSize, prgPercent), 0x20)
+        drawtext(4, 14, string.format("CHR-ROM: %d bytes (%.1f%%)", chrSize, chrPercent), 0x29)
+        drawtext(4, 24, string.format("Total: %d bytes", romSize), 0x2A)
+    elseif chrSize == 0 and romSize > 0 then
+        drawtext(4, 4, "CHR-RAM mode (no CHR-ROM)", 0x2D)
+        drawtext(4, 14, string.format("PRG-ROM: %d bytes", prgSize), 0x20)
+    end
+end
+```
+
+**Example: ROM Analysis:**
+```lua
+local lastChrSize = 0
+
+function gui()
+    local chrSize = getchrsize()
+    local romName = getromname()
+    
+    -- Detect ROM change
+    if chrSize ~= lastChrSize and romName ~= "" then
+        print("=== CHR-ROM Analysis ===")
+        print("ROM: " .. romName)
+        print(string.format("CHR-ROM: %d bytes", chrSize))
+        
+        if chrSize == 0 then
+            print("Mode: CHR-RAM (dynamic graphics)")
+        else
+            local chrKB = chrSize / 1024
+            print(string.format("CHR-ROM: %.2f KB", chrKB))
+            
+            -- Estimate graphics complexity
+            if chrSize <= 16384 then
+                print("Complexity: Simple graphics")
+            elseif chrSize <= 32768 then
+                print("Complexity: Medium graphics")
+            elseif chrSize <= 65536 then
+                print("Complexity: Complex graphics")
+            else
+                print("Complexity: Very complex graphics")
+            end
+        end
+        
+        print("========================")
+        lastChrSize = chrSize
+    end
+end
+```
+
+##### `hasbattery()`
+Checks if the ROM has battery-backed save RAM. Useful for save state detection and determining if a game supports persistent saves.
+
+**Parameters:** None
+
+**Returns:**
+- `boolean` - `true` if the ROM has battery-backed save RAM, `false` otherwise
+- Returns `false` if no game is loaded
+
+**Notes:**
+- Battery-backed save RAM allows games to save progress permanently (even when the console is turned off)
+- Games with battery typically support:
+  - Password systems
+  - High score tables
+  - Game progress saves
+  - Configuration settings
+- Common games with battery: The Legend of Zelda, Metroid, Final Fantasy, etc.
+- Games without battery cannot save progress permanently
+- Useful for detecting which games support save files and persistent data
+
+**Example: Display Battery Status:**
+```lua
+function gui()
+    local hasBattery = hasbattery()
+    local romName = getromname()
+    
+    if romName == "" then
+        drawtext(4, 4, "No ROM loaded", 0x2D)
+    else
+        drawtext(4, 4, "ROM: " .. romName, 0x2E)
+        
+        if hasBattery then
+            drawtext(4, 14, "Battery: Yes", 0x29)
+            drawtext(4, 24, "Save RAM: Supported", 0x2E)
+        else
+            drawtext(4, 14, "Battery: No", 0x37)
+            drawtext(4, 24, "Save RAM: Not supported", 0x2A)
+        end
+    end
+end
+```
+
+**Example: Save State Detection:**
+```lua
+function gui()
+    local hasBattery = hasbattery()
+    local romName = getromname()
+    
+    if hasBattery then
+        drawtext(4, 4, "This game supports", 0x20)
+        drawtext(4, 14, "persistent saves", 0x20)
+        drawtext(4, 24, "Save files will be", 0x20)
+        drawtext(4, 34, "preserved", 0x20)
+    else
+        drawtext(4, 4, "This game does not", 0x37)
+        drawtext(4, 14, "support persistent", 0x37)
+        drawtext(4, 24, "saves", 0x37)
+    end
+end
+```
+
+**Example: ROM Analysis:**
+```lua
+local lastBattery = nil
+
+function gui()
+    local hasBattery = hasbattery()
+    local romName = getromname()
+    
+    -- Detect ROM change
+    if hasBattery ~= lastBattery and romName ~= "" then
+        print("=== Battery Information ===")
+        print("ROM: " .. romName)
+        print(string.format("Battery: %s", hasBattery and "Yes" or "No"))
+        
+        if hasBattery then
+            print("Save RAM: Supported")
+            print("This game can save progress permanently")
+        else
+            print("Save RAM: Not supported")
+            print("This game cannot save progress permanently")
+        end
+        
+        -- Additional info
+        local mapper = getmapper()
+        print(string.format("Mapper: %d", mapper))
+        
+        print("========================")
+        lastBattery = hasBattery
+    end
+end
+```
+
+##### `getmapper()`
+Gets the NES mapper number (0-255). Useful for mapper-specific scripts, compatibility checks, and determining which mapper chip a ROM uses.
+
+**Parameters:** None
+
+**Returns:**
+- `integer` - Mapper number (0-255)
+- Returns `0` if no game is loaded
+
+**Notes:**
+- The mapper number identifies which mapper chip (MMC) the ROM uses
+- Different mappers have different capabilities (bank switching, battery saves, etc.)
+- Common mapper numbers:
+  - `0` = NROM (simplest mapper, 16-32KB PRG-ROM)
+  - `1` = MMC1 (SxROM) - Supports bank switching, battery saves
+  - `2` = UNROM - Simple bank switching
+  - `3` = CNROM - Character ROM switching
+  - `4` = MMC3 (TxROM) - Popular mapper, used in many games
+  - `5` = MMC5 - Advanced mapper with extra features
+  - `7` = AOROM - Simple bank switching
+  - `9` = MMC2 (PxROM) - Used in Punch-Out!!
+  - `10` = MMC4 (PxROM) - Similar to MMC2
+- Mapper numbers above 255 are not valid for standard iNES format
+- Useful for enabling mapper-specific features or compatibility checks in scripts
+
+**Example: Display Mapper Number:**
+```lua
+function gui()
+    local mapper = getmapper()
+    
+    if mapper == 0 then
+        drawtext(4, 4, "No ROM loaded", 0x2D)
+    else
+        drawtext(4, 4, string.format("Mapper: %d", mapper), 0x20)
+        
+        -- Display mapper name
+        if mapper == 0 then
+            drawtext(4, 14, "NROM", 0x29)
+        elseif mapper == 1 then
+            drawtext(4, 14, "MMC1", 0x29)
+        elseif mapper == 4 then
+            drawtext(4, 14, "MMC3", 0x29)
+        else
+            drawtext(4, 14, "Unknown", 0x2A)
+        end
+    end
+end
+```
+
+**Example: Mapper-Specific Script:**
+```lua
+function gui()
+    local mapper = getmapper()
+    
+    -- Enable mapper-specific features
+    if mapper == 1 then
+        -- MMC1 specific code
+        drawtext(4, 4, "MMC1 detected", 0x2E)
+        -- MMC1 supports battery saves, bank switching, etc.
+    elseif mapper == 4 then
+        -- MMC3 specific code
+        drawtext(4, 4, "MMC3 detected", 0x2E)
+        -- MMC3 has IRQ support, different bank switching
+    elseif mapper == 0 then
+        -- NROM specific code
+        drawtext(4, 4, "NROM detected", 0x2E)
+        -- Simple mapper, no special features
+    end
+end
+```
+
+**Example: Compatibility Check:**
+```lua
+local lastMapper = -1
+
+function gui()
+    local mapper = getmapper()
+    local romName = getromname()
+    
+    -- Detect mapper change
+    if mapper ~= lastMapper and mapper > 0 then
+        print("=== Mapper Information ===")
+        print("ROM: " .. romName)
+        print(string.format("Mapper: %d", mapper))
+        
+        -- Check compatibility
+        if mapper == 0 then
+            print("Compatible: NROM - Simple mapper, basic functionality")
+        elseif mapper == 1 or mapper == 4 then
+            print("Compatible: Common mapper, well-supported")
+        elseif mapper >= 0 and mapper <= 255 then
+            print(string.format("Compatible: Valid mapper %d", mapper))
+        else
+            print("Warning: Invalid mapper number")
+        end
+        
+        print("========================")
+        lastMapper = mapper
+    end
+end
+```
+
+##### `getmapperstring()`
+Gets the mapper name as a string (e.g., "NROM", "MMC1", "MMC3"). Useful for displaying mapper information in a human-readable format.
+
+**Parameters:** None
+
+**Returns:**
+- `string` - Mapper name (e.g., `"NROM"`, `"MMC1"`, `"MMC3"`)
+- Returns `"Mapper X"` format for unknown mappers (where X is the mapper number)
+- Returns empty string (`""`) if no game is loaded
+
+**Notes:**
+- Returns a human-readable mapper name instead of just the number
+- Known mapper names include: "NROM", "MMC1", "MMC3", "UNROM", "CNROM", "VRC4", "VRC6", "Bandai", etc.
+- For unknown mappers (0-255), returns formatted string like `"Mapper 42"`
+- For invalid mappers, returns `"Unknown"`
+- Complements `getmapper()` by providing the name instead of just the number
+- Useful for displaying mapper information in user interfaces or logs
+
+**Example: Display Mapper Name:**
+```lua
+function gui()
+    local mapperString = getmapperstring()
+    local mapper = getmapper()
+    
+    if mapperString == "" then
+        drawtext(4, 4, "No ROM loaded", 0x2D)
+    else
+        drawtext(4, 4, string.format("Mapper: %d", mapper), 0x20)
+        drawtext(4, 14, "Name: " .. mapperString, 0x29)
+    end
+end
+```
+
+**Example: Mapper Name Comparison:**
+```lua
+function gui()
+    local mapperString = getmapperstring()
+    local mapper = getmapper()
+    
+    -- Check for specific mapper types
+    if mapperString == "MMC1" or mapperString == "MMC3" then
+        drawtext(4, 4, "MMC mapper detected", 0x2E)
+    elseif string.find(mapperString, "VRC") then
+        drawtext(4, 4, "VRC mapper detected", 0x2E)
+    elseif mapperString == "NROM" then
+        drawtext(4, 4, "Simple NROM mapper", 0x2E)
+    end
+    
+    drawtext(4, 14, string.format("%d = %s", mapper, mapperString), 0x20)
+end
+```
+
+**Example: Display Mapper Info:**
+```lua
+local lastMapperString = ""
+
+function gui()
+    local mapperString = getmapperstring()
+    local romName = getromname()
+    
+    -- Detect mapper change
+    if mapperString ~= lastMapperString and mapperString ~= "" then
+        print("=== Mapper Information ===")
+        print("ROM: " .. romName)
+        print("Mapper: " .. mapperString)
+        
+        -- Check if it's a known mapper
+        if string.find(mapperString, "Mapper %d") then
+            print("Note: Unknown mapper (not in lookup table)")
+        else
+            print("Note: Known mapper name")
+        end
+        
+        -- String operations
+        local upper = string.upper(mapperString)
+        print("Uppercase: " .. upper)
+        
+        print("========================")
+        lastMapperString = mapperString
     end
 end
 ```
@@ -6192,6 +6823,59 @@ FCEUX360-<version>-xex.zip
 ---
 
 ## Changelog
+
+* **v0.7.3**
+
+  * feat(lua): Added `getromsize()` function for ROM size detection
+    * Returns total ROM size in bytes (PRG-ROM + CHR-ROM combined)
+    * Returns 0 if no game is loaded
+    * Useful for ROM validation, size checks, and ROM analysis
+    * Calculates size from ROM_size (16KB units) and VROM_size (8KB units)
+
+  * feat(lua): Added `getprgsize()` function for PRG-ROM size detection
+    * Returns PRG-ROM (Program ROM) size in bytes
+    * Returns 0 if no game is loaded
+    * Useful for ROM analysis and determining game complexity
+    * PRG-ROM contains the game's program code and data
+
+  * feat(lua): Added `getchrsize()` function for CHR-ROM size detection
+    * Returns CHR-ROM (Character/Graphics ROM) size in bytes
+    * Returns 0 if no game is loaded or if ROM uses CHR-RAM instead of CHR-ROM
+    * Useful for ROM analysis and determining graphics complexity
+    * CHR-ROM contains the game's graphics tiles, sprites, and character data
+
+  * feat(lua): Added `getmapper()` function for mapper number detection
+    * Returns NES mapper number (0-255)
+    * Returns 0 if no game is loaded
+    * Useful for mapper-specific scripts and compatibility checks
+    * Common mappers: 0 = NROM, 1 = MMC1, 4 = MMC3
+
+  * feat(lua): Added `getmapperstring()` function for mapper name detection
+    * Returns mapper name as string (e.g., "NROM", "MMC1", "MMC3")
+    * Returns "Mapper X" format for unknown mappers (where X is the mapper number)
+    * Returns empty string if no game is loaded
+    * Useful for displaying mapper information in a human-readable format
+    * Includes lookup table for common mapper names
+
+  * feat(lua): Added `hasbattery()` function for battery-backed save RAM detection
+    * Returns boolean indicating if ROM has battery-backed save RAM
+    * Returns false if no game is loaded
+    * Useful for save state detection and determining if a game supports persistent saves
+    * Games with battery can save progress permanently (password systems, high scores, etc.)
+
+  * docs(lua): Added complete API documentation for all new functions
+    * All functions added to Monitoring Functions section in table of contents
+    * Complete documentation with parameters, returns, notes, and multiple examples
+    * Added to README.md Lua API section
+
+  * test(lua): Added test scripts for all new functions
+    * test_getromsize.lua - Tests ROM size validation and analysis
+    * test_getprgsize.lua - Tests PRG-ROM size detection and breakdown
+    * test_getchrsize.lua - Tests CHR-ROM size detection and verification
+    * test_getmapper.lua - Tests mapper number detection and compatibility checks
+    * test_getmapperstring.lua - Tests mapper name string operations
+    * test_hasbattery.lua - Tests battery status detection and save state info
+    * All test scripts print results once when ROM changes (no console spam)
 
 * **v0.7.2**
 
