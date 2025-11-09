@@ -1278,7 +1278,7 @@ void Cemulator::Render() {
 		}
 
 		// Always use latched texture if available, otherwise fall back to current draw texture
-		// Ensure we have a valid texture index before using it
+		// During rewind, we don't upload frames so just show the last latched frame
 		const int texToUse = (g_texLatched >= 0 && g_texLatched < 3) ? g_texLatched : 
 		                     ((g_texDraw >= 0 && g_texDraw < 3) ? g_texDraw : 0);
 		g_effect->SetTexture(g_MeshTexture, g_nesTex[texToUse]);
@@ -1338,7 +1338,12 @@ void Cemulator::Render() {
 	// We are at vblank boundary now (Swap returned). Decide if we latch a new frame.
 	// This is the critical sync point - we only change the displayed frame at vblank.
 	if (RenderEmulation) {
-		if (g_pendingTex >= 0) {
+		if (m_isRewinding) {
+			// During rewind, bypass drift logic entirely - we don't upload frames during rewind
+			// Just keep showing the last latched frame until rewind ends
+			g_pendingTex = -1;
+		} else if (g_pendingTex >= 0) {
+			// Normal playback: existing drift-controlled latch.
 			// Track producer/consumer to keep cadence smooth
 			g_frameDrift = g_framesProduced - g_framesDisplayed;
 
@@ -1567,14 +1572,27 @@ HRESULT Cemulator::Run() {
 							}
 						}
 
+						// Step back 'steps' times through the circular buffer
 						for (int s = 0; s < steps; ++s) {
 							if (!LoadRewindState()) {
 								m_isRewinding = false;
 								break;
 							}
 						}
+						
+						// Call Lua during rewind so scripts can detect rewind state
+						// This runs every frame while rewinding (not just when steps occur)
+#ifdef USE_LUA
+						extern int FCEU_LuaIsDisabled(void);
+						if (!FCEU_LuaIsDisabled()) {
+							FCEU_LuaFrameBoundary();
+							// Also call Lua GUI so scripts can draw and detect rewind state
+							extern void FCEU_LuaGui(uint8* XBuf);
+							FCEU_LuaGui(bitmap);
+						}
+#endif
 						// (Audio intentionally skipped while rewinding;
-						// Render() refreshes visuals)
+						// Render() refreshes visuals - no frame upload during rewind for performance)
 					}
 					// Skip normal emu frame while rewinding
 				} else if (m_isRewinding) {
@@ -1586,10 +1604,10 @@ HRESULT Cemulator::Run() {
 				} else {
 					// Normal emulation
 					// Fast-forward (RT) = 2× emu steps for this render
-					int framesToRun = (Gamepads[0].bRightTrigger >
-									   XINPUT_GAMEPAD_TRIGGER_THRESHOLD)
-										  ? 2
-										  : 1;
+					bool fastForwardPressed = (Gamepads[0].bRightTrigger >
+											   XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
+					m_isFastForwarding = fastForwardPressed;
+					int framesToRun = fastForwardPressed ? 2 : 1;
 
 					// Cache input state before fast-forward loop to prevent
 					// double-processing When multiple buttons are pressed
@@ -1688,6 +1706,9 @@ HRESULT Cemulator::Run() {
 						}
 					}
 				}
+				
+				// Update rewind edge tracker once per emu step (inside RenderEmulation block)
+				prevRewindPressed = rewindPressed;
 			}
 			acc -= (ULONGLONG)TICKS_PER_EMU_FRAME_D;
 			++safety;
@@ -1769,6 +1790,7 @@ void Cemulator::InitRewindBuffer() {
 	m_rewindFrameSkip = 0;
 	m_rewindStartPos = 0;
 	m_rewindHeldFrames = 0;
+	m_isFastForwarding = false;
 
 	for (int i = 0; i < REWIND_BUFFER_SIZE; i++) {
 		m_rewindBuffer[i].isValid = false;
@@ -1787,6 +1809,7 @@ void Cemulator::ClearRewindBuffer() {
 	m_isRewinding = false;
 	m_rewindStartPos = 0;
 	m_rewindHeldFrames = 0;
+	m_isFastForwarding = false;
 }
 
 void Cemulator::SaveRewindState() {

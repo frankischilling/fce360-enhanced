@@ -160,6 +160,7 @@ class Cemulator {
 	int m_rewindStartPos;	// Position where we started rewinding from
 	int m_rewindHeldFrames; // Counter for how long LT has been held (for speed
 							// ramping)
+	bool m_isFastForwarding; // Whether we're currently fast-forwarding
 
 	void SendExitSignal() { end = true; }
 
@@ -457,4 +458,7 @@ class Cemulator {
 	void SetVertexFilter(int i) { m_Settings.SelectedVertexFilter = i; }
 
 	DWORD GetVertexFilter() { return m_Settings.SelectedVertexFilter; }
+
+	bool IsRewinding() { return m_isRewinding; };
+	bool IsFastForwarding() { return m_isFastForwarding; };
 };
