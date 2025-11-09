@@ -1,4 +1,4 @@
-// config.cpp : définit le point d'entrée pour l'application console.
+// config.cppÂ : dÃ©finit le point d'entrÃ©e pour l'application console.
 #include "xbox/fceusupport.h"
 #include "config_reader.h"
 #include <iostream>
@@ -23,7 +23,7 @@ void ReadConfig()
 	fcecfg.Set("sound","pcmvolume", 256);
 
 	/***
-	Vidéo
+	Vidï¿½o
 	**/
 	fcecfg.Set("video","region","NTSC"); //not used
 	fcecfg.Set("video","swfilter", 1);
@@ -68,7 +68,7 @@ void ReadConfig()
 	gamepad_right_thumb = 0;
 
 	gamepad_left_trigger = JOY_A;
-	gamepad_right_trigger = JOY_B;
+	gamepad_right_trigger = 0;  // RT no longer maps to B - only B button triggers B
 
 	fcecfg.Set("controller","XINPUT_GAMEPAD_DPAD_UP", gamepad_dpad_up );
 	fcecfg.Set("controller","XINPUT_GAMEPAD_DPAD_DOWN", gamepad_dpad_down );
