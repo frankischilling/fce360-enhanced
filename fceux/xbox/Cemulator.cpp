@@ -3,6 +3,7 @@
 #include <fxl.h>
 #include <string>
 #include <vector>
+#include <algorithm>
 #include <xaudio2.h>
 #include <xtl.h>
 #include <xui.h>
@@ -87,8 +88,23 @@ D3DXMATRIX g_matWorldViewProjection;
 // Audio
 //-------------------------------------------------------------------------------------
 #define SOUND_BUFFER_SIZE 5000
-#define BLOCK_FRAMES 512	// ~10.7ms @48k, lower latency for snappier controls
-#define MAX_BLOCKS_QUEUED 2 // Cap queue depth (still stable on 360)
+// Block size and queue limits now defined in Cemulator class constants
+
+// Helper: Get current voice state
+struct VoiceState { 
+    uint64_t played; 
+    uint32_t queued; 
+};
+
+static VoiceState GetVoiceState(IXAudio2SourceVoice* v) {
+    VoiceState vs;
+    XAUDIO2_VOICE_STATE st;
+    ZeroMemory(&st, sizeof(st));
+    v->GetState(&st);  // Xbox 360 XAudio2 only takes 1 argument
+    vs.played = (uint64_t)st.SamplesPlayed;
+    vs.queued = st.BuffersQueued;
+    return vs;
+}
 
 // fceux bitmap
 uint8 *bitmap;
@@ -100,7 +116,6 @@ unsigned int *g_sound_buffer;
 IXAudio2 *g_pXAudio2 = NULL;
 IXAudio2MasteringVoice *g_pMasteringVoice = NULL;
 IXAudio2SourceVoice *g_pSourceVoice = NULL;
-WAVEFORMATEXTENSIBLE wfx;
 XAUDIO2_BUFFER g_SoundBuffer;
 
 //
@@ -137,11 +152,24 @@ struct TEXTURED g_VerticesTextured[] = {
 	{1.0f, -1.0f, 0.0f, 1.0f, 1.0f}	  // 3
 };
 
-static const D3DRECT g_tiles[3] = {
-	{0, 0, g_dwTileWidth, g_dwTileHeight},
-	{0, g_dwTileHeight, g_dwTileWidth, g_dwTileHeight * 2},
-	{0, g_dwTileHeight * 2, g_dwTileWidth, g_dwFrameHeight},
-};
+static D3DRECT g_tiles[3];
+
+static void BuildTiles(UINT tileW, UINT tileH, UINT frameH) {
+	g_tiles[0].x1 = 0;
+	g_tiles[0].y1 = 0;
+	g_tiles[0].x2 = (LONG)tileW;
+	g_tiles[0].y2 = (LONG)tileH;
+	
+	g_tiles[1].x1 = 0;
+	g_tiles[1].y1 = (LONG)tileH;
+	g_tiles[1].x2 = (LONG)tileW;
+	g_tiles[1].y2 = (LONG)(tileH * 2);
+	
+	g_tiles[2].x1 = 0;
+	g_tiles[2].y1 = (LONG)(tileH * 2);
+	g_tiles[2].x2 = (LONG)tileW;
+	g_tiles[2].y2 = (LONG)frameH;
+}
 
 //-------------------------------------------------------------------------------------
 // TEXTURE
@@ -178,6 +206,23 @@ Cemulator::Cemulator(void) {
 	m_syncI = 0.0f;          // legacy integrator (unused by new loop)
 	m_expectedSamples = 0.0; // per-channel samples submitted
 	m_errI = 0.0;            // seconds integral
+	m_accCount = 0;
+	m_audioPoolHead = 0;
+	m_samplesPlayedBase = 0;
+	m_fdsWaitingForFirstBuffer = false;
+	m_inLongSilence = false;
+	m_silenceSamplesAcc = 0;
+	m_prevPaused = false;
+	m_pauseSilenceBypass = false;
+	m_inRomChange = false;
+	m_resetCooldownMs = 250; // don't spam resets during transitions
+	m_warmupBlocksToDrop = 0;
+	m_isFDS = false;
+	QueryPerformanceFrequency(&m_perfFreq);
+	QueryPerformanceCounter(&m_lastResetQPC);
+	for (int i = 0; i < AUDIO_POOL_SIZE; ++i) {
+		m_audioPool[i] = NULL;
+	}
 	ftime = 0.0f;
 	m_screenshotLatch = false;
 	InitRewindBuffer();
@@ -202,6 +247,11 @@ HRESULT Cemulator::InitVideo() {
 	BOOL bEnable720p = (VideoMode.dwDisplayHeight >= 720) ? TRUE : FALSE;
 	SetSystemWidth((bEnable720p) ? 1280 : 640);
 	SetSystemHeight((bEnable720p) ? 720 : 480);
+
+	// Build tiles at runtime using actual dimensions
+	// Make sure these three are initialized before calling BuildTiles(...):
+	// g_dwTileWidth, g_dwTileHeight, g_dwFrameHeight
+	BuildTiles(g_dwTileWidth, g_dwTileHeight, g_dwFrameHeight);
 
 	//-------------------------------------------------------------------------------------
 	// MSAA surface
@@ -290,6 +340,9 @@ HRESULT Cemulator::InitVideo() {
 	Result = D3DXCreateEffect(
 		g_pd3dDevice, (DWORD *)pCompiledData->GetBufferPointer(),
 		pCompiledData->GetBufferSize(), NULL, NULL, 0, NULL, &g_effect, NULL);
+	
+	// Release the compiled blob after creating the effect
+	if (pCompiledData) { pCompiledData->Release(); pCompiledData = NULL; }
 
 	//-------------------------------------------------------------------------------------
 	// Create the model
@@ -297,6 +350,9 @@ HRESULT Cemulator::InitVideo() {
 	HRESULT hr =
 		D3DXLoadMeshFromXA(X_FILE, D3DXMESH_SYSTEMMEM, g_pd3dDevice, NULL,
 						   &materialBuffer, NULL, &numMaterials, &mesh);
+	
+	// Release material buffer if not used
+	if (materialBuffer) { materialBuffer->Release(); materialBuffer = NULL; }
 	//-------------------------------------------------------------------------------------
 	// Load the bg
 	//-------------------------------------------------------------------------------------
@@ -487,6 +543,14 @@ HRESULT Cemulator::InitAudio() {
 	return S_OK;
 };
 
+// Helper: Calculate milliseconds since a performance counter timestamp
+static inline int msSince(const LARGE_INTEGER& since, const LARGE_INTEGER& freq) {
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    double ms = (double)(now.QuadPart - since.QuadPart) * 1000.0 / (double)freq.QuadPart;
+    return (int)ms;
+}
+
 void Cemulator::UpdateAudio(int *snd, int sndsize) {
 	if (sndsize <= 0 || !g_pSourceVoice)
 		return;
@@ -497,66 +561,57 @@ void Cemulator::UpdateAudio(int *snd, int sndsize) {
 	// Accumulate samples across frames since NES produces ~735-800
 	// samples/frame
 	//-------------------------------------------------------------------------------------
-	static std::vector<short> accumulator; // Accumulate samples across frames
-	static int accCount = 0;
-
+	
 	// Accumulate incoming samples
 	for (int i = 0; i < sndsize; ++i) {
 		short sample = (short)(snd[i] & 0xFFFF); // signed 16-bit!
 
 		// Grow accumulator if needed
-		if (accCount * 2 + 1 >= (int)accumulator.size()) {
-			accumulator.resize((accCount + sndsize) *
-							   2); // Ensure room for stereo
+		if (m_accCount * 2 + 1 >= (int)m_audioAccumulator.size()) {
+			m_audioAccumulator.resize((m_accCount + sndsize) * 2); // Ensure room for stereo
 		}
 
-		accumulator[accCount * 2 + 0] = sample; // Left channel
-		accumulator[accCount * 2 + 1] = sample; // Right channel (same as left)
-		++accCount;
+		m_audioAccumulator[m_accCount * 2 + 0] = sample; // Left channel
+		m_audioAccumulator[m_accCount * 2 + 1] = sample; // Right channel (same as left)
+		++m_accCount;
 	}
 
 	// Submit when we have a full block
-	// Use a pool of reusable buffers to avoid malloc/free churn
-	static const int POOL_SIZE = 8;
-	static BYTE *pool[POOL_SIZE] = {0};
-	static int poolHead = 0;
-
-	while (accCount >= BLOCK_FRAMES) {
+	while (m_accCount >= kBlockSamples) {
 		// Do not hard-flush the queue; the PI loop will gently correct drift
 
 		// Get buffer from pool (reuse instead of malloc/free per block)
-		const size_t bytes = BLOCK_FRAMES * 2 /*stereo*/ * sizeof(short);
-		if (!pool[poolHead]) {
-			pool[poolHead] = (BYTE *)malloc(bytes);
-			if (!pool[poolHead])
+		const size_t bytes = kBlockSamples * 2 /*stereo*/ * sizeof(short);
+		if (!m_audioPool[m_audioPoolHead]) {
+			m_audioPool[m_audioPoolHead] = (BYTE *)malloc(bytes);
+			if (!m_audioPool[m_audioPoolHead])
 				break; // Can't allocate, skip this block
 		}
-		BYTE *buf = pool[poolHead];
+		BYTE *buf = m_audioPool[m_audioPoolHead];
 
-		// Copy BLOCK_FRAMES worth of stereo samples
-		memcpy(buf, &accumulator[0], bytes);
+		// Copy kBlockSamples worth of stereo samples
+		memcpy(buf, &m_audioAccumulator[0], bytes);
 
 		XAUDIO2_BUFFER xb = {0};
 		xb.AudioBytes = (UINT32)bytes;
 		xb.pAudioData = buf;
-		xb.pContext =
-			(void *)(intptr_t)poolHead; // Store pool index instead of pointer
+		xb.pContext = (void *)(intptr_t)m_audioPoolHead; // Store pool index instead of pointer
 		xb.Flags = 0;					// streaming, NOT end-of-stream
 
 		if (SUCCEEDED(g_pSourceVoice->SubmitSourceBuffer(&xb))) {
 			// Track submitted per-channel samples (stereo frames -> per-channel N)
-			m_expectedSamples += (double)BLOCK_FRAMES;
+			m_expectedSamples += (double)kBlockSamples;
 			// Advance pool head (buffer will be reused when callback fires)
-			poolHead = (poolHead + 1) % POOL_SIZE;
+			m_audioPoolHead = (m_audioPoolHead + 1) % AUDIO_POOL_SIZE;
 
 			// Remove submitted samples from accumulator
-			int remaining = accCount - BLOCK_FRAMES;
+			int remaining = m_accCount - kBlockSamples;
 			if (remaining > 0) {
 				// Shift remaining samples to front
-				memmove(&accumulator[0], &accumulator[BLOCK_FRAMES * 2],
+				memmove(&m_audioAccumulator[0], &m_audioAccumulator[kBlockSamples * 2],
 						remaining * 2 * sizeof(short));
 			}
-			accCount = remaining;
+			m_accCount = remaining;
 		} else {
 			break; // Submission failed, stop trying (buffer stays in pool)
 		}
@@ -587,6 +642,200 @@ void Cemulator::SyncAudioQueue() {
         m_freqRatio = ratio;
         g_pSourceVoice->SetFrequencyRatio(m_freqRatio);
     }
+}
+
+// Soft reset audio stream - keeps pool allocations to avoid malloc storm
+void Cemulator::SoftResetAudioStream() {
+    if (!g_pSourceVoice) return;
+
+    g_pSourceVoice->Stop(0);
+    g_pSourceVoice->FlushSourceBuffers();
+    g_pSourceVoice->SetFrequencyRatio(1.0f);
+    g_pSourceVoice->Start(0);
+
+    m_expectedSamples = 0.0;
+    m_errI = 0.0;
+    m_freqRatio = 1.0f;
+    m_inLongSilence = false;
+    m_silenceSamplesAcc = 0;
+    m_samplesPlayedBase = 0;
+    m_fdsWaitingForFirstBuffer = true;
+    m_audioAccumulator.clear();
+    m_accCount = 0;
+    // KEEP pool allocations; they'll be reused (no malloc storm on resume)
+    m_audioPoolHead = 0;
+
+    // video latch clean
+    g_hasNewFrame = false;
+    g_pendingTex  = -1;
+    g_texLatched  = -1;
+    g_framesProduced  = 0;
+    g_framesDisplayed = 0;
+}
+
+// Hard reset audio stream - frees pool (use only when necessary)
+void Cemulator::ResetAudioStream() {
+    if (!g_pSourceVoice) return;
+
+    // Stop and flush any queued buffers from the old game
+    g_pSourceVoice->Stop(0);
+    g_pSourceVoice->FlushSourceBuffers();
+    g_pSourceVoice->SetFrequencyRatio(1.0f);
+    g_pSourceVoice->Start(0);
+
+    // Reset all state
+    m_expectedSamples = 0.0;
+    m_errI = 0.0;
+    m_freqRatio = 1.0f;
+    m_inLongSilence = false;
+    m_silenceSamplesAcc = 0;
+    m_samplesPlayedBase = 0;
+    m_fdsWaitingForFirstBuffer = true;
+
+    // Clear per-frame audio accumulation and buffer pool
+    m_audioAccumulator.clear();
+    m_accCount = 0;
+    for (int i = 0; i < AUDIO_POOL_SIZE; ++i) {
+        if (m_audioPool[i]) { 
+            free(m_audioPool[i]); 
+            m_audioPool[i] = NULL; 
+        }
+    }
+    m_audioPoolHead = 0;
+
+    // (Optional but recommended) reset video latch so first frame of new game is clean
+    g_hasNewFrame = false;
+    g_pendingTex  = -1;
+    g_texLatched  = -1;
+    g_framesProduced  = 0;
+    g_framesDisplayed = 0;
+}
+
+// Hard recreate source voice (use when sample rate changes or voice is corrupted)
+void Cemulator::HardRecreateSourceVoice() {
+    if (g_pSourceVoice) { 
+        g_pSourceVoice->Stop(0); 
+        g_pSourceVoice->DestroyVoice(); 
+        g_pSourceVoice = NULL; 
+    }
+
+    // Build WAVEFORMATEXTENSIBLE from current m_Settings.soundrate
+    WAVEFORMATEXTENSIBLE wfx;
+    ZeroMemory(&wfx, sizeof(wfx));
+    wfx.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
+    wfx.Format.nSamplesPerSec = m_Settings.soundrate; // ensure this was set via FCEUI_Sound() first
+    wfx.Format.nChannels = 2;
+    wfx.Format.wBitsPerSample = 16;
+    wfx.Format.nBlockAlign = wfx.Format.nChannels * wfx.Format.wBitsPerSample / 8;
+    wfx.Format.nAvgBytesPerSec = wfx.Format.nSamplesPerSec * wfx.Format.nBlockAlign;
+    wfx.Format.cbSize = sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
+    wfx.Samples.wValidBitsPerSample = 16;
+    wfx.dwChannelMask = SPEAKER_STEREO;
+    wfx.SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
+
+    const float kMaxRatio = 1.02f;
+    UINT32 flags = 0; // allow SRC for tiny drift
+    if (FAILED(g_pXAudio2->CreateSourceVoice(&g_pSourceVoice, (WAVEFORMATEX*)&wfx, flags, kMaxRatio, &XAudio2_Notifier))) {
+        // fall back defensively; in practice this path won't hit
+        return;
+    }
+    g_pSourceVoice->Start(0);
+    SoftResetAudioStream();
+}
+
+// Prime audio queue with silent blocks to avoid first-second underrun
+void Cemulator::PrimeAudioQueue(int blocks) {
+    if (!g_pSourceVoice) return;
+
+    const size_t bytes = kBlockSamples * 2 /*stereo*/ * sizeof(short);
+    static std::vector<short> zeros(kBlockSamples * 2, 0);
+
+    for (int i = 0; i < blocks; ++i) {
+        if (!m_audioPool[m_audioPoolHead]) {
+            m_audioPool[m_audioPoolHead] = (BYTE*)malloc(bytes);
+            if (!m_audioPool[m_audioPoolHead]) break;
+        }
+        memcpy(m_audioPool[m_audioPoolHead], &zeros[0], bytes);
+
+        XAUDIO2_BUFFER xb;
+        ZeroMemory(&xb, sizeof(xb));
+        xb.AudioBytes = (UINT32)bytes;
+        xb.pAudioData = m_audioPool[m_audioPoolHead];
+        xb.pContext   = (void*)(intptr_t)m_audioPoolHead;
+
+        if (SUCCEEDED(g_pSourceVoice->SubmitSourceBuffer(&xb))) {
+            m_expectedSamples += (double)kBlockSamples;
+            m_audioPoolHead = (m_audioPoolHead + 1) % AUDIO_POOL_SIZE;
+        }
+    }
+
+    // We just primed the queue – treat as baseline
+    m_samplesPlayedBase = 0;
+    m_fdsWaitingForFirstBuffer = false;
+}
+
+// Handle pause/unpause state transitions
+void Cemulator::OnPauseStateChanged(bool paused) {
+    if (!g_pSourceVoice) { 
+        m_prevPaused = paused; 
+        return; 
+    }
+
+    if (paused) {
+        // Entering pause: keep the voice running with minimal priming
+        // to avoid underrun, but don't add excessive latency.
+        m_pauseSilenceBypass = true;       // tell UpdateAudio() not to latch/soft-reset
+        
+        // Check current queue depth - only prime if queue is low
+        VoiceState st = GetVoiceState(g_pSourceVoice);
+        if (st.queued < 2) {
+            PrimeAudioQueue(1);  // minimal priming - just 1 block to prevent underrun
+        }
+        
+        // Freeze resampler at 1.0 while paused (optional: avoids tiny drift)
+        m_freqRatio = 1.0f;
+        g_pSourceVoice->SetFrequencyRatio(1.0f);
+    } else {
+        // Leaving pause: DO NOT SoftReset. Check queue depth and only prime if needed.
+        // The queue should still have buffers from when we paused, so minimal/no priming.
+        VoiceState st = GetVoiceState(g_pSourceVoice);
+        if (st.queued < kTargetBlocks) {
+            // Only prime if queue is actually low - minimal priming to avoid latency
+            PrimeAudioQueue(1);
+        }
+        // Shorter "ramp-in" after pause so recovery is snappy but stable.
+        QueryPerformanceCounter(&m_lastResetQPC);
+    }
+
+    m_prevPaused = paused;
+}
+
+// Begin ROM change - called at start of ROM load
+void Cemulator::BeginRomChange() {
+    m_inRomChange = true;
+    if (g_pSourceVoice) { 
+        g_pSourceVoice->Stop(0); 
+        g_pSourceVoice->FlushSourceBuffers(); 
+    }
+    m_expectedSamples = 0.0; 
+    m_errI = 0.0; 
+    m_silenceSamplesAcc = 0;
+    m_inLongSilence = false; 
+    m_fdsWaitingForFirstBuffer = true;
+    // Warmup will be set in LoadGame after detecting FDS
+    m_warmupBlocksToDrop = 0;
+}
+
+// End ROM change - called after ROM load completes
+void Cemulator::EndRomChange() {
+    // Voice may need a full recreate if sample rate changed or the resampler glitched
+    HardRecreateSourceVoice();
+
+    // Prime 2-3 blocks so we never start "dry"
+    PrimeAudioQueue(m_isFDS ? 3 : 2);
+
+    m_inRomChange = false;
+    QueryPerformanceCounter(&m_lastResetQPC);
 }
 
 HRESULT Cemulator::InitInput() {
@@ -676,7 +925,17 @@ void Cemulator::UpdateInput() {
 	//-------------------------------------------------------------------------------------
 	// Set input from all the gamepads
 	//-------------------------------------------------------------------------------------
+	// Check if Lua has overridden the input - if so, use Lua's value instead of hardware
+	#ifdef USE_LUA
+	extern void FCEU_LuaJoypadApply(void);
+	// Store hardware input temporarily
+	uint32 hardwarePowerpadbuf = pad[0] | pad[1] << 8;
+	powerpadbuf = hardwarePowerpadbuf;
+	// Apply Lua override (this will modify powerpadbuf if Lua has set joypad values)
+	FCEU_LuaJoypadApply();
+	#else
 	powerpadbuf = pad[0] | pad[1] << 8; //| pad[2] << 16 | pad[3] << 24;;
+	#endif
 };
 
 HRESULT Cemulator::InitSystem() {
@@ -891,8 +1150,16 @@ HRESULT Cemulator::LoadGame(std::string name, bool restart) {
 static void UploadNESFrame(const unsigned int* srcARGB, int width, int height)
 {
     int next = (g_texWrite + 1) % 3;
+    
+    // If the next slot is still in use by the GPU, try the third one.
+    // If that one is also busy, fall back to the current write index.
     if (g_texFence[next] && g_pd3dDevice->IsFencePending(g_texFence[next])) {
-        next = g_texWrite; // avoid stomping a texture still in-flight
+        int alt = (next + 1) % 3;
+        if (!(g_texFence[alt] && g_pd3dDevice->IsFencePending(g_texFence[alt]))) {
+            next = alt;
+        } else {
+            next = g_texWrite; // everything is busy; reuse current to avoid stall
+        }
     }
 
     D3DLOCKED_RECT lr; ZeroMemory(&lr, sizeof(lr));
@@ -939,8 +1206,8 @@ void Cemulator::Render() {
 
 	// Use actual filtered texture dimensions for texel size (not base 256x240)
 	// This ensures correct half-texel correction regardless of filter applied
-	DWORD32 texW = gfx_filter.GetCurrentWidth();
-	DWORD32 texH = gfx_filter.GetCurrentHeight();
+	UINT texW = gfx_filter.GetCurrentWidth();
+	UINT texH = gfx_filter.GetCurrentHeight();
 	if (texW == 0)
 		texW = GetWidth(); // Fallback if not initialized
 	if (texH == 0)
@@ -972,8 +1239,6 @@ void Cemulator::Render() {
 	g_effect->SetTexture(g_bgTexture, g_bg_texture);
 	g_effect->SetTechnique(g_technique_model);
 	g_effect->SetFloatArray(g_TexelSize, g_pTexelSize, 2);
-
-	g_pd3dDevice->SetFVF(D3DFVF_XYZ | D3DFVF_TEX1);
 
 	//-------------------------------------------------------------------------------------
 	// Render
@@ -1217,6 +1482,25 @@ HRESULT Cemulator::Run() {
 				// Input
 				UpdateInput();
 
+#ifdef USE_LUA
+				// Lua Console toggle (LS + RS combo - both thumbsticks clicked)
+				static WORD prevButtons = 0;
+				WORD b = Gamepads[0].wButtons;
+				bool consoleCombo = (b & XINPUT_GAMEPAD_LEFT_THUMB) && (b & XINPUT_GAMEPAD_RIGHT_THUMB);
+				bool prevConsoleCombo = (prevButtons & XINPUT_GAMEPAD_LEFT_THUMB) && (prevButtons & XINPUT_GAMEPAD_RIGHT_THUMB);
+				
+				// Rising edge: toggle console
+				if (consoleCombo && !prevConsoleCombo) {
+					extern void FCEU_ToggleLuaConsole(void);
+					extern void FCEU_LuaSetDisabled(int disabled);
+					// Ensure Lua is enabled when toggling console
+					FCEU_LuaSetDisabled(0);
+					FCEU_ToggleLuaConsole();
+					printf("Lua console toggled via LS+RS\n");
+				}
+				prevButtons = b;
+#endif
+
 				// Screenshot combo
 				bool screenshotCombo =
 					(Gamepads[0].wButtons & XINPUT_GAMEPAD_LEFT_THUMB) &&
@@ -1349,13 +1633,11 @@ HRESULT Cemulator::Run() {
 							DrawTextTrans(bitmap + 4 * 256 + 4, 256,
 										  (uint8 *)luaMsg, 0x2E | 0x80);
 
-							// Run Lua GUI if Lua is enabled (auto-load is
-							// always enabled)
-							if (!FCEU_LuaIsDisabled()) {
-								// Throttled Lua GUI (runs at ~30Hz for
-								// performance), draws onto XBuf
-								FCEU_LuaGui(bitmap);
-							}
+							// Run Lua GUI every frame (handles disabled state internally)
+							// This ensures console and overlays are drawn properly
+							// FCEU_LuaGui handles disabled checks and console visibility internally
+							extern void FCEU_LuaGui(uint8* XBuf);
+							FCEU_LuaGui(bitmap);
 #endif
 
 							// Optimized ARGB conversion with precomputed LUT
@@ -1438,8 +1720,15 @@ HRESULT Cemulator::CloseVideo() {
 			g_nesTex[i] = NULL;
 		}
 	}
-	g_pd3dDevice->Release();
-	g_pD3D->Release();
+	if (g_effect)         { g_effect->Release(); g_effect = NULL; }
+	if (g_bg_texture)     { g_bg_texture->Release(); g_bg_texture = NULL; }
+	if (g_pVB)            { g_pVB->Release(); g_pVB = NULL; }
+	if (g_pVertexDecl)    { g_pVertexDecl->Release(); g_pVertexDecl = NULL; }
+	if (m_pDepthBuffer)   { m_pDepthBuffer->Release(); m_pDepthBuffer = NULL; }
+	if (m_pBackBuffer)    { m_pBackBuffer->Release(); m_pBackBuffer = NULL; }
+	if (mesh)             { mesh->Release(); mesh = NULL; }
+	if (g_pd3dDevice)     { g_pd3dDevice->Release(); g_pd3dDevice = NULL; }
+	if (g_pD3D)           { g_pD3D->Release(); g_pD3D = NULL; }
 
 	return S_OK;
 };
@@ -1543,7 +1832,7 @@ bool Cemulator::LoadRewindState() {
 
 	// Calculate how many states we've rewound from the start
 	// When we started, m_rewindStartPos was the position AFTER saving current
-	// state So the state we're currently at (before rewinding this step) is at
+	// state So the state we're currently at (before rewinding this step) is at	
 	// m_rewindWritePos We want to check if we can go back one more
 	int stepsBack;
 	if (readPos <= m_rewindStartPos) {
