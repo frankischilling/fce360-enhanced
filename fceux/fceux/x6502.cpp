@@ -40,6 +40,28 @@ X6502 X;
 uint32 timestamp;
 void (*MapIRQHook)(int a);
 
+// Latch for last frame's cycle count (snapshot before reset)
+static uint32 s_lastFrameCycles = 0;
+
+// Cycles accumulated since the start of the current frame.
+// This is reset to 0 at the end of FCEUI_Emulate().
+uint32 FCEU_GetFrameCycles(void)
+{
+	return timestamp;
+}
+
+// Get the last frame's cycle count (latched before reset)
+uint32 FCEU_GetLastFrameCycles(void)
+{
+	return s_lastFrameCycles;
+}
+
+// Latch the current frame cycles (call before resetting timestamp)
+void FCEU_LatchFrameCycles(void)
+{
+	s_lastFrameCycles = timestamp;
+}
+
 #define ADDCYC(x) \
 {     \
  int __x=x;       \

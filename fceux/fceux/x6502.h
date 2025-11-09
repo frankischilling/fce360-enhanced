@@ -19,6 +19,7 @@
  */
 
 #ifndef _X6502H
+#include "types.h"
 
 #include "x6502struct.h"
 
@@ -86,6 +87,16 @@ void X6502_DMW(uint32 A, uint8 V);
 
 void X6502_IRQBegin(int w);
 void X6502_IRQEnd(int w);
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+uint32 FCEU_GetFrameCycles(void);
+uint32 FCEU_GetLastFrameCycles(void);
+void FCEU_LatchFrameCycles(void);
+#ifdef __cplusplus
+}
+#endif
 
 #define _X6502H
 #endif

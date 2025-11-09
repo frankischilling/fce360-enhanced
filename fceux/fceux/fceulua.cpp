@@ -36,6 +36,9 @@
 #include "git.h"
 #include "cart.h"
 #include "ines.h"
+#include "movie.h"
+#include "x6502.h"
+#include "../xbox/Cemulator.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -118,6 +121,9 @@ char g_pendingLuaScript[256] = {0};
 // ---- Memory watchpoint system ----
 static std::map<unsigned int, uint8> s_watchedAddresses;  // address -> previous value
 
+// Total frame count since game start
+static int s_totalFrameCount = 0;
+
 // Public accessor
 extern "C" int FCEU_LuaIsDisabled(void) { 
 	return s_luaDisabled; 
@@ -140,6 +146,7 @@ extern "C" void FCEU_LuaSetDisabled(int disabled) {
 // Kill all Lua scripts (stops and clears everything)
 extern "C" void FCEU_LuaKillAll(void) {
 	FCEU_LuaStop();  // This already stops Lua and clears overlays
+	s_totalFrameCount = 0;  // Reset frame counter when game is closed
 	s_watchedAddresses.clear();  // Clear all watchpoints
 }
 
@@ -491,7 +498,7 @@ static bool g_overlayDirty = false;
  
  // FPS tracking
  static DWORD lastFPSUpdate = 0;
- static int frameCount = 0;
+static int frameCount = 0;  // FPS calculation counter (resets every second)
  static double currentFPS = 0.0;
  static DWORD lastFrameTime = 0;
  
@@ -1571,6 +1578,272 @@ static void DrawLuaConsole(uint8* buf) {
 	 
 	 // Return battery status (non-zero = has battery)
 	 lua_pushboolean(L, iNESCart.battery != 0);
+	 return 1;
+ }
+
+ // isframeadvancing() -> boolean
+ // Checks if emulation is advancing frames
+ // Returns true if frames are advancing, false if paused
+ static int lua_isframeadvancing(lua_State* L)
+ {
+	 extern int EmulationPaused;
+	 
+	 // EmulationPaused bit 0 indicates if paused
+	 // If bit 0 is set, emulation is paused (frames NOT advancing)
+	 // If bit 0 is clear, emulation is running (frames ARE advancing)
+	 lua_pushboolean(L, (EmulationPaused & 1) == 0);
+	 return 1;
+ }
+
+ // isrewinding() -> boolean
+ // Checks if currently rewinding
+ // Returns true if rewinding, false otherwise
+ static int lua_isrewinding(lua_State* L)
+ {
+	 // Access the global Cemulator instance
+	 extern Cemulator emul;
+	 
+	 // Return rewind state
+	 lua_pushboolean(L, emul.IsRewinding() ? 1 : 0);
+	 return 1;
+ }
+
+ static int lua_isfastforwarding(lua_State* L)
+ {
+	 // Access the global Cemulator instance
+	 extern Cemulator emul;
+	 
+	 // Return fast-forward state
+	 lua_pushboolean(L, emul.IsFastForwarding() ? 1 : 0);
+	 return 1;
+ }
+
+ // getgamegeniecode(address, value, compare) -> string
+ // Generates Game Genie code from address, value, and optional compare
+ // Returns 6-character code (no compare) or 8-character code (with compare)
+ static int lua_getgamegeniecode(lua_State* L)
+ {
+	 // Get parameters
+	 int n = lua_gettop(L);
+	 if (n < 2 || n > 3) {
+		 return luaL_error(L, "getgamegeniecode() requires 2 or 3 parameters: address, value, [compare]");
+	 }
+	 
+	 // Validate and get address (must be 0x8000-0xFFFF)
+	 int address = (int)luaL_checkinteger(L, 1);
+	 if (address < 0x8000 || address > 0xFFFF) {
+		 return luaL_error(L, "getgamegeniecode() address must be between 0x8000 and 0xFFFF");
+	 }
+	 
+	 // Validate and get value (0-255)
+	 int value = (int)luaL_checkinteger(L, 2);
+	 if (value < 0 || value > 255) {
+		 return luaL_error(L, "getgamegeniecode() value must be between 0 and 255");
+	 }
+	 
+	 // Optional compare value
+	 bool hasCompare = (n >= 3 && !lua_isnil(L, 3));
+	 int compare = 0;
+	 if (hasCompare) {
+		 compare = (int)luaL_checkinteger(L, 3);
+		 if (compare < 0 || compare > 255) {
+			 return luaL_error(L, "getgamegeniecode() compare must be between 0 and 255");
+		 }
+	 }
+	 
+	 // Game Genie character mapping
+	 const char* gg_chars = "APZLGITYEOXUKSVN";
+	 
+	 // Mask address to 15 bits (NES Game Genie uses 15-bit addresses)
+	 address &= 0x7FFF;
+	 
+	 // Extract address parts
+	 int addr_high = (address >> 8) & 0x7F;  // 7 bits
+	 int addr_low = address & 0xFF;          // 8 bits
+	 
+	 // Extract value nibbles
+	 int val_high = (value >> 4) & 0x0F;
+	 int val_low = value & 0x0F;
+	 
+	 // Build code array (6 characters for no compare, 8 for compare)
+	 int code[8];
+	 code[0] = val_low;
+	 code[1] = val_high;
+	 code[2] = addr_low & 0x0F;
+	 code[3] = (addr_low >> 4) & 0x0F;
+	 code[4] = addr_high & 0x0F;
+	 code[5] = (addr_high >> 4) & 0x07;
+	 
+	 // Add compare value if provided
+	 if (hasCompare) {
+		 int comp_high = (compare >> 4) & 0x0F;
+		 int comp_low = compare & 0x0F;
+		 code[6] = comp_low;
+		 code[7] = comp_high;
+	 }
+	 
+	 // Convert to Game Genie string
+	 std::string gg_code;
+	 int codeLen = hasCompare ? 8 : 6;
+	 for (int i = 0; i < codeLen; i++) {
+		 if (code[i] < 0 || code[i] > 15) {
+			 return luaL_error(L, "Internal error: invalid code value");
+		 }
+		 gg_code += gg_chars[code[i]];
+	 }
+	 
+	 // Return the Game Genie code string
+	 lua_pushstring(L, gg_code.c_str());
+	 return 1;
+ }
+
+ // decodegamegenie(code) -> table {address, value, compare}
+ // Decodes a Game Genie code string back into address, value, and optional compare
+ // Returns a table with address, value, and compare (if present)
+ static int lua_decodegamegenie(lua_State* L)
+ {
+	 // Get code string parameter
+	 const char* codeStr = luaL_checkstring(L, 1);
+	 if (!codeStr) {
+		 return luaL_error(L, "decodegamegenie() requires a string parameter");
+	 }
+	 
+	 std::string code(codeStr);
+	 
+	 // Validate code length (must be 6 or 8 characters)
+	 if (code.length() != 6 && code.length() != 8) {
+		 return luaL_error(L, "decodegamegenie() code must be 6 or 8 characters");
+	 }
+	 
+	 // Game Genie character mapping
+	 const char* gg_chars = "APZLGITYEOXUKSVN";
+	 
+	 // Build reverse lookup map for character to index
+	 int charMap[256];
+	 for (int i = 0; i < 256; i++) {
+		 charMap[i] = -1;
+	 }
+	 for (int i = 0; i < 16; i++) {
+		 charMap[(unsigned char)gg_chars[i]] = i;
+	 }
+	 
+	 // Decode characters to indices
+	 int codeIndices[8];
+	 for (size_t i = 0; i < code.length(); i++) {
+		 unsigned char c = (unsigned char)code[i];
+		 int idx = charMap[c];
+		 if (idx < 0 || idx > 15) {
+			 return luaL_error(L, "decodegamegenie() invalid character in code: '%c'", c);
+		 }
+		 codeIndices[i] = idx;
+	 }
+	 
+	 // Decode value
+	 // code[0] = val_low, code[1] = val_high
+	 int val_low = codeIndices[0];
+	 int val_high = codeIndices[1];
+	 int value = (val_high << 4) | val_low;
+	 
+	 // Decode address
+	 // code[2] = addr_low & 0x0F, code[3] = (addr_low >> 4) & 0x0F
+	 // code[4] = addr_high & 0x0F, code[5] = (addr_high >> 4) & 0x07
+	 int addr_low_low = codeIndices[2];
+	 int addr_low_high = codeIndices[3];
+	 int addr_low = (addr_low_high << 4) | addr_low_low;
+	 
+	 int addr_high_low = codeIndices[4];
+	 int addr_high_high = codeIndices[5];
+	 int addr_high = (addr_high_high << 4) | addr_high_low;
+	 
+	 // Reconstruct 15-bit address, then add 0x8000 base
+	 int address = 0x8000 | (addr_high << 8) | addr_low;
+	 
+	 // Decode compare value if present (8-character code)
+	 bool hasCompare = (code.length() == 8);
+	 int compare = -1;
+	 if (hasCompare) {
+		 // code[6] = comp_low, code[7] = comp_high
+		 int comp_low = codeIndices[6];
+		 int comp_high = codeIndices[7];
+		 compare = (comp_high << 4) | comp_low;
+	 }
+	 
+	 // Create and return Lua table
+	 lua_newtable(L);
+	 
+	 // Push address
+	 lua_pushstring(L, "address");
+	 lua_pushinteger(L, address);
+	 lua_settable(L, -3);
+	 
+	 // Push value
+	 lua_pushstring(L, "value");
+	 lua_pushinteger(L, value);
+	 lua_settable(L, -3);
+	 
+	 // Push compare (only if present)
+	 if (hasCompare) {
+		 lua_pushstring(L, "compare");
+		 lua_pushinteger(L, compare);
+		 lua_settable(L, -3);
+	 }
+	 
+	 return 1;
+ }
+
+ // getframecount() -> integer
+ // Gets total frame count since game start
+ // Returns the number of frames that have been emulated since the game started
+ static int lua_getframecount(lua_State* L)
+ {
+	 // Use our own frame counter that increments every frame
+	 // This is more reliable than FCEUMOV_GetFrame() which only works during movie playback
+	 lua_pushinteger(L, s_totalFrameCount);
+	 return 1;
+ }
+
+ // getframecycles() -> integer
+ // Gets cycles executed in the current frame
+ // Returns the number of CPU cycles accumulated since the start of the current frame
+ static int lua_getframecycles(lua_State* L)
+ {
+	 // Get cycles from x6502.cpp - this is the timestamp variable
+	 // which accumulates cycles during the frame and resets at frame end
+	 uint32 cycles = FCEU_GetFrameCycles();
+	 
+	 // If we're after frame end (timestamp already reset to 0), use the latched value
+	 // This happens when called from gui() callback which runs after the frame completes
+	 if (cycles == 0) {
+		 cycles = FCEU_GetLastFrameCycles();
+	 }
+	 
+	 lua_pushinteger(L, (lua_Integer)cycles);
+	 return 1;
+ }
+
+ // getelapsedtime() -> float
+ // Gets elapsed time since game start in seconds
+ // Returns the elapsed time as a floating-point number
+ static int lua_getelapsedtime(lua_State* L)
+ {
+	 // Use our frame counter and divide by NTSC frame rate
+	 // NTSC frame rate: 60.0988118623484 Hz
+	 static const double NTSC_FRAME_RATE = 60.0988118623484;
+	 
+	 double elapsedTime = (double)s_totalFrameCount / NTSC_FRAME_RATE;
+	 
+	 lua_pushnumber(L, elapsedTime);
+	 return 1;
+ }
+
+ // getelapsedframes() -> integer
+ // Gets elapsed frames since game start
+ // Returns the total number of frames that have elapsed since the ROM was loaded
+ static int lua_getelapsedframes(lua_State* L)
+ {
+	 // Return the total frame count since game start
+	 // This is the same as getframecount() but with a name that pairs with getelapsedtime()
+	 lua_pushinteger(L, s_totalFrameCount);
 	 return 1;
  }
 
@@ -5147,10 +5420,19 @@ int lua_ismemorywritable(lua_State *L) {
 	 lua_pushcfunction(luaState, lua_playinputrecording);
 	 lua_setglobal(luaState, "playinputrecording");
 	 lua_register(luaState, "getromname", lua_getromname);
+	 lua_register(luaState, "getframecount", lua_getframecount);
+	 lua_register(luaState, "getframecycles", lua_getframecycles);
+	 lua_register(luaState, "getelapsedtime", lua_getelapsedtime);
+	 lua_register(luaState, "getelapsedframes", lua_getelapsedframes);
 	 lua_register(luaState, "getromsize", lua_getromsize);
 	 lua_register(luaState, "getprgsize", lua_getprgsize);
 	 lua_register(luaState, "getchrsize", lua_getchrsize);
 	 lua_register(luaState, "hasbattery", lua_hasbattery);
+	 lua_register(luaState, "isframeadvancing", lua_isframeadvancing);
+	 lua_register(luaState, "isrewinding", lua_isrewinding);
+	 lua_register(luaState, "isfastforwarding", lua_isfastforwarding);
+	 lua_register(luaState, "getgamegeniecode", lua_getgamegeniecode);
+	 lua_register(luaState, "decodegamegenie", lua_decodegamegenie);
 	 lua_register(luaState, "getmapper", lua_getmapper);
 	 lua_register(luaState, "getmapperstring", lua_getmapperstring);
 	 lua_register(luaState, "isbuttonpressed", lua_isbuttonpressed);
@@ -5263,10 +5545,19 @@ static void EnsureLuaInit() {
 	lua_pushcfunction(luaState, lua_playinputrecording);
 	lua_setglobal(luaState, "playinputrecording");
 	REG("getromname", lua_getromname);
+	REG("getframecount", lua_getframecount);
+	REG("getframecycles", lua_getframecycles);
+	REG("getelapsedtime", lua_getelapsedtime);
+	REG("getelapsedframes", lua_getelapsedframes);
 	REG("getromsize", lua_getromsize);
 	REG("getprgsize", lua_getprgsize);
 	REG("getchrsize", lua_getchrsize);
 	REG("hasbattery", lua_hasbattery);
+	REG("isframeadvancing", lua_isframeadvancing);
+	REG("isrewinding", lua_isrewinding);
+	REG("isfastforwarding", lua_isfastforwarding);
+	REG("getgamegeniecode", lua_getgamegeniecode);
+	REG("decodegamegenie", lua_decodegamegenie);
 	REG("getmapper", lua_getmapper);
 	REG("getmapperstring", lua_getmapperstring);
 	REG("isbuttonpressed", lua_isbuttonpressed);
@@ -6379,6 +6670,7 @@ void FCEU_ReloadLuaCode(void) {
 	 // Update FPS
 	 DWORD currentTime = GetTickCount();
 	 frameCount++;
+	 s_totalFrameCount++;  // Increment total frame counter
 	 
 	 if (lastFPSUpdate == 0) {
 		 lastFPSUpdate = currentTime;

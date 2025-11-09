@@ -739,6 +739,7 @@ void FCEUI_Emulate(uint8 **pXBuf, int32 **SoundBuf, int32 *SoundBufSize, int ski
 #endif
 
 	timestampbase += timestamp;
+	FCEU_LatchFrameCycles();  // Snapshot cycle count for Lua/UI before reset
 	timestamp = 0;
 
 	*pXBuf=skip?0:XBuf;
