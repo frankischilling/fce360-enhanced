@@ -7,7 +7,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.7.4** — *New Lua API functions: isframeadvancing(), isrewinding(), isfastforwarding(), getgamegeniecode(), decodegamegenie(), getframecount(), getelapsedtime(), getelapsedframes() + all prior features from v0.7.3–v0.6.1*
+* Current release: **v0.7.5** — *New Lua API functions: sleepframes(), gettime(), gettimedelta(), getscreensize(), getcolorrgb(), getpalettecolor(), setpalettecolor(), getnescolor(), blendcolors() + all prior features from v0.7.4–v0.6.1*
 
 ---
 
@@ -15,6 +15,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.7.5 - Timing, Screen Info, and Color Manipulation Lua API Functions](#whats-new-v075)
   - [v0.7.4 - Game State, Game Genie, and Timing Lua API Functions](#whats-new-v074)
   - [v0.7.3 - ROM Information Lua API Functions](#whats-new-v073)
   - [v0.7.2 - New Lua API Functions](#whats-new-v072)
@@ -74,6 +75,102 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 📹 **[Watch Fast Scrolling Demo](https://github.com/frankischilling/fce360-enhanced/raw/main/img/fastScrolling.mp4)** (MP4 video)
 
 *Note: Click the link above to view the video demonstration. GitHub README files don't support embedded video playback.*
+
+---
+
+## What's new (v0.7.5)
+
+* **New Lua API Functions:** Added **9 powerful new API functions** for timing control, screen information, and color/palette manipulation!
+
+  * **Timing Functions:**
+    * `sleepframes(frames)` - Pauses script execution for specified number of frames
+      * Parameters: frames (integer, number of frames to wait)
+      * Useful for frame-accurate delays, animation timing, and script pacing
+      * Blocks script execution until the specified number of frames have elapsed
+      * More precise than time-based delays for frame-synchronized scripts
+    * `gettime()` - Returns current system time in seconds
+      * Returns float with high precision (sub-second accuracy)
+      * Useful for timestamps, elapsed time calculations, and time-based logic
+      * Returns absolute system time, not relative to game start
+    * `gettimedelta()` - Returns time delta since last frame in seconds
+      * Returns float representing time since last frame
+      * Returns 0.0 on first call, then actual delta time on subsequent calls
+      * Useful for delta time calculations, physics, and frame-independent movement
+      * Calculates smooth movement and animations independent of frame rate
+
+  * **Screen Information Functions:**
+    * `getscreensize()` - Returns screen dimensions as table {width, height}
+      * Returns table with screen width and height in pixels
+      * Useful for responsive UI positioning and screen-aware drawing
+      * Returns {256, 240} for standard NES resolution
+    * `getscreenwidth()` - Returns screen width in pixels
+      * Returns integer (typically 256 for NES)
+      * Convenience function for quick width access
+    * `getscreenheight()` - Returns screen height in pixels
+      * Returns integer (typically 240 for NES)
+      * Convenience function for quick height access
+
+  * **Color and Palette Functions:**
+    * `getcolorrgb(paletteIndex)` - Gets RGB values for a palette color
+      * Parameters: paletteIndex (0-63)
+      * Returns: table {r, g, b} with values 0-255 each
+      * Useful for color conversion, color analysis, and RGB-based operations
+      * Works with NES 64-color palette system
+    * `getpalettecolor(index)` - Gets palette color index for a PALRAM position
+      * Parameters: index (0-31, palette RAM index)
+      * Returns: integer (0-63, actual color index)
+      * Useful for reading current palette state from PALRAM
+      * Reads from the NES palette RAM (32 entries)
+    * `setpalettecolor(index, color)` - Sets palette color in PALRAM
+      * Parameters: index (0-31), color (0-63)
+      * Returns: nothing
+      * Useful for palette effects, color cycling, and temporary color changes
+      * Changes are temporary (frame-only) and reset each frame
+      * Handles universal color mirroring (0x00 and 0x10)
+    * `getnescolor(index)` - Gets NES color as packed RGB integer
+      * Parameters: index (0-63)
+      * Returns: integer (packed RGB in 0xRRGGBB format)
+      * Useful for color lookup when you need a single integer value
+      * More efficient than getcolorrgb() when you only need a packed value
+      * RGB components can be extracted using division/modulo operations
+    * `blendcolors(color1, color2, ratio)` - Blends two colors and returns closest palette match
+      * Parameters: color1, color2 (0-63), ratio (0.0-1.0)
+      * Returns: integer (closest matching palette color index 0-63)
+      * Useful for color mixing, gradients, and smooth color transitions
+      * Performs RGB interpolation then finds closest matching palette color
+      * Uses Euclidean distance in RGB space to find best match
+
+* **Use Cases:**
+  * **Timing Control:** Frame-accurate delays, delta time calculations, frame-independent movement
+  * **Screen-Aware UI:** Responsive UI positioning, screen-aware drawing, dynamic layouts
+  * **Color Manipulation:** Color analysis, palette effects, color cycling, gradients
+  * **Visual Effects:** Smooth color transitions, palette manipulation, color mixing
+
+* **Technical Enhancements:**
+  * All functions include proper parameter validation and error handling
+  * Color functions work with NES 64-color palette system (indices 0-63)
+  * Palette functions handle universal color mirroring (background and sprite universal colors)
+  * `blendcolors()` uses RGB interpolation with Euclidean distance matching
+  * All functions registered in both `InitLua()` and `EnsureLuaInit()`
+
+* **Documentation:**
+  * All functions added to appropriate sections in table of contents
+  * Complete API documentation with parameters, returns, notes, and multiple examples
+  * Test scripts provided for all new functions:
+    * `test_getcolorrgb.lua` - RGB color retrieval tests
+    * `test_getpalettecolor.lua` - Palette reading tests
+    * `test_setpalettecolor_mario.lua` - Palette modification with SMB1
+    * `test_getnescolor.lua` - Packed RGB format tests
+    * `test_blendcolors.lua` - Comprehensive blending tests
+    * `test_blendcolors_simple.lua` - Simple visual blending demonstration
+
+* **Includes Previous Features:**
+  * All v0.7.4 features: isframeadvancing(), isrewinding(), isfastforwarding(), getgamegeniecode(), decodegamegenie(), getframecount(), getelapsedtime(), getelapsedframes()
+  * All v0.7.3 features: getromsize(), getprgsize(), getchrsize(), getmapper(), getmapperstring(), hasbattery()
+  * All v0.7.2 features: getromname(), pressbutton(), releasebutton(), and input recording functions
+  * All v0.7.1 features: Text measurement and rotation API functions
+  * All v0.7.0 features: ROM counter display
+  * All prior features from v0.6.1–v0.6.9
 
 ---
 
@@ -852,6 +949,30 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
     - [`getframecycles()`](#getframecycles)
       - Parameters, Returns, Notes, Examples
     - [`getelapsedtime()`](#getelapsedtime)
+      - Parameters, Returns, Notes, Examples
+    - [`getelapsedframes()`](#getelapsedframes)
+      - Parameters, Returns, Notes, Examples
+    - [`sleepframes(frames)`](#sleepframesframes)
+      - Parameters, Returns, Notes, Examples
+    - [`gettime()`](#gettime)
+      - Parameters, Returns, Notes, Examples
+    - [`gettimedelta()`](#gettimedelta)
+      - Parameters, Returns, Notes, Examples
+    - [`getscreenwidth()`](#getscreenwidth)
+      - Parameters, Returns, Notes, Examples
+    - [`getscreenheight()`](#getscreenheight)
+      - Parameters, Returns, Notes, Examples
+    - [`getscreensize()`](#getscreensize)
+      - Parameters, Returns, Notes, Examples
+    - [`getcolorrgb(paletteIndex)`](#getcolorrgbpaletteindex)
+      - Parameters, Returns, Notes, Examples
+    - [`getpalettecolor(index)`](#getpalettecolorindex)
+      - Parameters, Returns, Notes, Examples
+    - [`setpalettecolor(index, color)`](#setpalettecolorindex-color)
+      - Parameters, Returns, Notes, Examples
+    - [`getnescolor(index)`](#getnescolorindex)
+      - Parameters, Returns, Notes, Examples
+    - [`blendcolors(color1, color2, ratio)`](#blendcolorscolor1-color2-ratio)
       - Parameters, Returns, Notes, Examples
     - [`getjoypad(player)`](#getjoypadplayer)
       - Parameters, Returns, Button Bitmask, Notes, Examples
@@ -3307,6 +3428,1548 @@ function gui()
     
     if not isframeadvancing() then
         drawtext(4, 14, "PAUSED", 0x2D)
+    end
+end
+```
+
+##### `sleepframes(frames)`
+Delays script execution for N frames by pausing emulation. The game will freeze during the sleep period, and script callbacks (`beforeframe()`, `gui()`, `script()`) will be skipped until the sleep duration completes. Useful for frame-accurate delays and timing control.
+
+**Parameters:**
+- `frames` (integer) - Number of frames to sleep
+  - Must be >= 0
+  - Sleep duration is calculated based on NTSC frame rate (60.0988118623484 Hz)
+  - Each frame is approximately 16.639 milliseconds
+
+**Returns:** Nothing (nil)
+
+**Notes:**
+- **Pauses emulation during sleep** - The game will freeze while sleeping
+- Sleep duration is tracked by time (not frame count) since frames don't advance while paused
+- The original pause state is preserved - if the game was already paused, it will remain paused after sleep completes
+- Script callbacks are skipped during sleep - `beforeframe()`, `gui()`, and `script()` will not execute
+- Sleep completes automatically when the specified duration elapses
+- Useful for creating frame-accurate delays, cutscenes, or timed sequences
+- Can be used to synchronize script actions with specific frame timings
+
+**Example: Basic Sleep:**
+```lua
+function gui()
+    local frame = getframecount()
+    
+    -- Sleep for 60 frames (~1 second) every 180 frames
+    if frame % 180 == 0 then
+        print(string.format("Frame %d: Sleeping for 60 frames", frame))
+        sleepframes(60)
+        print("Sleep complete, resuming")
+    end
+    
+    drawtext(4, 4, string.format("Frame: %d", frame), 0x20)
+end
+```
+
+**Example: Frame-Accurate Delay:**
+```lua
+function gui()
+    local frame = getframecount()
+    
+    -- Perform action, then wait exactly 30 frames
+    if frame == 60 then
+        print("Action at frame 60")
+        -- Wait 30 frames before next action
+        sleepframes(30)
+    end
+    
+    if frame == 90 then
+        print("Action at frame 90 (after 30 frame delay)")
+    end
+end
+```
+
+**Example: Timed Sequence:**
+```lua
+local sequenceStep = 0
+local lastStepFrame = 0
+
+function gui()
+    local frame = getframecount()
+    
+    -- Sequence: action, wait, action, wait, etc.
+    if sequenceStep == 0 and frame >= 60 then
+        print("Step 1: First action")
+        sleepframes(60)  -- Wait 1 second
+        sequenceStep = 1
+        lastStepFrame = frame
+    elseif sequenceStep == 1 and frame >= lastStepFrame + 60 then
+        print("Step 2: Second action")
+        sleepframes(60)  -- Wait 1 second
+        sequenceStep = 2
+        lastStepFrame = frame
+    elseif sequenceStep == 2 and frame >= lastStepFrame + 60 then
+        print("Step 3: Final action")
+        sequenceStep = 3
+    end
+    
+    drawtext(4, 4, string.format("Sequence: %d", sequenceStep), 0x20)
+end
+```
+
+**Example: Periodic Sleep with Status:**
+```lua
+local sleepCount = 0
+local lastSleepFrame = -1
+local sleepInterval = 180  -- Sleep every 180 frames
+
+function gui()
+    local frame = getframecount()
+    local elapsed = getelapsedtime()
+    
+    -- Trigger sleep periodically
+    if frame - lastSleepFrame >= sleepInterval then
+        sleepCount = sleepCount + 1
+        print(string.format("Frame %d: Starting sleep #%d (60 frames)", frame, sleepCount))
+        sleepframes(60)
+        lastSleepFrame = frame
+        print(string.format("Frame %d: Sleep #%d complete", frame, sleepCount))
+    end
+    
+    drawtext(4, 4, string.format("Frame: %d", frame), 0x20)
+    drawtext(4, 14, string.format("Time: %.2f", elapsed), 0x29)
+    drawtext(4, 24, string.format("Sleeps: %d", sleepCount), 0x37)
+end
+```
+
+**Example: Conditional Sleep:**
+```lua
+local lastActionFrame = 0
+
+function gui()
+    local frame = getframecount()
+    
+    -- Sleep only if certain conditions are met
+    if frame - lastActionFrame >= 120 then
+        local health = readbyte(0x0757)  -- Example: check health
+        
+        if health < 50 then
+            print("Low health! Pausing for 30 frames")
+            sleepframes(30)
+            lastActionFrame = frame
+        end
+    end
+    
+    drawtext(4, 4, string.format("Frame: %d", frame), 0x20)
+end
+```
+
+**Example: Sleep with Pause State Check:**
+```lua
+function gui()
+    local frame = getframecount()
+    
+    -- Only sleep if game is not already paused
+    if frame % 180 == 0 and isframeadvancing() then
+        print("Sleeping for 60 frames")
+        sleepframes(60)
+        -- After sleep, check if still advancing (should be, unless user paused)
+        if isframeadvancing() then
+            print("Resumed successfully")
+        else
+            print("Game was paused during sleep")
+        end
+    end
+    
+    drawtext(4, 4, string.format("Frame: %d", frame), 0x20)
+    if not isframeadvancing() then
+        drawtext(4, 14, "PAUSED", 0x2D)
+    end
+end
+```
+
+##### `gettime()`
+Gets the current system time in milliseconds since system boot. Returns an integer representing the number of milliseconds that have elapsed since the system started. Useful for time-based logic, timestamps, and relative time measurements.
+
+**Parameters:** None
+
+**Returns:**
+- `integer` - Current system time in milliseconds since system boot
+- Value increases continuously while the system is running
+- Useful for calculating time differences and implementing time-based logic
+- Note: This returns milliseconds since system boot, not since Unix epoch
+
+**Notes:**
+- Returns milliseconds since system boot (not since Unix epoch)
+- Useful for relative time measurements within a session
+- Can be used to calculate time differences between events
+- Value wraps around after approximately 49.7 days of continuous operation
+- More precise than `getelapsedtime()` for short intervals (millisecond precision)
+- System time continues to advance even when emulation is paused
+- Useful for implementing debouncing, throttling, and periodic actions
+
+**Example: Basic Time Display:**
+```lua
+function gui()
+    local time = gettime()
+    drawtext(4, 4, string.format("Time: %d ms", time), 0x20)
+end
+```
+
+**Example: Calculate Time Difference:**
+```lua
+local startTime = nil
+
+function gui()
+    local currentTime = gettime()
+    
+    -- Record start time on first frame
+    if startTime == nil then
+        startTime = currentTime
+    end
+    
+    -- Calculate elapsed time
+    local elapsed = currentTime - startTime
+    local seconds = elapsed / 1000.0
+    
+    drawtext(4, 4, string.format("Elapsed: %.2f sec", seconds), 0x20)
+end
+```
+
+**Example: Periodic Action (Every 3 Seconds):**
+```lua
+local lastActionTime = nil
+
+function gui()
+    local currentTime = gettime()
+    
+    -- Initialize on first frame
+    if lastActionTime == nil then
+        lastActionTime = currentTime
+    end
+    
+    -- Perform action every 3000 milliseconds (3 seconds)
+    if currentTime - lastActionTime >= 3000 then
+        print(string.format("Action at %d ms", currentTime))
+        lastActionTime = currentTime
+    end
+    
+    drawtext(4, 4, string.format("Time: %d ms", currentTime), 0x20)
+end
+```
+
+**Example: Debouncing (Action Once Per Second):**
+```lua
+local lastDebounceTime = 0
+local debounceInterval = 1000  -- 1 second
+
+function gui()
+    local currentTime = gettime()
+    
+    -- Only allow action if enough time has passed
+    if currentTime - lastDebounceTime >= debounceInterval then
+        -- Perform action here
+        print("Debounced action")
+        lastDebounceTime = currentTime
+    end
+end
+```
+
+**Example: Timestamp Logging:**
+```lua
+local eventLog = {}
+
+function gui()
+    local currentTime = gettime()
+    local frame = getframecount()
+    
+    -- Log events with timestamps
+    if frame % 180 == 0 then  -- Every 3 seconds (at 60 fps)
+        table.insert(eventLog, {
+            time = currentTime,
+            frame = frame,
+            message = "Periodic event"
+        })
+        print(string.format("[%d ms] Frame %d: Event logged", currentTime, frame))
+    end
+    
+    -- Display latest event
+    if #eventLog > 0 then
+        local latest = eventLog[#eventLog]
+        drawtext(4, 4, string.format("Last event: %d ms", latest.time), 0x20)
+    end
+end
+```
+
+**Example: Compare with Game Time:**
+```lua
+function gui()
+    local systemTime = gettime()
+    local gameTime = getelapsedtime()
+    local frame = getframecount()
+    
+    drawtext(4, 4, string.format("System: %d ms", systemTime), 0x20)
+    drawtext(4, 14, string.format("Game: %.2f sec", gameTime), 0x29)
+    drawtext(4, 24, string.format("Frame: %d", frame), 0x37)
+    
+    -- System time continues even when paused
+    if not isframeadvancing() then
+        drawtext(4, 34, "PAUSED (system time still advances)", 0x2D)
+    end
+end
+```
+
+**Example: Time-Based State Machine:**
+```lua
+local state = "idle"
+local stateStartTime = nil
+
+function gui()
+    local currentTime = gettime()
+    
+    -- Initialize state start time
+    if stateStartTime == nil then
+        stateStartTime = currentTime
+    end
+    
+    local timeInState = currentTime - stateStartTime
+    
+    -- State machine with time-based transitions
+    if state == "idle" and timeInState >= 2000 then
+        state = "active"
+        stateStartTime = currentTime
+        print("Transitioned to active state")
+    elseif state == "active" and timeInState >= 3000 then
+        state = "idle"
+        stateStartTime = currentTime
+        print("Transitioned back to idle state")
+    end
+    
+    drawtext(4, 4, string.format("State: %s", state), 0x20)
+    drawtext(4, 14, string.format("Time in state: %.1f sec", timeInState / 1000.0), 0x29)
+end
+```
+
+##### `gettimedelta()`
+Gets the time since the last frame in seconds. Returns a floating-point number representing the elapsed time between the current frame and the previous frame. Essential for delta time calculations, physics simulations, and frame-independent movement.
+
+**Parameters:** None
+
+**Returns:**
+- `number` (float) - Time since last frame in seconds
+- Returns `0.0` on the first call (no previous frame to compare)
+- Subsequent calls return the actual time difference
+- Typical values: ~0.0167 seconds (60 FPS) or ~0.033 seconds (30 Hz callback rate)
+- Value increases when paused (time advances even when frames don't)
+
+**Notes:**
+- Returns time difference between consecutive calls to the function
+- First call always returns `0.0` (no previous frame)
+- Useful for frame-independent calculations (movement, physics, animations)
+- Delta time allows consistent behavior regardless of frame rate
+- Larger values indicate longer time between frames (frame drops, pauses)
+- Smaller values indicate faster frame rate or more frequent callbacks
+- Should be called every frame for accurate delta time calculations
+- Essential for smooth, frame-rate independent movement and physics
+
+**Example: Basic Delta Time Display:**
+```lua
+function gui()
+    local delta = gettimedelta()
+    drawtext(4, 4, string.format("Delta: %.4f sec", delta), 0x20)
+    drawtext(4, 14, string.format("%.2f ms", delta * 1000), 0x29)
+end
+```
+
+**Example: Frame-Independent Movement:**
+```lua
+local position = 0.0
+local velocity = 100.0  -- pixels per second
+
+function gui()
+    local delta = gettimedelta()
+    
+    -- Move at constant velocity regardless of frame rate
+    position = position + (velocity * delta)
+    
+    -- Wrap around screen
+    if position > 240 then
+        position = 0
+    end
+    
+    drawtext(math.floor(position), 4, "X", 0x2D)
+    drawtext(4, 14, string.format("Pos: %.1f (%.1f px/s)", position, velocity), 0x20)
+end
+```
+
+**Example: Physics Simulation:**
+```lua
+local x = 0.0
+local y = 100.0
+local vx = 50.0  -- velocity in x direction (pixels/second)
+local vy = 0.0
+local gravity = 200.0  -- pixels/second^2
+
+function gui()
+    local delta = gettimedelta()
+    
+    -- Apply gravity
+    vy = vy + (gravity * delta)
+    
+    -- Update position
+    x = x + (vx * delta)
+    y = y + (vy * delta)
+    
+    -- Bounce off bottom
+    if y > 200 then
+        y = 200
+        vy = -vy * 0.8  -- bounce with damping
+    end
+    
+    -- Draw object
+    local px = math.floor(x)
+    local py = math.floor(y)
+    if px >= 0 and px < 256 and py >= 0 and py < 240 then
+        drawtext(px, py, "O", 0x2D)
+    end
+    
+    drawtext(4, 4, string.format("Delta: %.4f", delta), 0x20)
+    drawtext(4, 14, string.format("Pos: (%.1f, %.1f)", x, y), 0x29)
+end
+```
+
+**Example: Smooth Animation:**
+```lua
+local angle = 0.0
+local rotationSpeed = 90.0  -- degrees per second
+
+function gui()
+    local delta = gettimedelta()
+    
+    -- Rotate at constant speed regardless of frame rate
+    angle = angle + (rotationSpeed * delta)
+    if angle >= 360 then
+        angle = angle - 360
+    end
+    
+    -- Use angle for animation (simplified - just display)
+    drawtext(4, 4, string.format("Angle: %.1f°", angle), 0x20)
+    drawtext(4, 14, string.format("Delta: %.4f sec", delta), 0x29)
+end
+```
+
+**Example: Delta Time Statistics:**
+```lua
+local frameCount = 0
+local totalDelta = 0.0
+local minDelta = math.huge
+local maxDelta = 0.0
+
+function gui()
+    local delta = gettimedelta()
+    
+    frameCount = frameCount + 1
+    totalDelta = totalDelta + delta
+    if delta < minDelta then minDelta = delta end
+    if delta > maxDelta then maxDelta = delta end
+    
+    local avgDelta = totalDelta / frameCount
+    
+    drawtext(4, 4, string.format("Delta: %.4f sec", delta), 0x20)
+    drawtext(4, 14, string.format("Avg: %.4f sec", avgDelta), 0x29)
+    drawtext(4, 24, string.format("Min: %.4f sec", minDelta), 0x37)
+    drawtext(4, 34, string.format("Max: %.4f sec", maxDelta), 0x37)
+    
+    -- Detect frame drops
+    if delta > 0.05 then  -- More than 50ms
+        drawtext(4, 44, "FRAME DROP!", 0x2D)
+    end
+end
+```
+
+**Example: Velocity-Based Movement:**
+```lua
+local x = 128.0
+local y = 120.0
+local speed = 80.0  -- pixels per second
+
+function gui()
+    local delta = gettimedelta()
+    local pad = getjoypad(0)
+    
+    -- Calculate movement based on input and delta time
+    local dx = 0.0
+    local dy = 0.0
+    
+    if pad & 0x01 ~= 0 then dy = dy - 1 end  -- Up
+    if pad & 0x02 ~= 0 then dy = dy + 1 end  -- Down
+    if pad & 0x04 ~= 0 then dx = dx - 1 end  -- Left
+    if pad & 0x08 ~= 0 then dx = dx + 1 end  -- Right
+    
+    -- Normalize diagonal movement
+    if dx ~= 0 and dy ~= 0 then
+        dx = dx * 0.707
+        dy = dy * 0.707
+    end
+    
+    -- Apply movement with delta time
+    x = x + (dx * speed * delta)
+    y = y + (dy * speed * delta)
+    
+    -- Clamp to screen bounds
+    if x < 0 then x = 0 elseif x > 255 then x = 255 end
+    if y < 0 then y = 0 elseif y > 239 then y = 239 end
+    
+    -- Draw player
+    local px = math.floor(x)
+    local py = math.floor(y)
+    drawtext(px, py, "@", 0x2D)
+    
+    drawtext(4, 4, string.format("Pos: (%.1f, %.1f)", x, y), 0x20)
+    drawtext(4, 14, string.format("Delta: %.4f", delta), 0x29)
+end
+```
+
+**Example: Compare with Frame Count:**
+```lua
+local lastFrame = 0
+
+function gui()
+    local delta = gettimedelta()
+    local frame = getframecount()
+    local frameDelta = frame - lastFrame
+    
+    drawtext(4, 4, string.format("Delta: %.4f sec", delta), 0x20)
+    drawtext(4, 14, string.format("Frame: %d", frame), 0x29)
+    drawtext(4, 24, string.format("Frame Delta: %d", frameDelta), 0x37)
+    
+    -- Calculate expected delta from frame count
+    if frameDelta > 0 then
+        local expectedDelta = frameDelta / 60.0988  -- NTSC frame rate
+        drawtext(4, 34, string.format("Expected: %.4f", expectedDelta), 0x37)
+    end
+    
+    lastFrame = frame
+end
+```
+
+##### `getscreenwidth()`
+Gets the screen width in pixels. Returns an integer representing the width of the NES screen. Useful for dynamic positioning, centering calculations, and screen-relative layouts.
+
+**Parameters:** None
+
+**Returns:**
+- `integer` - Screen width in pixels
+- Always returns `256` for NES (standard NES screen width)
+- Constant value regardless of game or ROM
+
+**Notes:**
+- Returns the standard NES screen width (256 pixels)
+- Useful for calculating center positions (`width / 2`)
+- Essential for right-aligned text and elements
+- Can be used with `getscreenheight()` for full screen dimensions
+- Screen coordinates range from `0` to `width - 1` (0-255)
+
+**Example: Basic Width Display:**
+```lua
+function gui()
+    local width = getscreenwidth()
+    drawtext(4, 4, string.format("Width: %d px", width), 0x20)
+end
+```
+
+**Example: Center Text Horizontally:**
+```lua
+function gui()
+    local width = getscreenwidth()
+    local text = "CENTERED"
+    local textWidth = gettextwidth(text)
+    local x = (width - textWidth) / 2  -- Center horizontally
+    drawtext(x, 100, text, 0x29)
+end
+```
+
+**Example: Right-Aligned Text:**
+```lua
+function gui()
+    local width = getscreenwidth()
+    local text = "RIGHT"
+    local textWidth = gettextwidth(text)
+    local x = width - textWidth - 4  -- Right-aligned with 4px margin
+    drawtext(x, 4, text, 0x37)
+end
+```
+
+**Example: Dynamic Positioning:**
+```lua
+function gui()
+    local width = getscreenwidth()
+    local height = getscreenheight()
+    
+    -- Position elements relative to screen size
+    local leftMargin = 4
+    local rightMargin = width - 4
+    local centerX = width / 2
+    
+    drawtext(leftMargin, 4, "LEFT", 0x20)
+    drawtext(centerX - 20, 4, "CENTER", 0x29)
+    drawtext(rightMargin - 20, 4, "RIGHT", 0x37)
+end
+```
+
+**Example: Screen Boundaries:**
+```lua
+function gui()
+    local width = getscreenwidth()
+    
+    -- Draw border markers
+    drawtext(0, 0, "TL", 0x2D)  -- Top-left
+    drawtext(width - 10, 0, "TR", 0x2D)  -- Top-right
+    
+    -- Ensure text doesn't go off screen
+    local text = "Some long text that might overflow"
+    local textWidth = gettextwidth(text)
+    local x = math.max(0, math.min(width - textWidth, 4))  -- Clamp to screen
+    drawtext(x, 100, text, 0x20)
+end
+```
+
+**Example: Responsive Layout:**
+```lua
+function gui()
+    local width = getscreenwidth()
+    local height = getscreenheight()
+    
+    -- Divide screen into sections
+    local sectionWidth = width / 3
+    
+    drawtext(sectionWidth * 0 + 4, 4, "Section 1", 0x20)
+    drawtext(sectionWidth * 1 + 4, 4, "Section 2", 0x29)
+    drawtext(sectionWidth * 2 + 4, 4, "Section 3", 0x37)
+    
+    -- Center marker
+    local centerX = width / 2
+    drawtext(centerX - 2, height / 2, "|", 0x2D)
+end
+```
+
+##### `getscreenheight()`
+Gets the screen height in pixels. Returns an integer representing the height of the NES screen. Useful for dynamic positioning, vertical centering, and screen-relative layouts.
+
+**Parameters:** None
+
+**Returns:**
+- `integer` - Screen height in pixels
+- Always returns `240` for NES (standard NES screen height)
+- Constant value regardless of game or ROM
+
+**Notes:**
+- Returns the standard NES screen height (240 pixels)
+- Useful for calculating center positions (`height / 2`)
+- Essential for bottom-aligned text and elements
+- Can be used with `getscreenwidth()` for full screen dimensions
+- Screen coordinates range from `0` to `height - 1` (0-239)
+
+**Example: Basic Height Display:**
+```lua
+function gui()
+    local height = getscreenheight()
+    drawtext(4, 4, string.format("Height: %d px", height), 0x20)
+end
+```
+
+**Example: Center Text Vertically:**
+```lua
+function gui()
+    local height = getscreenheight()
+    local text = "CENTERED"
+    local textHeight = gettextheight(text)
+    local y = (height - textHeight) / 2  -- Center vertically
+    drawtext(100, y, text, 0x29)
+end
+```
+
+**Example: Bottom-Aligned Text:**
+```lua
+function gui()
+    local height = getscreenheight()
+    local text = "BOTTOM"
+    local textHeight = gettextheight(text)
+    local y = height - textHeight - 4  -- Bottom-aligned with 4px margin
+    drawtext(4, y, text, 0x37)
+end
+```
+
+**Example: Full Screen Centering:**
+```lua
+function gui()
+    local width = getscreenwidth()
+    local height = getscreenheight()
+    local text = "CENTERED"
+    
+    local textWidth = gettextwidth(text)
+    local textHeight = gettextheight(text)
+    
+    local x = (width - textWidth) / 2   -- Center horizontally
+    local y = (height - textHeight) / 2  -- Center vertically
+    
+    drawtext(x, y, text, 0x29)
+end
+```
+
+**Example: Screen Boundaries:**
+```lua
+function gui()
+    local height = getscreenheight()
+    
+    -- Draw border markers
+    drawtext(0, 0, "TOP", 0x2D)  -- Top
+    drawtext(0, height - 8, "BOTTOM", 0x2D)  -- Bottom
+    
+    -- Ensure text doesn't go off screen
+    local text = "Text"
+    local textHeight = gettextheight(text)
+    local y = math.max(0, math.min(height - textHeight, 100))  -- Clamp to screen
+    drawtext(4, y, text, 0x20)
+end
+```
+
+**Example: Responsive Vertical Layout:**
+```lua
+function gui()
+    local width = getscreenwidth()
+    local height = getscreenheight()
+    
+    -- Divide screen into horizontal sections
+    local sectionHeight = height / 4
+    
+    drawtext(4, sectionHeight * 0 + 4, "Top Section", 0x20)
+    drawtext(4, sectionHeight * 1 + 4, "Middle Top", 0x29)
+    drawtext(4, sectionHeight * 2 + 4, "Middle Bottom", 0x37)
+    drawtext(4, sectionHeight * 3 + 4, "Bottom Section", 0x2E)
+    
+    -- Center marker
+    local centerY = height / 2
+    drawtext(width / 2, centerY, "-", 0x2D)
+end
+```
+
+**Example: Using Both Functions Together:**
+```lua
+function gui()
+    local width = getscreenwidth()
+    local height = getscreenheight()
+    
+    -- Display dimensions
+    drawtext(4, 4, string.format("Screen: %d x %d", width, height), 0x20)
+    
+    -- Calculate and display center
+    local centerX = width / 2
+    local centerY = height / 2
+    drawtext(4, 14, string.format("Center: (%d, %d)", centerX, centerY), 0x29)
+    
+    -- Draw corner markers
+    drawtext(0, 0, "0,0", 0x2D)  -- Top-left
+    drawtext(width - 20, 0, string.format("%d,0", width - 1), 0x2D)  -- Top-right
+    drawtext(0, height - 8, string.format("0,%d", height - 1), 0x2D)  -- Bottom-left
+    drawtext(width - 30, height - 8, string.format("%d,%d", width - 1, height - 1), 0x2D)  -- Bottom-right
+    
+    -- Draw center marker
+    local centerText = "C"
+    drawtext(centerX - 2, centerY - 4, centerText, 0x2D)
+end
+```
+
+##### `getscreensize()`
+Gets screen dimensions as a table. Returns a Lua table containing both width and height values. Useful for getting both screen dimensions in a single call and for screen size queries.
+
+**Parameters:** None
+
+**Returns:**
+- `table` - Screen dimensions table with the following structure:
+  - `width` (integer) - Screen width in pixels (256 for NES)
+  - `height` (integer) - Screen height in pixels (240 for NES)
+  - `[1]` (integer) - Screen width in pixels (same as `width`)
+  - `[2]` (integer) - Screen height in pixels (same as `height`)
+- Can be accessed via named keys (`size.width`, `size.height`) or array indices (`size[1]`, `size[2]`)
+
+**Notes:**
+- Returns a table with both width and height values
+- Provides convenient access to both dimensions in a single call
+- Supports both named key access (`size.width`, `size.height`) and array index access (`size[1]`, `size[2]`)
+- More efficient than calling `getscreenwidth()` and `getscreenheight()` separately
+- Useful for functions that need both dimensions at once
+- Table values are constant (256 x 240 for NES)
+
+**Example: Basic Usage:**
+```lua
+local size = getscreensize()
+print(string.format("Screen: %d x %d", size.width, size.height))
+```
+
+**Example: Access via Named Keys:**
+```lua
+function gui()
+    local size = getscreensize()
+    local width = size.width
+    local height = size.height
+    
+    drawtext(4, 4, string.format("%d x %d", width, height), 0x20)
+end
+```
+
+**Example: Access via Array Indices:**
+```lua
+function gui()
+    local size = getscreensize()
+    local width = size[1]
+    local height = size[2]
+    
+    drawtext(4, 4, string.format("%d x %d", width, height), 0x20)
+end
+```
+
+**Example: Calculate Center:**
+```lua
+function gui()
+    local size = getscreensize()
+    local centerX = size.width / 2
+    local centerY = size.height / 2
+    
+    drawtext(centerX - 20, centerY, "CENTER", 0x29)
+end
+```
+
+**Example: Full Screen Layout:**
+```lua
+function gui()
+    local size = getscreensize()
+    
+    -- Use table values for positioning
+    drawtext(0, 0, "TL", 0x2D)  -- Top-left
+    drawtext(size.width - 10, 0, "TR", 0x2D)  -- Top-right
+    drawtext(0, size.height - 8, "BL", 0x2D)  -- Bottom-left
+    drawtext(size.width - 10, size.height - 8, "BR", 0x2D)  -- Bottom-right
+    
+    -- Center
+    local centerX = size.width / 2
+    local centerY = size.height / 2
+    drawtext(centerX - 2, centerY - 4, "C", 0x2D)
+end
+```
+
+**Example: Cache for Performance:**
+```lua
+-- Cache the size table once at load time
+local size = getscreensize()
+
+function gui()
+    -- Use cached values (no function call overhead)
+    drawtext(4, 4, string.format("%d x %d", size.width, size.height), 0x20)
+end
+```
+
+##### `getcolorrgb(paletteIndex)`
+Gets RGB values for a palette color. Returns the red, green, and blue components of a palette color as a table. Useful for color conversion, color analysis, and working with palette colors in RGB format.
+
+**Parameters:**
+- `paletteIndex` (integer): Palette color index (0-63)
+  - Valid range: 0-63 (64 total palette colors)
+  - Each index corresponds to one of the NES system's internal palette entries
+
+**Returns:**
+- `table` - RGB color values table with the following structure:
+  - `[1]` (integer) - Red component (0-255)
+  - `[2]` (integer) - Green component (0-255)
+  - `[3]` (integer) - Blue component (0-255)
+- Can be accessed via array indices: `rgb[1]` (red), `rgb[2]` (green), `rgb[3]` (blue)
+
+**Notes:**
+- Returns RGB values in the range 0-255 for each component
+- Palette colors vary depending on NTSC tint/hue settings, but their relative ordering is fixed
+- Useful for converting palette colors to RGB format for external tools or color analysis
+- The palette index corresponds to the NES 64-color palette (0x00-0x3F)
+- Throws an error if `paletteIndex` is outside the valid range (0-63)
+
+**Example: Basic Usage:**
+```lua
+local rgb = getcolorrgb(0x20)  -- Get RGB for bright white
+print(string.format("RGB: %d, %d, %d", rgb[1], rgb[2], rgb[3]))
+```
+
+**Example: Display RGB Values:**
+```lua
+function gui()
+    local rgb = getcolorrgb(0x16)  -- Red/orange color
+    drawtext(4, 4, string.format("RGB: %d, %d, %d", rgb[1], rgb[2], rgb[3]), 0x20)
+end
+```
+
+**Example: Color Analysis:**
+```lua
+function gui()
+    -- Analyze multiple palette colors
+    local colors = {0x00, 0x10, 0x20, 0x16, 0x29, 0x37}
+    
+    for i, index in ipairs(colors) do
+        local rgb = getcolorrgb(index)
+        local y = 4 + (i - 1) * 10
+        drawtext(4, y, string.format("%02X: RGB(%3d,%3d,%3d)", 
+              index, rgb[1], rgb[2], rgb[3]), 0x29)
+    end
+end
+```
+
+**Example: Convert All Palette Colors:**
+```lua
+-- Convert entire palette to RGB
+local paletteRGB = {}
+for i = 0, 63 do
+    paletteRGB[i] = getcolorrgb(i)
+end
+
+function gui()
+    -- Use cached RGB values
+    local rgb = paletteRGB[0x20]
+    drawtext(4, 4, string.format("Color 0x20: RGB(%d,%d,%d)", 
+          rgb[1], rgb[2], rgb[3]), 0x20)
+end
+```
+
+**Example: Color Comparison:**
+```lua
+function gui()
+    local color1 = getcolorrgb(0x20)  -- Bright white
+    local color2 = getcolorrgb(0x10)  -- Light gray
+    
+    -- Calculate brightness (simple average)
+    local brightness1 = (color1[1] + color1[2] + color1[3]) / 3
+    local brightness2 = (color2[1] + color2[2] + color2[3]) / 3
+    
+    drawtext(4, 4, string.format("0x20 brightness: %.1f", brightness1), 0x20)
+    drawtext(4, 14, string.format("0x10 brightness: %.1f", brightness2), 0x29)
+end
+```
+
+**Example: Error Handling:**
+```lua
+function gui()
+    -- Test with valid index
+    local success, rgb = pcall(function()
+        return getcolorrgb(0x20)
+    end)
+    
+    if success then
+        drawtext(4, 4, string.format("RGB: %d,%d,%d", rgb[1], rgb[2], rgb[3]), 0x29)
+    end
+    
+    -- Test with invalid index
+    success, err = pcall(function()
+        return getcolorrgb(64)  -- Out of range
+    end)
+    
+    if not success then
+        print("Error caught: " .. tostring(err))
+    end
+end
+```
+
+##### `getpalettecolor(index)`
+Gets palette color index for a position in the NES palette RAM (PALRAM). Returns the actual color index (0-63) stored at the specified palette RAM location. Useful for reading the current palette configuration and understanding how games map colors.
+
+**Parameters:**
+- `index` (integer): Palette RAM index (0-31)
+  - Valid range: 0-31 (32 total palette RAM entries)
+  - Each entry corresponds to a position in the NES palette RAM
+  - Indices 0x00-0x0F: Background palettes
+  - Indices 0x10-0x1F: Sprite palettes
+
+**Returns:**
+- `integer` - Color index (0-63)
+  - The actual palette color index stored at the specified PALRAM position
+  - This value can be used with `getcolorrgb()` to get RGB values
+  - Values are masked to 6 bits (0x3F), ensuring range 0-63
+
+**Notes:**
+- Reads directly from the NES palette RAM (PALRAM)
+- The NES has 32 palette RAM entries, each containing a color index (0-63)
+- Palette RAM is organized into background and sprite palettes
+- Background palettes: PALRAM[0x00-0x0F] (universal color + 4 palettes of 3 colors each)
+- Sprite palettes: PALRAM[0x10-0x1F] (universal color + 4 palettes of 3 colors each)
+- The universal background color (PALRAM[0x00]) is mirrored to PALRAM[0x04, 0x08, 0x0C]
+- The universal sprite color (PALRAM[0x10]) is mirrored to PALRAM[0x14, 0x18, 0x1C]
+- Throws an error if `index` is outside the valid range (0-31)
+- Use with `getcolorrgb()` to convert the color index to RGB values
+
+**Example: Basic Usage:**
+```lua
+local colorIndex = getpalettecolor(0x01)  -- Get color from background palette 0, color 1
+print(string.format("Color index: %02X (%d)", colorIndex, colorIndex))
+```
+
+**Example: Read Background Palette:**
+```lua
+function gui()
+    -- Read background palette 0
+    local universal = getpalettecolor(0x00)
+    local color1 = getpalettecolor(0x01)
+    local color2 = getpalettecolor(0x02)
+    local color3 = getpalettecolor(0x03)
+    
+    drawtext(4, 4, string.format("BG Pal 0: %02X %02X %02X %02X", 
+          universal, color1, color2, color3), 0x20)
+end
+```
+
+**Example: Read All Palette RAM:**
+```lua
+function gui()
+    local y = 4
+    for i = 0, 31 do
+        local colorIndex = getpalettecolor(i)
+        drawtext(4, y, string.format("PALRAM[%02X] = %02X", i, colorIndex), 0x29)
+        y = y + 10
+        if y > 230 then break end
+    end
+end
+```
+
+**Example: Convert to RGB:**
+```lua
+function gui()
+    -- Get color index from palette RAM
+    local colorIndex = getpalettecolor(0x16)  -- Sprite palette 0, color 2
+    
+    -- Convert to RGB
+    local rgb = getcolorrgb(colorIndex)
+    
+    drawtext(4, 4, string.format("PALRAM[0x16] -> Color %02X", colorIndex), 0x20)
+    drawtext(4, 14, string.format("RGB: %d, %d, %d", rgb[1], rgb[2], rgb[3]), 0x29)
+    
+    -- Draw color swatch
+    fillrect(4, 24, 32, 16, colorIndex)
+end
+```
+
+**Example: Monitor Palette Changes:**
+```lua
+local lastPalette = {}
+for i = 0, 31 do
+    lastPalette[i] = getpalettecolor(i)
+end
+
+function gui()
+    -- Check for palette changes
+    for i = 0, 31 do
+        local current = getpalettecolor(i)
+        if current ~= lastPalette[i] then
+            print(string.format("PALRAM[%02X] changed: %02X -> %02X", 
+                  i, lastPalette[i], current))
+            lastPalette[i] = current
+        end
+    end
+end
+```
+
+**Example: Display Sprite Palettes:**
+```lua
+function gui()
+    drawtext(4, 4, "Sprite Palettes:", 0x20)
+    local y = 14
+    
+    -- Display all 4 sprite palettes
+    for pal = 0, 3 do
+        local base = 0x10 + (pal * 4)
+        local universal = getpalettecolor(base)
+        local c1 = getpalettecolor(base + 1)
+        local c2 = getpalettecolor(base + 2)
+        local c3 = getpalettecolor(base + 3)
+        
+        drawtext(4, y, string.format("SP Pal %d: %02X %02X %02X %02X", 
+              pal, universal, c1, c2, c3), 0x29)
+        y = y + 10
+    end
+end
+```
+
+**Example: Error Handling:**
+```lua
+function gui()
+    -- Test with valid index
+    local success, color = pcall(function()
+        return getpalettecolor(0x01)
+    end)
+    
+    if success then
+        drawtext(4, 4, string.format("Color: %02X", color), 0x29)
+    end
+    
+    -- Test with invalid index
+    success, err = pcall(function()
+        return getpalettecolor(32)  -- Out of range
+    end)
+    
+    if not success then
+        print("Error caught: " .. tostring(err))
+    end
+end
+```
+
+##### `setpalettecolor(index, color)`
+Sets palette color in the NES palette RAM (PALRAM). Writes a color index (0-63) to the specified palette RAM location. Useful for palette effects, color cycling, and dynamic color changes during gameplay.
+
+**Parameters:**
+- `index` (integer): Palette RAM index (0-31)
+  - Valid range: 0-31 (32 total palette RAM entries)
+  - Each entry corresponds to a position in the NES palette RAM
+  - Indices 0x00-0x0F: Background palettes
+  - Indices 0x10-0x1F: Sprite palettes
+- `color` (integer): Color index (0-63)
+  - Valid range: 0-63 (64 total palette colors)
+  - The actual palette color index to store at the specified PALRAM position
+  - This value can be obtained from `getcolorrgb()` or palette analysis
+
+**Returns:**
+- Nothing
+
+**Notes:**
+- Writes directly to the NES palette RAM (PALRAM)
+- Changes are temporary and persist until the game or emulator modifies PALRAM again
+- The universal background color (PALRAM[0x00]) is automatically mirrored to PALRAM[0x04, 0x08, 0x0C] when set
+- The universal sprite color (PALRAM[0x10]) is automatically mirrored to PALRAM[0x14, 0x18, 0x1C] when set
+- Color values are automatically masked to 6 bits (0x3F), ensuring range 0-63
+- Throws an error if `index` is outside the valid range (0-31) or if `color` is outside the valid range (0-63)
+- Use with `getpalettecolor()` to read back values and `getcolorrgb()` to convert color indices to RGB
+- Changes take effect immediately and affect rendering on the current frame
+
+**Example: Basic Usage:**
+```lua
+-- Set background palette 0, color 1 to bright white
+setpalettecolor(0x01, 0x20)
+```
+
+**Example: Color Cycling Effect:**
+```lua
+local frameCounter = 0
+
+function gui()
+    frameCounter = frameCounter + 1
+    
+    -- Cycle through colors every 30 frames
+    local colorIndex = (frameCounter // 30) % 64
+    setpalettecolor(0x11, colorIndex)  -- Change sprite palette color
+end
+```
+
+**Example: Mario Color Effects:**
+```lua
+-- Make Mario have crazy colors by cycling sprite palette
+local colorSchemes = {
+    {0x00, 0x20, 0x37, 0x29},  -- Rainbow
+    {0x00, 0x16, 0x2A, 0x3B},  -- Neon
+    {0x00, 0x29, 0x2A, 0x39},  -- Green
+}
+
+local currentScheme = 1
+local frameCounter = 0
+
+function gui()
+    frameCounter = frameCounter + 1
+    
+    -- Change scheme every 60 frames
+    if frameCounter % 60 == 0 then
+        currentScheme = ((frameCounter // 60) % #colorSchemes) + 1
+    end
+    
+    local scheme = colorSchemes[currentScheme]
+    setpalettecolor(0x10, scheme[1])  -- Universal sprite color
+    setpalettecolor(0x11, scheme[2])  -- Main color
+    setpalettecolor(0x12, scheme[3])  -- Secondary color
+    setpalettecolor(0x13, scheme[4])  -- Accent color
+end
+```
+
+**Example: Palette Flash Effect:**
+```lua
+local flashCounter = 0
+
+function gui()
+    flashCounter = flashCounter + 1
+    
+    -- Flash effect: alternate between normal and bright
+    if (flashCounter // 10) % 2 == 0 then
+        setpalettecolor(0x11, 0x16)  -- Normal red
+    else
+        setpalettecolor(0x11, 0x20)  -- Bright white
+    end
+end
+```
+
+**Example: Read and Modify:**
+```lua
+function gui()
+    -- Read current palette color
+    local currentColor = getpalettecolor(0x11)
+    
+    -- Modify it (cycle through colors)
+    local newColor = (currentColor + 1) % 64
+    setpalettecolor(0x11, newColor)
+    
+    -- Get RGB to display
+    local rgb = getcolorrgb(newColor)
+    drawtext(4, 4, string.format("Color: %02X RGB(%d,%d,%d)", 
+          newColor, rgb[1], rgb[2], rgb[3]), 0x20)
+end
+```
+
+**Example: Set Multiple Palette Entries:**
+```lua
+function gui()
+    -- Set entire background palette 0
+    setpalettecolor(0x00, 0x00)  -- Universal background (black)
+    setpalettecolor(0x01, 0x20)  -- Color 1 (bright white)
+    setpalettecolor(0x02, 0x16)  -- Color 2 (red)
+    setpalettecolor(0x03, 0x29)  -- Color 3 (green)
+end
+```
+
+**Example: Error Handling:**
+```lua
+function gui()
+    -- Test with valid parameters
+    local success, err = pcall(function()
+        setpalettecolor(0x11, 0x20)
+    end)
+    
+    if not success then
+        print("Error: " .. tostring(err))
+    end
+    
+    -- Test with invalid index
+    success, err = pcall(function()
+        setpalettecolor(32, 0x20)  -- Out of range
+    end)
+    
+    if not success then
+        print("Error caught: " .. tostring(err))
+    end
+    
+    -- Test with invalid color
+    success, err = pcall(function()
+        setpalettecolor(0x11, 64)  -- Out of range
+    end)
+    
+    if not success then
+        print("Error caught: " .. tostring(err))
+    end
+end
+```
+
+##### `getnescolor(index)`
+Gets NES color value as a packed RGB integer. Returns the red, green, and blue components of a palette color as a single packed integer in 0xRRGGBB format. Useful for color lookup when you need a single integer value instead of a table.
+
+**Parameters:**
+- `index` (integer): Palette color index (0-63)
+  - Valid range: 0-63 (64 total palette colors)
+  - Each index corresponds to one of the NES system's internal palette entries
+
+**Returns:**
+- `integer` - Packed RGB value (0x000000-0xFFFFFF)
+  - Format: 0xRRGGBB where RR, GG, BB are hex values (0-255 each)
+  - Red component is in bits 16-23
+  - Green component is in bits 8-15
+  - Blue component is in bits 0-7
+  - Can be extracted using bit operations or division/modulo
+
+**Notes:**
+- Returns RGB values packed into a single integer (0xRRGGBB format)
+- More efficient than `getcolorrgb()` when you only need a single integer value
+- Useful for color comparisons, color lookups, and when working with external tools that expect packed RGB integers
+- Palette colors vary depending on NTSC tint/hue settings, but their relative ordering is fixed
+- The palette index corresponds to the NES 64-color palette (0x00-0x3F)
+- Throws an error if `index` is outside the valid range (0-63)
+- To extract RGB components in Lua: `r = math.floor(rgb / 65536) % 256`, `g = math.floor(rgb / 256) % 256`, `b = rgb % 256`
+
+**Example: Basic Usage:**
+```lua
+local packedRGB = getnescolor(0x20)  -- Get packed RGB for bright white
+print(string.format("Packed RGB: 0x%06X", packedRGB))
+```
+
+**Example: Extract RGB Components:**
+```lua
+local packedRGB = getnescolor(0x20)
+
+-- Extract components (Lua doesn't have bit shifts, use division)
+local r = math.floor(packedRGB / 65536) % 256
+local g = math.floor(packedRGB / 256) % 256
+local b = packedRGB % 256
+
+print(string.format("RGB: %d, %d, %d", r, g, b))
+```
+
+**Example: Compare with getcolorrgb():**
+```lua
+function gui()
+    local index = 0x20  -- Bright white
+    
+    -- Get packed RGB
+    local packedRGB = getnescolor(index)
+    
+    -- Get table RGB
+    local rgb = getcolorrgb(index)
+    
+    -- Extract from packed
+    local r = math.floor(packedRGB / 65536) % 256
+    local g = math.floor(packedRGB / 256) % 256
+    local b = packedRGB % 256
+    
+    -- Verify they match
+    if r == rgb[1] and g == rgb[2] and b == rgb[3] then
+        drawtext(4, 4, "Values match!", 0x29)
+    end
+end
+```
+
+**Example: Color Lookup Table:**
+```lua
+-- Create lookup table of packed RGB values
+local colorLookup = {}
+for i = 0, 63 do
+    colorLookup[i] = getnescolor(i)
+end
+
+function gui()
+    -- Use packed RGB for quick lookups
+    local whiteRGB = colorLookup[0x20]
+    drawtext(4, 4, string.format("White: 0x%06X", whiteRGB), 0x20)
+end
+```
+
+**Example: Color Comparison:**
+```lua
+function gui()
+    local color1 = getnescolor(0x20)  -- Bright white
+    local color2 = getnescolor(0x10)  -- Light gray
+    
+    -- Compare brightness (simple sum)
+    local brightness1 = (math.floor(color1 / 65536) % 256) + 
+                        (math.floor(color1 / 256) % 256) + 
+                        (color1 % 256)
+    local brightness2 = (math.floor(color2 / 65536) % 256) + 
+                        (math.floor(color2 / 256) % 256) + 
+                        (color2 % 256)
+    
+    drawtext(4, 4, string.format("0x20 brightness: %d", brightness1), 0x20)
+    drawtext(4, 14, string.format("0x10 brightness: %d", brightness2), 0x29)
+end
+```
+
+**Example: Convert to Hex String:**
+```lua
+function gui()
+    local packedRGB = getnescolor(0x16)  -- Red/orange
+    
+    -- Display as hex string
+    local hexStr = string.format("#%06X", packedRGB)
+    drawtext(4, 4, string.format("Color: %s", hexStr), 0x20)
+end
+```
+
+**Example: Error Handling:**
+```lua
+function gui()
+    -- Test with valid index
+    local success, rgb = pcall(function()
+        return getnescolor(0x20)
+    end)
+    
+    if success then
+        drawtext(4, 4, string.format("RGB: 0x%06X", rgb), 0x29)
+    end
+    
+    -- Test with invalid index
+    success, err = pcall(function()
+        return getnescolor(64)  -- Out of range
+    end)
+    
+    if not success then
+        print("Error caught: " .. tostring(err))
+    end
+end
+```
+
+##### `blendcolors(color1, color2, ratio)`
+Blends two palette colors and returns the closest matching palette color index. Performs RGB interpolation between the two input colors based on the specified ratio, then finds the nearest matching color from the NES 64-color palette. Useful for creating color gradients, smooth color transitions, and color mixing effects.
+
+**Parameters:**
+- `color1` (integer): First palette color index (0-63)
+  - Valid range: 0-63 (64 total palette colors)
+  - This color is used when `ratio` is 0.0 (100% color1)
+- `color2` (integer): Second palette color index (0-63)
+  - Valid range: 0-63 (64 total palette colors)
+  - This color is used when `ratio` is 1.0 (100% color2)
+- `ratio` (number): Blending ratio (0.0-1.0)
+  - Valid range: 0.0 to 1.0 (inclusive)
+  - 0.0 = 100% color1, 0% color2
+  - 0.5 = 50% color1, 50% color2
+  - 1.0 = 0% color1, 100% color2
+  - Values are interpolated linearly between the two colors
+
+**Returns:**
+- `integer` - Closest matching palette color index (0-63)
+  - The function calculates the blended RGB values mathematically
+  - Then searches all 64 palette colors to find the closest match
+  - Uses Euclidean distance in RGB color space to determine the best match
+  - The returned color may not be a perfect intermediate due to the limited NES palette
+
+**Notes:**
+- Blends colors by interpolating RGB components: `blendedRGB = color1RGB * (1 - ratio) + color2RGB * ratio`
+- Finds the closest matching palette color using Euclidean distance in RGB space
+- The NES palette has only 64 colors, so the result may not be a perfect intermediate blend
+- Useful for creating gradients, color cycling effects, and smooth color transitions
+- More accurate than manual color mixing since it considers the full RGB color space
+- Throws an error if any parameter is outside its valid range
+- The blending is performed in RGB space, not in the palette index space
+- Works best with colors that are relatively close in the color spectrum
+
+**Example: Basic Blending:**
+```lua
+function gui()
+    -- Blend red and white at 50%
+    local blended = blendcolors(0x16, 0x20, 0.5)
+    drawtext(4, 4, string.format("Blended color: 0x%02X", blended), 0x20)
+    fillrect(4, 14, 40, 40, blended)
+end
+```
+
+**Example: Animated Color Transition:**
+```lua
+local ratio = 0.0
+local direction = 1
+
+function gui()
+    -- Animate ratio from 0.0 to 1.0 and back
+    ratio = ratio + (0.01 * direction)
+    if ratio >= 1.0 then
+        ratio = 1.0
+        direction = -1
+    elseif ratio <= 0.0 then
+        ratio = 0.0
+        direction = 1
+    end
+    
+    -- Blend red and green
+    local blended = blendcolors(0x16, 0x29, ratio)
+    fillrect(4, 4, 60, 60, blended)
+    drawtext(4, 70, string.format("Ratio: %.2f", ratio), 0x20)
+end
+```
+
+**Example: Create Gradient:**
+```lua
+function gui()
+    local color1 = 0x16  -- Red
+    local color2 = 0x29  -- Green
+    
+    -- Create a 16-step gradient
+    for i = 0, 15 do
+        local ratio = i / 15.0
+        local gradColor = blendcolors(color1, color2, ratio)
+        fillrect(4 + (i * 16), 4, 14, 40, gradColor)
+    end
+end
+```
+
+**Example: Multiple Blend Ratios:**
+```lua
+function gui()
+    local color1 = 0x20  -- White
+    local color2 = 0x00  -- Black
+    
+    local ratios = {0.0, 0.25, 0.5, 0.75, 1.0}
+    local yPos = 4
+    
+    for i, ratio in ipairs(ratios) do
+        local blended = blendcolors(color1, color2, ratio)
+        drawtext(4, yPos, string.format("Ratio %.2f: 0x%02X", ratio, blended), 0x20)
+        fillrect(120, yPos, 20, 12, blended)
+        yPos = yPos + 14
+    end
+end
+```
+
+**Example: Color Mixing:**
+```lua
+function gui()
+    -- Mix red and blue to get purple-like colors
+    local red = 0x16
+    local blue = 0x21
+    
+    -- Try different mix ratios
+    local purple1 = blendcolors(red, blue, 0.3)  -- More red
+    local purple2 = blendcolors(red, blue, 0.5)  -- Equal mix
+    local purple3 = blendcolors(red, blue, 0.7)  -- More blue
+    
+    fillrect(4, 4, 40, 40, purple1)
+    fillrect(50, 4, 40, 40, purple2)
+    fillrect(96, 4, 40, 40, purple3)
+end
+```
+
+**Example: Smooth Color Cycling:**
+```lua
+local frameCounter = 0
+
+function gui()
+    frameCounter = frameCounter + 1
+    
+    -- Cycle through color spectrum
+    local color1 = 0x16  -- Red
+    local color2 = 0x29  -- Green
+    local color3 = 0x21  -- Blue
+    
+    -- Blend between colors based on frame
+    local cycle = (frameCounter % 120) / 120.0
+    
+    local blended
+    if cycle < 0.5 then
+        -- Blend from red to green
+        blended = blendcolors(color1, color2, cycle * 2.0)
+    else
+        -- Blend from green to blue
+        blended = blendcolors(color2, color3, (cycle - 0.5) * 2.0)
+    end
+    
+    fillrect(4, 4, 60, 60, blended)
+end
+```
+
+**Example: Error Handling:**
+```lua
+function gui()
+    -- Test with valid parameters
+    local success, result = pcall(function()
+        return blendcolors(0x16, 0x20, 0.5)
+    end)
+    
+    if success then
+        drawtext(4, 4, string.format("Blended: 0x%02X", result), 0x29)
+    end
+    
+    -- Test with invalid color1
+    success, err = pcall(function()
+        return blendcolors(-1, 0x20, 0.5)  -- Out of range
+    end)
+    
+    if not success then
+        print("Error caught: " .. tostring(err))
+    end
+    
+    -- Test with invalid ratio
+    success, err = pcall(function()
+        return blendcolors(0x16, 0x20, 1.5)  -- Out of range
+    end)
+    
+    if not success then
+        print("Error caught: " .. tostring(err))
     end
 end
 ```
