@@ -7,7 +7,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.7.8** — *Audio API Functions and Screenshot Performance Fix: getaudioenabled(), getaudiosample(), eliminated first-screenshot lag + all prior features from v0.7.7–v0.6.1*
+* Current release: **v0.7.9** — *Complete Audio API Suite: getaudioenabled(), getaudiosample(), getaudiobuffer(), getaudiosampleleft(), getaudiosampleright(), getaudiochannel() + all prior features from v0.7.8–v0.6.1*
 
 ---
 
@@ -15,6 +15,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.7.9 - Complete Audio API Suite](#whats-new-v079)
   - [v0.7.8 - Audio API Functions and Screenshot Performance Fix](#whats-new-v078)
   - [v0.7.7 - State Management and Xbox 360 Input Lua API Functions](#whats-new-v077)
   - [v0.7.6 - New Overlay Functions, Screenshot Improvements, and Text Rendering Updates](#whats-new-v076)
@@ -77,6 +78,107 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 📹 **[Watch Fast Scrolling Demo](https://github.com/frankischilling/fce360-enhanced/raw/main/img/fastScrolling.mp4)** (MP4 video)
 
 *Note: Click the link above to view the video demonstration. GitHub README files don't support embedded video playback.*
+
+---
+
+## What's new (v0.7.9)
+
+* **New Lua API Functions:** Added **complete audio API suite** with **6 powerful functions** for comprehensive audio analysis, visualization, and channel monitoring!
+
+  * **Complete Audio API Suite:**
+    * `getaudioenabled()` - Checks if audio output is currently enabled
+      * Parameters: None
+      * Returns: Boolean (`true` if audio enabled, `false` if disabled)
+      * Checks `FSettings.SndRate != 0` to determine audio state
+      * Useful for audio-dependent scripts, conditional audio visualization logic, and scripts that behave differently based on audio state
+      * Registered in both `InitLua()` and `EnsureLuaInit()` for consistent availability
+    * `getaudiosample([index])` - Enhanced with buffer access! Retrieves audio sample from final mix buffer
+      * Parameters: `index` (integer, optional, default: -1 for last/newest sample)
+        * `0` = oldest sample in buffer
+        * `count-1` = newest sample in buffer
+        * `-1` = last sample (default, same as count-1)
+        * Negative indices count from end (-1 = last, -2 = second-to-last, etc.)
+      * Returns: Integer (32-bit signed audio sample value, typically within 16-bit range)
+      * Backward compatible: No parameter returns last sample (same as v0.7.8 behavior)
+      * Reads from `WaveFinal` buffer via `GetSoundBuffer()`
+      * Returns `0` when audio disabled or buffer empty
+      * Sample values can exceed ±32767 if filters/expansion audio boost the mix
+      * Useful for audio visualization (oscilloscopes, waveforms, VU meters), peak level detection, audio-reactive visual effects, and real-time audio analysis
+      * Registered in both `InitLua()` and `EnsureLuaInit()` for consistent availability
+    * `getaudiobuffer([count])` - Retrieves multiple audio samples as a Lua table for efficient batch access
+      * Parameters: `count` (integer, optional, default: all available samples, max 256)
+      * Returns: Table (1-indexed array of sample values)
+      * More efficient than calling `getaudiosample()` multiple times in a loop
+      * Returns empty table when audio disabled or buffer empty
+      * Useful for waveform visualization, oscilloscope displays, and audio analysis
+      * Registered in both `InitLua()` and `EnsureLuaInit()` for consistent availability
+    * `getaudiosampleleft()` - Gets left channel audio sample (NES is mono, so same as `getaudiosample()`)
+      * Parameters: None
+      * Returns: Integer (sample value; 32-bit signed, typically within 16-bit range)
+      * Returns `0` when audio is disabled
+      * For NES: Same value as `getaudiosample()` (mono audio)
+      * Use case: Stereo API compatibility, future stereo support
+      * Registered in both `InitLua()` and `EnsureLuaInit()` for consistent availability
+    * `getaudiosampleright()` - Gets right channel audio sample (NES is mono, so same as `getaudiosample()`)
+      * Parameters: None
+      * Returns: Integer (sample value; 32-bit signed, typically within 16-bit range)
+      * Returns `0` when audio is disabled
+      * For NES: Same value as `getaudiosample()` (mono audio)
+      * Use case: Stereo API compatibility, future stereo support
+      * Registered in both `InitLua()` and `EnsureLuaInit()` for consistent availability
+    * `getaudiochannel(channel)` - Gets detailed state information for a specific NES APU channel
+      * Parameters: `channel` (integer, required, 0-4)
+        * `0` = Pulse 1 (Square 1)
+        * `1` = Pulse 2 (Square 2)
+        * `2` = Triangle
+        * `3` = Noise
+        * `4` = DMC (Delta Modulation Channel)
+      * Returns: Table with channel-specific information:
+        * **All channels:** `name`, `enabled`, `channel`, `lengthCounter`
+        * **Pulse channels (0, 1):** `dutyCycle`, `volume`, `constantVolume`, `sweepEnabled`, `sweepPeriod`, `sweepNegate`, `sweepShift`, `period`, `periodLow`, `periodHigh`, `lengthCounterHalt`
+        * **Triangle (2):** `linearCounterReload`, `linearCounterControl`, `period`, `periodLow`, `periodHigh`, `lengthCounterHalt`
+        * **Noise (3):** `volume`, `constantVolume`, `period`, `loopNoise`, `lengthCounterHalt`
+        * **DMC (4):** `irqEnabled`, `loop`, `period`, `directLoad`, `sampleAddress`, `sampleLength`, `remainingSize`, `active`
+      * Channel register values read from APU's internal PSG register array
+      * Length counter values are real-time and update as the channel plays
+      * Period values determine the frequency/pitch of the channel
+      * DMC channel information includes sample playback state
+      * Returns basic channel info with `enabled = false` when audio is disabled
+      * Throws error if `channel` is outside valid range (0-4)
+      * Useful for debugging audio issues, monitoring channel activity, and creating detailed audio analysis tools
+      * Registered in both `InitLua()` and `EnsureLuaInit()` for consistent availability
+
+* **Technical Enhancements:**
+  * Enhanced `getaudiosample()` to accept optional index parameter with negative index support
+  * Added `getaudiobuffer()` for efficient batch sample retrieval (max 256 samples)
+  * Added `getaudiosampleleft()` and `getaudiosampleright()` for stereo API compatibility
+  * Implemented `getaudiochannel()` with full APU channel state access:
+    * Exposed PSG register array, `EnabledChannels`, `lengthcount[4]`, `DMCSize`, `DMCFormat`, `DMCAddressLatch`, `DMCSizeLatch`, `RawDALatch` from `sound.cpp`
+    * Made variables non-static in `sound.cpp` and added extern declarations in `sound.h`
+    * Reads channel registers directly from PSG array for channels 0-3
+    * Uses exposed DMC variables for channel 4
+    * Returns comprehensive channel-specific information based on channel type
+  * All functions handle audio-disabled state gracefully (return 0, empty table, or false)
+  * Input validation and error handling for all parameters
+  * All functions registered in both `InitLua()` and `EnsureLuaInit()` for consistent availability
+
+* **Documentation:**
+  * Complete API documentation added to README.md for all 6 audio functions
+  * All functions documented with parameters, returns, notes, and multiple examples
+  * Table of contents updated with all new audio API functions
+  * Test scripts provided: `test_audio_api.lua` and `test_audio_channel.lua`
+
+* **Includes Previous Features:**
+  * All v0.7.8 features: getaudioenabled(), getaudiosample() (enhanced), screenshot performance fix
+  * All v0.7.7 features: savestate(), loadstate(), hasstate(), savestatefile(), loadstatefile(), isxboxbuttonpressed()
+  * All v0.7.6 features: clearscreen(), fillscreen(), screenshot(), improved text rendering, screenshot fixes
+  * All v0.7.5 features: sleepframes(), gettime(), gettimedelta(), getscreensize(), getcolorrgb(), getpalettecolor(), setpalettecolor(), getnescolor(), blendcolors()
+  * All v0.7.4 features: isframeadvancing(), isrewinding(), isfastforwarding(), getgamegeniecode(), decodegamegenie(), getframecount(), getelapsedtime(), getelapsedframes()
+  * All v0.7.3 features: getromsize(), getprgsize(), getchrsize(), getmapper(), getmapperstring(), hasbattery()
+  * All v0.7.2 features: getromname(), pressbutton(), releasebutton(), and input recording functions
+  * All v0.7.1 features: Text measurement and rotation API functions
+  * All v0.7.0 features: ROM counter display
+  * All prior features from v0.6.1–v0.6.9
 
 ---
 
@@ -1248,7 +1350,15 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
       - Parameters, Returns, Notes, Examples
     - [`getaudioenabled()`](#getaudioenabled)
       - Parameters, Returns, Notes, Examples
-    - [`getaudiosample()`](#getaudiosample)
+    - [`getaudiosample([index])`](#getaudiosampleindex)
+      - Parameters, Returns, Notes, Examples
+    - [`getaudiobuffer([count])`](#getaudiobuffercount)
+      - Parameters, Returns, Notes, Examples
+    - [`getaudiosampleleft()`](#getaudiosampleleft)
+      - Parameters, Returns, Notes, Examples
+    - [`getaudiosampleright()`](#getaudiosampleright)
+      - Parameters, Returns, Notes, Examples
+    - [`getaudiochannel(channel)`](#getaudiochannelchannel)
       - Parameters, Returns, Notes, Examples
     - [`getcolorrgb(paletteIndex)`](#getcolorrgbpaletteindex)
       - Parameters, Returns, Notes, Examples
@@ -5123,13 +5233,20 @@ function beforeframe()
 end
 ```
 
-##### `getaudiosample()`
-Retrieves the most recent audio sample from the emulator's final mix buffer. Returns the raw integer value that can be used for audio visualization, peak detection, or real-time audio analysis in Lua scripts.
+##### `getaudiosample([index])`
+Retrieves an audio sample from the emulator's final mix buffer. Can access any sample in the buffer by index, or returns the most recent sample by default. Returns the raw integer value that can be used for audio visualization, peak detection, or real-time audio analysis in Lua scripts.
 
-**Parameters:** None
+**Parameters:**
+- `index` (integer, optional): Buffer index to retrieve
+  - Default: `-1` (last/newest sample in buffer) - backward compatible with original behavior
+  - `0` = oldest sample in buffer
+  - `count-1` = newest sample in buffer
+  - `-1` = last sample (default, same as `count-1`)
+  - Negative indices count from end: `-1` = last, `-2` = second-to-last, etc.
+  - Index is automatically clamped to valid buffer range
 
 **Returns:**
-- `integer` - Latest audio sample value (signed 32-bit, typically within ±32767 range)
+- `integer` - Audio sample value (signed 32-bit, typically within ±32767 range)
   - Returns `0` when audio is disabled (`getaudioenabled()` is `false`)
   - Returns `0` when audio buffer is empty
   - Sample values can exceed ±32767 if filters or expansion audio boost the mix
@@ -5139,12 +5256,16 @@ Retrieves the most recent audio sample from the emulator's final mix buffer. Ret
 - When audio is disabled (`getaudioenabled()` is `false`), this function returns `0`.
 - Values can exceed ±32767 if filters or expansion audio boost the mix; clamp or normalize in Lua as needed.
 - Read once per frame for VU meters, or multiple times inside `script()` when running at 60 Hz to build short buffers.
+- **Backward compatible**: Calling without parameters returns the last sample (same as original behavior).
+- **Buffer access**: Use index parameter to access any sample in the buffer for waveform analysis.
+- **Negative indices**: Support for Python-style negative indexing (counts from end of buffer).
 - Registered in both `InitLua()` and `EnsureLuaInit()` for consistent availability.
 - Useful for:
   - Audio visualization (oscilloscopes, waveforms, VU meters)
   - Peak level detection
   - Audio-reactive visual effects
   - Real-time audio analysis in Lua scripts
+  - Waveform analysis with buffer access
 
 **Example: Simple level bar**
 ```lua
@@ -5200,6 +5321,343 @@ function gui()
     
     fillcircle(centerX, centerY, radius, 0x27)
     drawcircle(centerX, centerY, radius, 0x2D)
+end
+```
+
+**Example: Buffer access with index parameter**
+```lua
+function gui()
+    if not getaudioenabled() then
+        return
+    end
+    
+    -- Get different samples from buffer
+    local lastSample = getaudiosample()      -- Last sample (default)
+    local firstSample = getaudiosample(0)     -- Oldest sample
+    local middleSample = getaudiosample(-10)   -- 10 samples from end
+    
+    drawtext(4, 4, string.format("Last: %d", lastSample), 0x29)
+    drawtext(4, 16, string.format("First: %d", firstSample), 0x37)
+    drawtext(4, 28, string.format("Middle: %d", middleSample), 0x2E)
+end
+```
+
+##### `getaudiobuffer([count])`
+Retrieves multiple audio samples from the buffer as a Lua table. Useful for waveform visualization, oscilloscope displays, and batch audio analysis operations.
+
+**Parameters:**
+- `count` (integer, optional): Number of samples to retrieve
+  - Default: All available samples in buffer
+  - Maximum: 256 samples (automatically clamped)
+  - Returns samples starting from oldest (index 0) to newest
+
+**Returns:**
+- `table` - 1-indexed Lua table containing sample values
+  - Returns empty table `{}` when audio is disabled
+  - Returns empty table `{}` when buffer is empty
+  - Table indices are 1, 2, 3, ... up to `count` (Lua-style 1-indexing)
+  - Each table entry contains a signed 32-bit integer sample value
+
+**Notes:**
+- Samples are provided in the same format that is sent to the audio output pipeline.
+- When audio is disabled (`getaudioenabled()` is `false`), this function returns an empty table.
+- **Efficient batch access**: More efficient than calling `getaudiosample(index)` multiple times in a loop.
+- **Table format**: Returns 1-indexed table (Lua standard) for easy iteration with `ipairs()`.
+- **Sample order**: Samples are returned in chronological order (oldest first, newest last).
+- **Maximum limit**: Limited to 256 samples per call to prevent excessive memory usage.
+- Registered in both `InitLua()` and `EnsureLuaInit()` for consistent availability.
+- Useful for:
+  - Waveform visualization (drawing complete waveforms)
+  - Oscilloscope displays
+  - Batch audio analysis (calculating averages, peaks, etc.)
+  - VU meters with multiple sample averaging
+  - Audio spectrum analysis preparation
+
+**Example: Waveform visualization**
+```lua
+function gui()
+    if not getaudioenabled() then
+        return
+    end
+    
+    -- Get 64 samples for waveform display
+    local buffer = getaudiobuffer(64)
+    
+    if #buffer > 1 then
+        local startX = 4
+        local startY = 100
+        local width = 200
+        local height = 60
+        local centerY = startY + height / 2
+        
+        -- Draw waveform
+        for i = 1, #buffer - 1 do
+            local x1 = startX + (i - 1) * (width / (#buffer - 1))
+            local x2 = startX + i * (width / (#buffer - 1))
+            local y1 = centerY - (buffer[i] / 32768 * height / 2)
+            local y2 = centerY - (buffer[i + 1] / 32768 * height / 2)
+            
+            drawline(x1, y1, x2, y2, 0x27)
+        end
+    end
+end
+```
+
+**Example: Calculate buffer statistics**
+```lua
+function script()
+    if not getaudioenabled() then
+        return
+    end
+    
+    local buffer = getaudiobuffer(32)  -- Get 32 samples
+    
+    if #buffer > 0 then
+        local minVal, maxVal = buffer[1], buffer[1]
+        local sum = 0
+        
+        for i = 1, #buffer do
+            local val = buffer[i]
+            sum = sum + math.abs(val)
+            if val < minVal then minVal = val end
+            if val > maxVal then maxVal = val end
+        end
+        
+        local avg = sum / #buffer
+        print(string.format("Buffer stats: min=%d, max=%d, avg=%.1f", minVal, maxVal, avg))
+    end
+end
+```
+
+##### `getaudiosampleleft()`
+Retrieves the left channel audio sample from the emulator's final mix buffer. For NES (mono audio), this returns the same value as `getaudiosample()` since NES audio is mono and duplicated to both channels.
+
+**Parameters:** None
+
+**Returns:**
+- `integer` - Left channel audio sample value (signed 32-bit, typically within ±32767 range)
+  - Returns `0` when audio is disabled (`getaudioenabled()` is `false`)
+  - Returns `0` when audio buffer is empty
+  - For NES: Same value as `getaudiosample()` (mono audio)
+
+**Notes:**
+- **NES is mono**: NES audio is fundamentally mono, so left and right channels contain identical samples.
+- **Future compatibility**: Function provided for stereo API compatibility and potential future stereo support.
+- When audio is disabled (`getaudioenabled()` is `false`), this function returns `0`.
+- Sample values can exceed ±32767 if filters or expansion audio boost the mix.
+- Registered in both `InitLua()` and `EnsureLuaInit()` for consistent availability.
+- Useful for:
+  - Stereo API compatibility in scripts
+  - Future-proofing for potential stereo audio support
+  - Scripts that need explicit channel separation (even if currently identical)
+
+**Example: Stereo-compatible audio display**
+```lua
+function gui()
+    if not getaudioenabled() then
+        return
+    end
+    
+    local left = getaudiosampleleft()
+    local right = getaudiosampleright()
+    
+    -- Display both channels (will be identical for NES)
+    drawtext(4, 4, string.format("Left: %d", left), 0x29)
+    drawtext(4, 16, string.format("Right: %d", right), 0x37)
+    
+    -- Note: For NES, left == right (mono audio)
+end
+```
+
+##### `getaudiosampleright()`
+Retrieves the right channel audio sample from the emulator's final mix buffer. For NES (mono audio), this returns the same value as `getaudiosample()` since NES audio is mono and duplicated to both channels.
+
+**Parameters:** None
+
+**Returns:**
+- `integer` - Right channel audio sample value (signed 32-bit, typically within ±32767 range)
+  - Returns `0` when audio is disabled (`getaudioenabled()` is `false`)
+  - Returns `0` when audio buffer is empty
+  - For NES: Same value as `getaudiosample()` (mono audio)
+
+**Notes:**
+- **NES is mono**: NES audio is fundamentally mono, so left and right channels contain identical samples.
+- **Future compatibility**: Function provided for stereo API compatibility and potential future stereo support.
+- When audio is disabled (`getaudioenabled()` is `false`), this function returns `0`.
+- Sample values can exceed ±32767 if filters or expansion audio boost the mix.
+- Registered in both `InitLua()` and `EnsureLuaInit()` for consistent availability.
+- Useful for:
+  - Stereo API compatibility in scripts
+  - Future-proofing for potential stereo audio support
+  - Scripts that need explicit channel separation (even if currently identical)
+
+**Example: Stereo-compatible audio display**
+```lua
+function gui()
+    if not getaudioenabled() then
+        return
+    end
+    
+    local left = getaudiosampleleft()
+    local right = getaudiosampleright()
+    
+    -- Display both channels (will be identical for NES)
+    drawtext(4, 4, string.format("Left: %d", left), 0x29)
+    drawtext(4, 16, string.format("Right: %d", right), 0x37)
+    
+    -- Note: For NES, left == right (mono audio)
+end
+```
+
+##### `getaudiochannel(channel)`
+Gets detailed state information for a specific NES APU (Audio Processing Unit) channel. Returns a table containing channel-specific properties such as enabled status, register values, length counters, and other channel parameters. Useful for audio analysis, channel monitoring, debugging audio issues, and creating detailed audio visualizations.
+
+**Parameters:**
+- `channel` (integer, required): Channel number (0-4)
+  - `0` = Pulse 1 (Square 1)
+  - `1` = Pulse 2 (Square 2)
+  - `2` = Triangle
+  - `3` = Noise
+  - `4` = DMC (Delta Modulation Channel)
+
+**Returns:**
+- `table` - Channel information table with the following structure:
+  - **All channels:**
+    - `name` (string) - Channel name ("Pulse1", "Pulse2", "Triangle", "Noise", "DMC")
+    - `enabled` (boolean) - Whether the channel is currently enabled
+    - `channel` (integer) - Channel number (0-4)
+    - `lengthCounter` (integer) - Length counter value (channels 0-3 only)
+  - **Pulse channels (0, 1) only:**
+    - `dutyCycle` (integer) - Duty cycle (0-3)
+    - `volume` (integer) - Volume level (0-15)
+    - `constantVolume` (boolean) - Whether constant volume mode is enabled
+    - `sweepEnabled` (boolean) - Whether frequency sweep is enabled
+    - `sweepPeriod` (integer) - Sweep period (0-7)
+    - `sweepNegate` (boolean) - Whether sweep negates frequency
+    - `sweepShift` (integer) - Sweep shift amount (0-7)
+    - `period` (integer) - Frequency period (combined from periodLow and periodHigh)
+    - `periodLow` (integer) - Low byte of period
+    - `periodHigh` (integer) - High 3 bits of period
+    - `lengthCounterHalt` (boolean) - Whether length counter is halted
+  - **Triangle channel (2) only:**
+    - `linearCounterReload` (integer) - Linear counter reload value (0-127)
+    - `linearCounterControl` (boolean) - Linear counter control flag
+    - `period` (integer) - Frequency period (combined from periodLow and periodHigh)
+    - `periodLow` (integer) - Low byte of period
+    - `periodHigh` (integer) - High 3 bits of period
+    - `lengthCounterHalt` (boolean) - Whether length counter is halted
+  - **Noise channel (3) only:**
+    - `volume` (integer) - Volume level (0-15)
+    - `constantVolume` (boolean) - Whether constant volume mode is enabled
+    - `period` (integer) - Noise period (0-15)
+    - `loopNoise` (boolean) - Whether noise loop mode is enabled
+    - `lengthCounterHalt` (boolean) - Whether length counter is halted
+  - **DMC channel (4) only:**
+    - `irqEnabled` (boolean) - Whether IRQ generation is enabled
+    - `loop` (boolean) - Whether sample looping is enabled
+    - `period` (integer) - DMC period (0-15)
+    - `directLoad` (integer) - Direct load value (0-127)
+    - `sampleAddress` (integer) - Sample start address (0xC000-0xFFC0)
+    - `sampleLength` (integer) - Sample length in bytes
+    - `remainingSize` (integer) - Remaining bytes to play
+    - `active` (boolean) - Whether DMC is currently playing
+
+**Notes:**
+- Returns a table with channel-specific information based on the channel type
+- When audio is disabled (`getaudioenabled()` is `false`), returns basic channel info with `enabled = false`
+- Channel register values are read from the APU's internal PSG register array
+- Length counter values are real-time and update as the channel plays
+- Period values determine the frequency/pitch of the channel
+- DMC channel information includes sample playback state
+- Throws an error if `channel` is outside the valid range (0-4)
+- Useful for debugging audio issues, monitoring channel activity, and creating detailed audio analysis tools
+
+**Example: Basic Usage:**
+```lua
+-- Get information about Pulse 1 channel
+local pulse1 = getaudiochannel(0)
+print(string.format("Pulse 1: %s, Enabled: %s", pulse1.name, pulse1.enabled))
+```
+
+**Example: Monitor All Channels:**
+```lua
+function gui()
+    if not getaudioenabled() then
+        return
+    end
+    
+    local y = 4
+    local channelNames = {"Pulse1", "Pulse2", "Triangle", "Noise", "DMC"}
+    
+    for i = 0, 4 do
+        local ch = getaudiochannel(i)
+        local color = ch.enabled and 0x27 or 0x10
+        drawtext(4, y, string.format("%s: %s", ch.name, ch.enabled and "ON" or "OFF"), color)
+        y = y + 10
+    end
+end
+```
+
+**Example: Display Pulse Channel Details:**
+```lua
+function gui()
+    if not getaudioenabled() then
+        return
+    end
+    
+    local pulse1 = getaudiochannel(0)
+    
+    if pulse1.enabled then
+        drawtext(4, 4, string.format("Pulse 1: Period=%d", pulse1.period), 0x27)
+        drawtext(4, 14, string.format("Volume=%d Duty=%d", pulse1.volume, pulse1.dutyCycle), 0x37)
+        drawtext(4, 24, string.format("Length=%d", pulse1.lengthCounter), 0x37)
+    end
+end
+```
+
+**Example: DMC Channel Monitoring:**
+```lua
+function gui()
+    if not getaudioenabled() then
+        return
+    end
+    
+    local dmc = getaudiochannel(4)
+    
+    if dmc.active then
+        drawtext(4, 4, "DMC: ACTIVE", 0x27)
+        drawtext(4, 14, string.format("Remaining: %d bytes", dmc.remainingSize), 0x37)
+        drawtext(4, 24, string.format("Address: 0x%04X", dmc.sampleAddress), 0x37)
+    else
+        drawtext(4, 4, "DMC: Inactive", 0x10)
+    end
+end
+```
+
+**Example: Channel State Change Detection:**
+```lua
+local lastStates = {}
+
+function script()
+    if not getaudioenabled() then
+        return
+    end
+    
+    for i = 0, 4 do
+        local ch = getaudiochannel(i)
+        
+        if not lastStates[i] then
+            lastStates[i] = {enabled = false}
+        end
+        
+        if lastStates[i].enabled ~= ch.enabled then
+            print(string.format("Channel %d (%s) changed: %s -> %s", 
+                i, ch.name, 
+                lastStates[i].enabled and "ON" or "OFF",
+                ch.enabled and "ON" or "OFF"))
+            lastStates[i].enabled = ch.enabled
+        end
+    end
 end
 ```
 
