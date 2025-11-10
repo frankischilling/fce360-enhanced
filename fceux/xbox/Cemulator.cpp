@@ -14,6 +14,7 @@
 #include "config_reader.h"
 #include "fceux/drawing.h"
 #include "fceux/emufile.h"
+#include "fceux/video.h"
 #include "input.h"
 #include "net360.h"
 #include "xconfig.h"
@@ -1042,14 +1043,15 @@ HRESULT Cemulator::LoadGame(std::string name, bool restart) {
 	//-------------------------------------------------------------------------------------
 	FCEUI_SetBaseDirectory("game:");
 
-	// Set snapshot directory to user-writable location on hdd1
-	// This works even when game: is read-only (XZP/STFS packages)
-	static char snapDir[] = "hdd1:\\fce360-enhanced\\snaps";
+	// Set snapshot directory to game: drive
+	static char snapDir[] = "game:\\snaps";
 	FCEUI_SetDirOverride(FCEUIOD_SNAPS, snapDir);
 
-	// Create user directories on hdd1 (always writable)
+	// Create snaps directory if it doesn't exist
+	CreateDirectoryA("game:\\snaps", NULL);
+
+	// Create user directories on hdd1 (always writable) for lua
 	CreateDirectoryA("hdd1:\\fce360-enhanced", NULL);
-	CreateDirectoryA("hdd1:\\fce360-enhanced\\snaps", NULL);
 	CreateDirectoryA("hdd1:\\fce360-enhanced\\lua", NULL);
 
 	// Also try to create lua directory in game: (works if not read-only)
@@ -1487,11 +1489,15 @@ HRESULT Cemulator::Run() {
 				// Input
 				UpdateInput();
 
+				// Check for console combo and screenshot buttons
+				bool leftStickPressed = (Gamepads[0].wButtons & XINPUT_GAMEPAD_LEFT_THUMB) != 0;
+				bool rightStickPressed = (Gamepads[0].wButtons & XINPUT_GAMEPAD_RIGHT_THUMB) != 0;
+				bool consoleCombo = leftStickPressed && rightStickPressed;
+
 #ifdef USE_LUA
 				// Lua Console toggle (LS + RS combo - both thumbsticks clicked)
 				static WORD prevButtons = 0;
 				WORD b = Gamepads[0].wButtons;
-				bool consoleCombo = (b & XINPUT_GAMEPAD_LEFT_THUMB) && (b & XINPUT_GAMEPAD_RIGHT_THUMB);
 				bool prevConsoleCombo = (prevButtons & XINPUT_GAMEPAD_LEFT_THUMB) && (prevButtons & XINPUT_GAMEPAD_RIGHT_THUMB);
 				
 				// Rising edge: toggle console
@@ -1506,15 +1512,18 @@ HRESULT Cemulator::Run() {
 				prevButtons = b;
 #endif
 
-				// Screenshot combo
-				bool screenshotCombo =
-					(Gamepads[0].wButtons & XINPUT_GAMEPAD_LEFT_THUMB) &&
-					(Gamepads[0].bLeftTrigger >
-					 XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
-				if (screenshotCombo && !m_screenshotLatch) {
+				// Screenshot (RIGHT_THUMB button only - right stick click)
+				// But ignore if both sticks are pressed (console combo)
+				// Only take screenshot if right stick is pressed AND console combo is NOT active
+				bool screenshotPressed = rightStickPressed && !consoleCombo;
+				
+				if(screenshotPressed && !m_screenshotLatch)
+				{
 					m_screenshotLatch = true;
 					FCEUI_SaveSnapshot();
-				} else if (!screenshotCombo) {
+				}
+				else if(!screenshotPressed)
+				{
 					m_screenshotLatch = false;
 				}
 
@@ -1524,8 +1533,7 @@ HRESULT Cemulator::Run() {
 				static int rewindRepeatFrames = 0;
 
 				const bool rewindPressed = (Gamepads[0].bLeftTrigger >
-											XINPUT_GAMEPAD_TRIGGER_THRESHOLD) &&
-										   !screenshotCombo;
+											XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
 				const bool justPressed = rewindPressed && !prevRewindPressed;
 				const bool justReleased = !rewindPressed && prevRewindPressed;
 
@@ -1657,6 +1665,22 @@ HRESULT Cemulator::Run() {
 							extern void FCEU_LuaGui(uint8* XBuf);
 							FCEU_LuaGui(bitmap);
 #endif
+
+							// Set XBuf to bitmap for FCEU_PutImage (matches old build logic)
+							// Call this AFTER Lua GUI so screenshots include overlays
+							extern uint8 *XBuf;
+							uint8 *oldXBuf = XBuf;
+							XBuf = bitmap;
+							
+							// Call FCEU_PutImage to handle screenshot saving (matches old build)
+							// This processes dosnapsave flag set by FCEUI_SaveSnapshot()
+							// Note: FCEU_PutImage also calls FCEU_LuaGui internally, but we call it
+							// separately above to ensure proper ordering and avoid double-drawing
+							extern void FCEU_PutImage(void);
+							FCEU_PutImage();
+							
+							XBuf = oldXBuf;  // Restore original XBuf pointer
+
 
 							// Optimized ARGB conversion with precomputed LUT
 							// NOTE: LUT uses full 8-bit palette index (0-255) -
