@@ -7,7 +7,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.7.6** — *New overlay functions: clearscreen(), fillscreen(), screenshot(); improved text rendering; screenshot fixes and optimizations + all prior features from v0.7.5–v0.6.1*
+* Current release: **v0.7.7** — *State Management and Xbox 360 Input Lua API Functions: savestate(), loadstate(), hasstate(), savestatefile(), loadstatefile(), isxboxbuttonpressed() + all prior features from v0.7.6–v0.6.1*
 
 ---
 
@@ -15,6 +15,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.7.7 - State Management and Xbox 360 Input Lua API Functions](#whats-new-v077)
   - [v0.7.6 - New Overlay Functions, Screenshot Improvements, and Text Rendering Updates](#whats-new-v076)
   - [v0.7.5 - Timing, Screen Info, and Color Manipulation Lua API Functions](#whats-new-v075)
   - [v0.7.4 - Game State, Game Genie, and Timing Lua API Functions](#whats-new-v074)
@@ -75,6 +76,93 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 📹 **[Watch Fast Scrolling Demo](https://github.com/frankischilling/fce360-enhanced/raw/main/img/fastScrolling.mp4)** (MP4 video)
 
 *Note: Click the link above to view the video demonstration. GitHub README files don't support embedded video playback.*
+
+---
+
+## What's new (v0.7.7)
+
+* **New Lua API Functions:** Added **6 powerful new functions** for state management and Xbox 360 controller input!
+
+  * **State Management Functions:**
+    * `savestate(slot)` - Saves game state to specified slot
+      * Parameters: slot (integer, 0-9, optional, default 0)
+      * Returns: Boolean (true if successful)
+      * Saves to `game:\states\` directory
+      * Useful for automated save states, checkpoint systems, and script-controlled state management
+    * `loadstate(slot)` - Loads game state from specified slot
+      * Parameters: slot (integer, 0-9, optional, default 0)
+      * Returns: Boolean (true if successful)
+      * Loads from `game:\states\` directory
+      * Returns false if state file doesn't exist (no error thrown)
+      * Useful for automated load states, checkpoint restore, and script-controlled state management
+    * `hasstate(slot)` - Checks if save state exists in specified slot
+      * Parameters: slot (integer, 0-9, optional, default 0)
+      * Returns: Boolean (true if state exists)
+      * Checks `game:\states\` directory
+      * Useful for checking which slots have saves before attempting to load
+      * Can be used to display save slot status in UI or for conditional logic
+    * `savestatefile(filename)` - Saves game state to custom filename
+      * Parameters: filename (string, required)
+      * Returns: Boolean (true if successful)
+      * Saves to `game:\states\` directory
+      * Automatically adds `.fc0` extension if not provided
+      * Useful for named save states, custom filenames, and script-controlled state management
+    * `loadstatefile(filename)` - Loads game state from custom filename
+      * Parameters: filename (string, required)
+      * Returns: Boolean (true if successful)
+      * Loads from `game:\states\` directory
+      * Automatically adds `.fc0` extension if not provided
+      * Returns false if file doesn't exist (no error thrown)
+      * Useful for loading named states, custom filenames, and script-controlled state management
+
+  * **Xbox 360 Input Function:**
+    * `isxboxbuttonpressed(player, button)` - Checks if specific Xbox 360 controller button is pressed
+      * Parameters: player (integer, 0-3), button (string, case-insensitive)
+      * Returns: Boolean (true if button is pressed)
+      * Supports all Xbox 360 controller buttons: A, B, X, Y, START, BACK, LEFT_SHOULDER, RIGHT_SHOULDER, LEFT_THUMB, RIGHT_THUMB, DPAD_UP, DPAD_DOWN, DPAD_LEFT, DPAD_RIGHT
+      * Button names are case-insensitive
+      * Useful for reading Xbox 360 controller input directly (not mapped to NES buttons)
+      * Use edge detection (checking previous state) to detect button presses rather than holds
+
+* **State Management Improvements:**
+  * All save/load state functions save to `game:\states\` directory
+  * Directory is automatically created if it doesn't exist
+  * Functions verify file existence and content before returning success
+  * Slot-based functions support slots 0-9 (10 total slots)
+  * File-based functions support custom filenames for named save states
+  * `hasstate()` allows checking save slot status without loading
+
+* **Xbox 360 Input Improvements:**
+  * Added `isxboxbuttonpressed()` for direct Xbox 360 controller button access
+  * Supports all Xbox 360 controller buttons including shoulder buttons, thumbstick clicks, and D-pad
+  * Button names are case-insensitive with short aliases (LB, RB, LS, RS, UP, DOWN, LEFT, RIGHT)
+  * Useful for scripts that need Xbox 360 controller input rather than NES button mappings
+
+* **Technical Enhancements:**
+  * All functions registered in both `InitLua()` and `EnsureLuaInit()`
+  * State directory configured in `Cemulator.cpp` during game loading
+  * Xbox 360 button constants added to `fceulua.cpp` (DPAD_LEFT, DPAD_RIGHT)
+  * Functions use `FCEUSS_Save` and `FCEUSS_Load` for state operations
+  * File existence checking uses `file_exists()` helper function
+  * Path normalization ensures Windows/Xbox path compatibility
+
+* **Documentation:**
+  * All functions added to appropriate sections in table of contents
+  * Complete API documentation with parameters, returns, notes, and multiple examples
+  * Test scripts provided for all new functions:
+    * `test_savestate.lua` - Tests savestate() and loadstate() with visual slot selector
+    * `test_savestatefile.lua` - Tests savestatefile() and loadstatefile() with custom filenames
+    * `test_hasstate.lua` - Tests hasstate() with visual slot status display
+
+* **Includes Previous Features:**
+  * All v0.7.6 features: clearscreen(), fillscreen(), screenshot(), improved text rendering, screenshot fixes
+  * All v0.7.5 features: sleepframes(), gettime(), gettimedelta(), getscreensize(), getcolorrgb(), getpalettecolor(), setpalettecolor(), getnescolor(), blendcolors()
+  * All v0.7.4 features: isframeadvancing(), isrewinding(), isfastforwarding(), getgamegeniecode(), decodegamegenie(), getframecount(), getelapsedtime(), getelapsedframes()
+  * All v0.7.3 features: getromsize(), getprgsize(), getchrsize(), getmapper(), getmapperstring(), hasbattery()
+  * All v0.7.2 features: getromname(), pressbutton(), releasebutton(), and input recording functions
+  * All v0.7.1 features: Text measurement and rotation API functions
+  * All v0.7.0 features: ROM counter display
+  * All prior features from v0.6.1–v0.6.9
 
 ---
 
@@ -1033,6 +1121,17 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
       - Parameters, Returns, Notes, Examples
     - [`fillpolygon(x1, y1, x2, y2, ..., color)`](#fillpolygonx1-y1-x2-y2--color)
       - Parameters, Returns, Notes, Examples
+  - [State Management Functions](#state-management-functions)
+    - [`savestate(slot)`](#savestateslot)
+      - Parameters, Returns, Notes, Examples
+    - [`loadstate(slot)`](#loadstateslot)
+      - Parameters, Returns, Notes, Examples
+    - [`hasstate(slot)`](#hasstateslot)
+      - Parameters, Returns, Notes, Examples
+    - [`savestatefile(filename)`](#savestatefilefilename)
+      - Parameters, Returns, Notes, Examples
+    - [`loadstatefile(filename)`](#loadstatefilefilename)
+      - Parameters, Returns, Notes, Examples
   - [Monitoring Functions](#monitoring-functions)
     - [`getfps()`](#getfps)
       - Parameters, Returns, Notes, Basic & Advanced Examples
@@ -1069,6 +1168,8 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
     - [`getjoypad(player)`](#getjoypadplayer)
       - Parameters, Returns, Button Bitmask, Notes, Examples
     - [`isbuttonpressed(player, button)`](#isbuttonpressedplayer-button)
+      - Parameters, Returns, Button Names, Notes, Examples
+    - [`isxboxbuttonpressed(player, button)`](#isxboxbuttonpressedplayer-button)
       - Parameters, Returns, Button Names, Notes, Examples
     - [`getbuttonname(buttonMask)`](#getbuttonnamebuttonmask)
       - Parameters, Returns, Notes, Examples
@@ -1927,6 +2028,458 @@ fillrect(10, 20, 100, 8, 0x16)  -- Bar over the fill
 
 -- Compare with fillrect for full screen fill
 fillrect(0, 0, 256, 240, 0x16)  -- Same as fillscreen(0x16), but more verbose
+```
+
+#### State Management Functions
+
+##### `savestate(slot)`
+Saves the current game state to a specified slot.
+
+**Parameters:**
+- `slot` (integer, optional): Save state slot number (0-9). Defaults to 0 if not provided or nil.
+
+**Returns:**
+- `boolean` - `true` if save was successful, `false` if save failed
+
+**Notes:**
+- Save states are saved to `game:\states\` directory
+- Slot numbers range from 0 to 9 (10 total slots)
+- If slot is out of range (< 0 or > 9), the function will return an error
+- A game must be loaded for save states to work (returns error if no game is loaded)
+- The function verifies that the save file was created and has content before returning success
+- Save states capture the complete game state including RAM, registers, and PPU state
+- Useful for automated save states, checkpoint systems, and script-controlled state management
+- Save state files are game-specific and will be overwritten if saving to the same slot
+
+**Example: Basic Save:**
+```lua
+-- Save to slot 0 (default)
+local success = savestate()
+if success then
+    print("State saved to slot 0")
+else
+    print("Save failed")
+end
+
+-- Save to slot 1
+local success = savestate(1)
+if success then
+    print("State saved to slot 1")
+else
+    print("Save failed")
+end
+```
+
+**Example: Save to Multiple Slots:**
+```lua
+-- Save to different slots
+for slot = 0, 9 do
+    local success = savestate(slot)
+    if success then
+        print(string.format("Saved to slot %d", slot))
+    end
+end
+```
+
+**Example: Checkpoint System:**
+```lua
+local checkpointSlot = 0
+
+function gui()
+    -- Check for checkpoint save (Y button)
+    if isxboxbuttonpressed(0, "Y") then
+        local success = savestate(checkpointSlot)
+        if success then
+            print("Checkpoint saved!")
+        end
+    end
+end
+```
+
+**Example: Error Handling:**
+```lua
+-- Test with invalid slot
+local success, err = pcall(function()
+    return savestate(10)  -- Invalid slot (out of range)
+end)
+
+if not success then
+    print("Error: " .. tostring(err))
+end
+
+-- Test with no game loaded
+local success = savestate(0)
+if not success then
+    print("Save failed - check if game is loaded")
+end
+```
+
+##### `loadstate(slot)`
+Loads a game state from a specified slot.
+
+**Parameters:**
+- `slot` (integer, optional): Save state slot number (0-9). Defaults to 0 if not provided or nil.
+
+**Returns:**
+- `boolean` - `true` if load was successful, `false` if load failed (file doesn't exist or error occurred)
+
+**Notes:**
+- Save states are loaded from `game:\states\` directory
+- Slot numbers range from 0 to 9 (10 total slots)
+- If slot is out of range (< 0 or > 9), the function will return an error
+- A game must be loaded for load states to work (returns error if no game is loaded)
+- Returns `false` if the save state file doesn't exist (no error thrown, just returns false)
+- Returns `true` if the state was successfully loaded
+- Loading a state restores the complete game state including RAM, registers, and PPU state
+- Useful for automated load states, checkpoint restore, and script-controlled state management
+- The game will immediately jump to the saved state when loaded
+
+**Example: Basic Load:**
+```lua
+-- Load from slot 0 (default)
+local success = loadstate()
+if success then
+    print("State loaded from slot 0")
+else
+    print("Load failed - state may not exist")
+end
+
+-- Load from slot 1
+local success = loadstate(1)
+if success then
+    print("State loaded from slot 1")
+else
+    print("Load failed - slot 1 may not exist")
+end
+```
+
+**Example: Load from Multiple Slots:**
+```lua
+-- Try loading from different slots
+for slot = 0, 9 do
+    local success = loadstate(slot)
+    if success then
+        print(string.format("Loaded from slot %d", slot))
+        break  -- Stop after first successful load
+    end
+end
+```
+
+**Example: Checkpoint Restore:**
+```lua
+local checkpointSlot = 0
+
+function gui()
+    -- Check for checkpoint load (B button)
+    if isxboxbuttonpressed(0, "B") then
+        local success = loadstate(checkpointSlot)
+        if success then
+            print("Checkpoint restored!")
+        else
+            print("No checkpoint found")
+        end
+    end
+end
+```
+
+**Example: Slot Selector:**
+```lua
+local selectedSlot = 0
+
+function gui()
+    -- Navigate slots with D-pad
+    if isxboxbuttonpressed(0, "DPAD_UP") then
+        selectedSlot = (selectedSlot - 1) % 10
+    elseif isxboxbuttonpressed(0, "DPAD_DOWN") then
+        selectedSlot = (selectedSlot + 1) % 10
+    end
+    
+    -- Save with Y button
+    if isxboxbuttonpressed(0, "Y") then
+        local success = savestate(selectedSlot)
+        if success then
+            print(string.format("Saved to slot %d", selectedSlot))
+        end
+    end
+    
+    -- Load with B button
+    if isxboxbuttonpressed(0, "B") then
+        local success = loadstate(selectedSlot)
+        if success then
+            print(string.format("Loaded from slot %d", selectedSlot))
+        else
+            print(string.format("Slot %d is empty", selectedSlot))
+        end
+    end
+    
+    -- Display current slot
+    drawtext(10, 10, string.format("Slot: %d", selectedSlot), 0x20)
+end
+```
+
+**Example: Error Handling:**
+```lua
+-- Test with invalid slot
+local success, err = pcall(function()
+    return loadstate(10)  -- Invalid slot (out of range)
+end)
+
+if not success then
+    print("Error: " .. tostring(err))
+end
+
+-- Test loading non-existent state
+local success = loadstate(9)  -- Slot 9 probably doesn't exist
+if not success then
+    print("Slot 9 is empty")
+end
+```
+
+##### `hasstate(slot)`
+Checks if a save state exists in the specified slot.
+
+**Parameters:**
+- `slot` (integer, optional): Save state slot number (0-9). Defaults to 0 if not provided or nil.
+
+**Returns:**
+- `boolean` - `true` if save state exists in the slot, `false` if it doesn't exist
+
+**Notes:**
+- Save states are checked in `game:\states\` directory
+- Slot numbers range from 0 to 9 (10 total slots)
+- If slot is out of range (< 0 or > 9), the function will return an error
+- This function only checks for file existence; it does not require a game to be loaded
+- Useful for checking which slots have saves before attempting to load
+- Can be used to display save slot status in UI or for conditional logic
+- Returns `false` if the file doesn't exist (no error thrown)
+
+**Example: Basic Check:**
+```lua
+-- Check if slot 0 has a save
+if hasstate(0) then
+    print("Slot 0 has a save")
+else
+    print("Slot 0 is empty")
+end
+
+-- Check if slot 1 has a save
+local exists = hasstate(1)
+if exists then
+    print("Slot 1 has a save")
+end
+```
+
+**Example: Check All Slots:**
+```lua
+-- Check which slots have saves
+for slot = 0, 9 do
+    if hasstate(slot) then
+        print(string.format("Slot %d has a save", slot))
+    end
+end
+```
+
+**Example: Display Save Status:**
+```lua
+function gui()
+    -- Display which slots have saves
+    local y = 10
+    for slot = 0, 9 do
+        local exists = hasstate(slot)
+        local text = string.format("Slot %d: %s", slot, exists and "SAVED" or "EMPTY")
+        local color = exists and 0x29 or 0x37  -- Green if saved, yellow if empty
+        drawtext(10, y, text, color)
+        y = y + 12
+    end
+end
+```
+
+**Example: Conditional Load:**
+```lua
+local selectedSlot = 0
+
+function gui()
+    -- Only load if slot has a save
+    if isxboxbuttonpressed(0, "B") then
+        if hasstate(selectedSlot) then
+            local success = loadstate(selectedSlot)
+            if success then
+                print("Loaded successfully")
+            end
+        else
+            print("No save in this slot")
+        end
+    end
+end
+```
+
+##### `savestatefile(filename)`
+Saves the current game state to a custom filename.
+
+**Parameters:**
+- `filename` (string, required): Custom filename for the save state. Extension is optional (`.fc0` will be added if not provided).
+
+**Returns:**
+- `boolean` - `true` if save was successful, `false` if save failed
+
+**Notes:**
+- Save states are saved to `game:\states\` directory
+- Filename is required (cannot be nil or empty)
+- If filename doesn't have an extension, `.fc0` will be automatically added
+- A game must be loaded for save states to work (returns error if no game is loaded)
+- The function verifies that the save file was created and has content before returning success
+- Save states capture the complete game state including RAM, registers, and PPU state
+- Useful for named save states, custom filenames, and script-controlled state management
+- Save state files are game-specific and will be overwritten if saving to the same filename
+
+**Example: Basic Save:**
+```lua
+-- Save with custom filename
+local success = savestatefile("checkpoint")
+if success then
+    print("State saved to 'checkpoint'")
+else
+    print("Save failed")
+end
+
+-- Save with extension
+local success = savestatefile("my_save.fc0")
+if success then
+    print("State saved")
+end
+```
+
+**Example: Named Checkpoints:**
+```lua
+function gui()
+    -- Save checkpoint with name "cupid"
+    if isxboxbuttonpressed(0, "Y") then
+        local success = savestatefile("cupid")
+        if success then
+            print("Checkpoint 'cupid' saved!")
+        end
+    end
+end
+```
+
+**Example: Multiple Named Saves:**
+```lua
+local saveNames = {"start", "midpoint", "final"}
+
+function gui()
+    -- Save to different named slots
+    if isxboxbuttonpressed(0, "Y") then
+        local success = savestatefile(saveNames[1])
+        if success then
+            print("Saved to 'start'")
+        end
+    end
+end
+```
+
+**Example: Error Handling:**
+```lua
+-- Test with empty filename
+local success, err = pcall(function()
+    return savestatefile("")  -- Empty filename
+end)
+
+if not success then
+    print("Error: " .. tostring(err))
+end
+
+-- Test with no game loaded
+local success = savestatefile("test")
+if not success then
+    print("Save failed - check if game is loaded")
+end
+```
+
+##### `loadstatefile(filename)`
+Loads a game state from a custom filename.
+
+**Parameters:**
+- `filename` (string, required): Custom filename for the save state. Extension is optional (`.fc0` will be added if not provided).
+
+**Returns:**
+- `boolean` - `true` if load was successful, `false` if load failed (file doesn't exist or error occurred)
+
+**Notes:**
+- Save states are loaded from `game:\states\` directory
+- Filename is required (cannot be nil or empty)
+- If filename doesn't have an extension, `.fc0` will be automatically added
+- A game must be loaded for load states to work (returns error if no game is loaded)
+- Returns `false` if the save state file doesn't exist (no error thrown, just returns false)
+- Returns `true` if the state was successfully loaded
+- Loading a state restores the complete game state including RAM, registers, and PPU state
+- Useful for loading named states, custom filenames, and script-controlled state management
+- The game will immediately jump to the saved state when loaded
+
+**Example: Basic Load:**
+```lua
+-- Load from custom filename
+local success = loadstatefile("checkpoint")
+if success then
+    print("State loaded from 'checkpoint'")
+else
+    print("Load failed - file may not exist")
+end
+
+-- Load with extension
+local success = loadstatefile("my_save.fc0")
+if success then
+    print("State loaded")
+end
+```
+
+**Example: Named Checkpoint Load:**
+```lua
+function gui()
+    -- Load checkpoint with name "cupid"
+    if isxboxbuttonpressed(0, "B") then
+        local success = loadstatefile("cupid")
+        if success then
+            print("Checkpoint 'cupid' loaded!")
+        else
+            print("Checkpoint 'cupid' not found")
+        end
+    end
+end
+```
+
+**Example: Try Multiple Named Saves:**
+```lua
+local saveNames = {"checkpoint1", "checkpoint2", "backup"}
+
+function gui()
+    -- Try loading from different named saves
+    if isxboxbuttonpressed(0, "B") then
+        for i, name in ipairs(saveNames) do
+            if loadstatefile(name) then
+                print(string.format("Loaded '%s'", name))
+                break
+            end
+        end
+    end
+end
+```
+
+**Example: Error Handling:**
+```lua
+-- Test with empty filename
+local success, err = pcall(function()
+    return loadstatefile("")  -- Empty filename
+end)
+
+if not success then
+    print("Error: " .. tostring(err))
+end
+
+-- Test loading non-existent file
+local success = loadstatefile("nonexistent")
+if not success then
+    print("File doesn't exist")
+end
 ```
 
 ##### `drawimage(x, y, imageData, width, height)`
@@ -5285,6 +5838,181 @@ function gui()
     
     if #buttons > 0 then
         drawtext(4, 4, "D-Pad: " .. table.concat(buttons, ", "), 0x20)
+    end
+end
+```
+
+##### `isxboxbuttonpressed(player, button)`
+Checks if a specific Xbox 360 controller button is currently pressed.
+
+**Parameters:**
+- `player` (integer): Player number (0-3)
+  - `0` = Player 1 (first controller)
+  - `1` = Player 2 (second controller)
+  - `2` = Player 3 (third controller, if connected)
+  - `3` = Player 4 (fourth controller, if connected)
+- `button` (string): Button name (case-insensitive)
+
+**Returns:**
+- `boolean` - `true` if the button is currently pressed, `false` otherwise
+
+**Button Names:**
+The following button names are supported (case-insensitive):
+- `"A"` - A button
+- `"B"` - B button
+- `"X"` - X button
+- `"Y"` - Y button
+- `"START"` - Start button
+- `"BACK"` - Back button
+- `"LEFT_SHOULDER"` or `"LB"` - Left shoulder button
+- `"RIGHT_SHOULDER"` or `"RB"` - Right shoulder button
+- `"LEFT_THUMB"` or `"LS"` - Left thumbstick click
+- `"RIGHT_THUMB"` or `"RS"` - Right thumbstick click
+- `"DPAD_UP"` or `"UP"` - D-pad up
+- `"DPAD_DOWN"` or `"DOWN"` - D-pad down
+- `"DPAD_LEFT"` or `"LEFT"` - D-pad left
+- `"DPAD_RIGHT"` or `"RIGHT"` - D-pad right
+
+**Notes:**
+- Returns the current button state at the time of the call
+- Useful for reading Xbox 360 controller input directly (not mapped to NES buttons)
+- Unlike `isbuttonpressed()`, this checks Xbox 360 controller buttons directly
+- Button names are case-insensitive
+- Returns `true` only while the button is held down
+- Use edge detection (checking previous state) to detect button presses rather than holds
+- This function reads hardware controller state, not NES button mappings
+
+**Example: Check Xbox 360 Buttons:**
+```lua
+function gui()
+    -- Check if Y button is pressed
+    if isxboxbuttonpressed(0, "Y") then
+        print("Y button is pressed")
+    end
+    
+    -- Check if B button is pressed
+    if isxboxbuttonpressed(0, "B") then
+        print("B button is pressed")
+    end
+end
+```
+
+**Example: Edge Detection (Button Press):**
+```lua
+local lastYButton = false
+
+function gui()
+    local yPressed = isxboxbuttonpressed(0, "Y")
+    
+    -- Detect button press (not hold)
+    if yPressed and not lastYButton then
+        print("Y button was just pressed!")
+        -- Do something once per press
+    end
+    
+    lastYButton = yPressed
+end
+```
+
+**Example: Multiple Buttons:**
+```lua
+function gui()
+    local yPressed = isxboxbuttonpressed(0, "Y")
+    local bPressed = isxboxbuttonpressed(0, "B")
+    local xPressed = isxboxbuttonpressed(0, "X")
+    local aPressed = isxboxbuttonpressed(0, "A")
+    
+    if yPressed then
+        drawtext(10, 10, "Y pressed", 0x2E)
+    end
+    if bPressed then
+        drawtext(10, 22, "B pressed", 0x2E)
+    end
+    if xPressed then
+        drawtext(10, 34, "X pressed", 0x2E)
+    end
+    if aPressed then
+        drawtext(10, 46, "A pressed", 0x2E)
+    end
+end
+```
+
+**Example: D-pad Navigation:**
+```lua
+local selectedSlot = 0
+local lastDpadUp = false
+local lastDpadDown = false
+
+function gui()
+    local dpadUp = isxboxbuttonpressed(0, "DPAD_UP")
+    local dpadDown = isxboxbuttonpressed(0, "DPAD_DOWN")
+    
+    -- Navigate with D-pad
+    if dpadUp and not lastDpadUp then
+        selectedSlot = selectedSlot - 1
+        if selectedSlot < 0 then selectedSlot = 9 end
+    end
+    if dpadDown and not lastDpadDown then
+        selectedSlot = selectedSlot + 1
+        if selectedSlot > 9 then selectedSlot = 0 end
+    end
+    
+    lastDpadUp = dpadUp
+    lastDpadDown = dpadDown
+    
+    drawtext(10, 10, string.format("Slot: %d", selectedSlot), 0x20)
+end
+```
+
+**Example: Shoulder Buttons:**
+```lua
+function gui()
+    local lbPressed = isxboxbuttonpressed(0, "LEFT_SHOULDER")
+    local rbPressed = isxboxbuttonpressed(0, "RIGHT_SHOULDER")
+    
+    if lbPressed then
+        drawtext(10, 10, "LB pressed", 0x2E)
+    end
+    if rbPressed then
+        drawtext(10, 22, "RB pressed", 0x2E)
+    end
+end
+```
+
+**Example: Thumbstick Clicks:**
+```lua
+function gui()
+    local lsPressed = isxboxbuttonpressed(0, "LEFT_THUMB")
+    local rsPressed = isxboxbuttonpressed(0, "RIGHT_THUMB")
+    
+    if lsPressed then
+        drawtext(10, 10, "Left stick clicked", 0x2E)
+    end
+    if rsPressed then
+        drawtext(10, 22, "Right stick clicked", 0x2E)
+    end
+end
+```
+
+**Example: Error Handling:**
+```lua
+function gui()
+    -- Test with invalid button name
+    local success, result = pcall(function()
+        return isxboxbuttonpressed(0, "INVALID")
+    end)
+    
+    if not success then
+        print("Error: " .. tostring(result))
+    end
+    
+    -- Test with invalid player
+    local success, result = pcall(function()
+        return isxboxbuttonpressed(10, "Y")  -- Invalid player
+    end)
+    
+    if not success then
+        print("Error: " .. tostring(result))
     end
 end
 ```
