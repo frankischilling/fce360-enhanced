@@ -581,7 +581,11 @@ int GetScreenPixelPalette(int x, int y, bool usebackup) {
 
 int SaveSnapshot(void)
 {
-	unsigned int lastu=0;
+	// Cache last screenshot number to avoid file search loop on subsequent screenshots
+	static unsigned int cachedLastu = 0;
+	static bool cacheValid = false;
+	
+	unsigned int lastu = cacheValid ? cachedLastu : 0;
 
 	char *fn=0;
 	int totallines=FSettings.LastSLine-FSettings.FirstSLine+1;
@@ -593,14 +597,35 @@ int SaveSnapshot(void)
 	if(!(compmem=(uint8 *)FCEU_malloc(compmemsize)))
 		return 0;
 
-	for(u=lastu;u<99999;u++)
+	// Start search from cached value to avoid checking files we know exist
+	// Only check a few files ahead (max 10) to handle edge cases without full scan
+	for(u=lastu;u<lastu+10 && u<99999;u++)
 	{
 		pp=FCEUD_UTF8fopen((fn=strdup(FCEU_MakeFName(FCEUMKF_SNAP,u,"png").c_str())),"rb");
 		if(pp==NULL) break;
 		fclose(pp);
+		free(fn);
+		fn = 0;
+	}
+	
+	// If we didn't find a free slot in the first 10, do a wider search
+	// This handles edge cases but should rarely be needed
+	if(u >= lastu+10 && u < 99999)
+	{
+		// Reset and do full search (shouldn't happen often)
+		for(u=0;u<99999;u++)
+		{
+			pp=FCEUD_UTF8fopen((fn=strdup(FCEU_MakeFName(FCEUMKF_SNAP,u,"png").c_str())),"rb");
+			if(pp==NULL) break;
+			fclose(pp);
+			if(fn) { free(fn); fn = 0; }
+		}
 	}
 
 	lastu=u;
+	// Update cache for next screenshot
+	cachedLastu = lastu;
+	cacheValid = true;
 
 	if(!(pp=FCEUD_UTF8fopen(fn,"wb")))
 	{

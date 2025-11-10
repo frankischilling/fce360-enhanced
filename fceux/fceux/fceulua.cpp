@@ -29,6 +29,7 @@
  
 #include "fceulua.h"
 #include "fceu.h"
+#include "sound.h"
 #include "drawing.h"
 #include "video.h"
 #include "driver.h"
@@ -2004,6 +2005,40 @@ static void DrawLuaConsole(uint8* buf) {
 	 lua_settable(L, -3);
 	 
 	 return 1;  // Return the table
+ }
+
+ // getaudioenabled() -> boolean
+ // Checks if audio is enabled
+ // Returns: Boolean
+ // Use case: Audio-dependent scripts
+ static int lua_getaudioenabled(lua_State* L)
+ {
+ 	 lua_pushboolean(L, FSettings.SndRate != 0);
+ 	 return 1;
+ }
+ 
+ // getaudiosample() -> integer
+ // Gets current audio sample from the final mixed buffer.
+ // Returns: Integer (sample value; 32-bit signed, typically within 16-bit range)
+ // Use case: Audio visualization, audio analysis
+ static int lua_getaudiosample(lua_State* L)
+ {
+ 	 // If audio is disabled, return 0 to indicate silence
+ 	 if (FSettings.SndRate == 0) {
+ 		 lua_pushinteger(L, 0);
+ 		 return 1;
+ 	 }
+ 
+ 	 int32* buffer = NULL;
+ 	 int count = GetSoundBuffer(&buffer);
+ 	 if (count > 0 && buffer) {
+ 		 // Return the most recent mixed sample
+ 		 lua_pushinteger(L, buffer[count - 1]);
+ 	 } else {
+ 		 // No samples available yet this frame
+ 		 lua_pushinteger(L, 0);
+ 	 }
+ 	 return 1;
  }
 
  // getcolorrgb(paletteIndex) -> table
@@ -6472,6 +6507,8 @@ int lua_ismemorywritable(lua_State *L) {
 	 lua_register(luaState, "getscreenwidth", lua_getscreenwidth);
 	 lua_register(luaState, "getscreenheight", lua_getscreenheight);
 	 lua_register(luaState, "getscreensize", lua_getscreensize);
+	 lua_register(luaState, "getaudioenabled", lua_getaudioenabled);
+	 lua_register(luaState, "getaudiosample", lua_getaudiosample);
 	 lua_register(luaState, "getcolorrgb", lua_getcolorrgb);
 	 lua_register(luaState, "getpalettecolor", lua_getpalettecolor);
 	 lua_register(luaState, "setpalettecolor", lua_setpalettecolor);
@@ -6617,6 +6654,8 @@ static void EnsureLuaInit() {
 	REG("getscreenwidth", lua_getscreenwidth);
 	REG("getscreenheight", lua_getscreenheight);
 	REG("getscreensize", lua_getscreensize);
+	REG("getaudioenabled", lua_getaudioenabled);
+	REG("getaudiosample", lua_getaudiosample);
 	REG("getcolorrgb", lua_getcolorrgb);
 	REG("getpalettecolor", lua_getpalettecolor);
 	REG("setpalettecolor", lua_setpalettecolor);
