@@ -2337,7 +2337,863 @@ static void DrawLuaConsole(uint8* buf) {
  	 return 1;
  }
 
- // getcolorrgb(paletteIndex) -> table
+ // getaudiochannelsample(channel) -> integer
+ // Gets the last sample from a specific APU channel before mixing.
+ // Parameters: channel (integer, required, 0-4)
+ //   0 = Pulse 1 (Square 1)
+ //   1 = Pulse 2 (Square 2)
+ //   2 = Triangle
+ //   3 = Noise
+ //   4 = DMC (Delta Modulation Channel)
+ // Returns: Integer (sample value; 32-bit signed, typically within 16-bit range)
+ // Use case: Channel-specific audio visualization, isolating individual channel waveforms
+ static int lua_getaudiochannelsample(lua_State* L)
+ {
+	 int n = lua_gettop(L);
+	 if (n < 1) {
+		 return luaL_error(L, "getaudiochannelsample(channel) requires 1 argument");
+	 }
+	 
+	 int channel = (int)luaL_checkinteger(L, 1);
+	 
+	 // Validate channel number (0-4)
+	 if (channel < 0 || channel > 4) {
+		 return luaL_error(L, "getaudiochannelsample: channel must be 0-4 (0=Pulse1, 1=Pulse2, 2=Triangle, 3=Noise, 4=DMC)");
+	 }
+	 
+	 // If audio is disabled, return 0
+	 if (FSettings.SndRate == 0) {
+		 lua_pushinteger(L, 0);
+		 return 1;
+	 }
+	 
+	 // Return the last sample from the specified channel
+	 lua_pushinteger(L, ChannelLastSample[channel]);
+	 return 1;
+ }
+
+ // Helper function: Check if number is power of 2
+ static bool IsPowerOf2(int n) {
+	 return (n > 0) && ((n & (n - 1)) == 0);
+ }
+
+ // Helper function: Reverse bits for FFT
+ static int ReverseBits(int x, int bits) {
+	 int result = 0;
+	 for (int i = 0; i < bits; i++) {
+		 result = (result << 1) | (x & 1);
+		 x >>= 1;
+	 }
+	 return result;
+ }
+
+ // PI constant for FFT calculations
+ #ifndef M_PI
+ #define M_PI 3.14159265358979323846
+ #endif
+
+ // getaudiofft([size]) -> table
+ // Performs FFT on audio samples and returns frequency domain data.
+ // Parameters: size (integer, optional, default: 256, must be power of 2, max 512)
+ // Returns: Table with frequency domain data:
+ //   - magnitude[i] - Magnitude of frequency bin i (0 to size/2)
+ //   - phase[i] - Phase of frequency bin i (in radians, -π to π)
+ //   - size - FFT size used
+ //   - sampleRate - Audio sample rate
+ // Use case: Frequency domain visualization, spectrum analysis, audio visualization
+ static int lua_getaudiofft(lua_State* L)
+ {
+	 // If audio is disabled, return empty table
+	 if (FSettings.SndRate == 0) {
+		 lua_newtable(L);
+		 lua_pushstring(L, "size");
+		 lua_pushinteger(L, 0);
+		 lua_settable(L, -3);
+		 lua_pushstring(L, "sampleRate");
+		 lua_pushinteger(L, 0);
+		 lua_settable(L, -3);
+		 return 1;
+	 }
+
+	 // Get FFT size parameter (optional, default 256)
+	 int fftSize = (int)luaL_optinteger(L, 1, 256);
+	 
+	 // Validate and adjust FFT size (must be power of 2, between 32 and 512)
+	 if (fftSize < 32) fftSize = 32;
+	 if (fftSize > 512) fftSize = 512;
+	 
+	 // Round down to nearest power of 2
+	 int bits = 0;
+	 int temp = fftSize;
+	 while (temp > 1) {
+		 temp >>= 1;
+		 bits++;
+	 }
+	 fftSize = 1 << bits;  // Round to power of 2
+	 
+	 // Get audio samples
+	 int32* buffer = NULL;
+	 int count = GetSoundBuffer(&buffer);
+	 if (count <= 0 || !buffer) {
+		 lua_newtable(L);
+		 lua_pushstring(L, "size");
+		 lua_pushinteger(L, 0);
+		 lua_settable(L, -3);
+		 lua_pushstring(L, "sampleRate");
+		 lua_pushinteger(L, FSettings.SndRate);
+		 lua_settable(L, -3);
+		 return 1;
+	 }
+	 
+	 // Use available samples, but limit to fftSize
+	 int samplesToUse = (count < fftSize) ? count : fftSize;
+	 
+	 // Allocate arrays for FFT (real and imaginary parts)
+	 std::vector<double> real(fftSize, 0.0);
+	 std::vector<double> imag(fftSize, 0.0);
+	 
+	 // Copy and normalize samples (use most recent samples)
+	 int startIdx = count - samplesToUse;
+	 for (int i = 0; i < samplesToUse; i++) {
+		 // Normalize to -1.0 to 1.0 range (assuming 16-bit samples)
+		 real[i] = (double)buffer[startIdx + i] / 32768.0;
+		 imag[i] = 0.0;
+	 }
+	 
+	 // Apply window function (Hanning window) to reduce spectral leakage
+	 if (samplesToUse > 1) {
+		 for (int i = 0; i < samplesToUse; i++) {
+			 double window = 0.5 * (1.0 - cos(2.0 * M_PI * i / (samplesToUse - 1)));
+			 real[i] *= window;
+		 }
+	 }
+	 
+	 // Perform Radix-2 FFT
+	 int bitsNeeded = bits;
+	 
+	 // Bit-reverse permutation
+	 for (int i = 0; i < fftSize; i++) {
+		 int j = ReverseBits(i, bitsNeeded);
+		 if (i < j) {
+			 // Swap
+			 double temp = real[i];
+			 real[i] = real[j];
+			 real[j] = temp;
+			 temp = imag[i];
+			 imag[i] = imag[j];
+			 imag[j] = temp;
+		 }
+	 }
+	 
+	 // FFT computation
+	 for (int size = 2; size <= fftSize; size <<= 1) {
+		 double angle = -2.0 * M_PI / size;
+		 double w_real = cos(angle);
+		 double w_imag = sin(angle);
+		 
+		 for (int i = 0; i < fftSize; i += size) {
+			 double w_real_current = 1.0;
+			 double w_imag_current = 0.0;
+			 
+			 for (int j = 0; j < size / 2; j++) {
+				 double u_real = real[i + j];
+				 double u_imag = imag[i + j];
+				 double v_real = real[i + j + size / 2] * w_real_current - imag[i + j + size / 2] * w_imag_current;
+				 double v_imag = real[i + j + size / 2] * w_imag_current + imag[i + j + size / 2] * w_real_current;
+				 
+				 real[i + j] = u_real + v_real;
+				 imag[i + j] = u_imag + v_imag;
+				 real[i + j + size / 2] = u_real - v_real;
+				 imag[i + j + size / 2] = u_imag - v_imag;
+				 
+				 double temp = w_real_current * w_real - w_imag_current * w_imag;
+				 w_imag_current = w_real_current * w_imag + w_imag_current * w_real;
+				 w_real_current = temp;
+			 }
+		 }
+	 }
+	 
+	 // Create result table
+	 lua_newtable(L);
+	 
+	 // Add magnitude array (only first half, since FFT is symmetric for real input)
+	 lua_pushstring(L, "magnitude");
+	 lua_newtable(L);
+	 int magnitudeSize = fftSize / 2 + 1;
+	 for (int i = 0; i < magnitudeSize; i++) {
+		 double mag = sqrt(real[i] * real[i] + imag[i] * imag[i]);
+		 lua_pushinteger(L, i + 1);  // Lua is 1-indexed
+		 lua_pushnumber(L, mag);
+		 lua_settable(L, -3);
+	 }
+	 lua_settable(L, -3);
+	 
+	 // Add phase array
+	 lua_pushstring(L, "phase");
+	 lua_newtable(L);
+	 for (int i = 0; i < magnitudeSize; i++) {
+		 double phase = atan2(imag[i], real[i]);
+		 lua_pushinteger(L, i + 1);  // Lua is 1-indexed
+		 lua_pushnumber(L, phase);
+		 lua_settable(L, -3);
+	 }
+	 lua_settable(L, -3);
+	 
+	 // Add size
+	 lua_pushstring(L, "size");
+	 lua_pushinteger(L, fftSize);
+	 lua_settable(L, -3);
+	 
+	 // Add sample rate
+	 lua_pushstring(L, "sampleRate");
+	 lua_pushinteger(L, FSettings.SndRate);
+	 lua_settable(L, -3);
+	 
+	 // Add frequency resolution (Hz per bin)
+	 lua_pushstring(L, "frequencyResolution");
+	 lua_pushnumber(L, (double)FSettings.SndRate / fftSize);
+	 lua_settable(L, -3);
+	 
+	 return 1;
+ }
+
+ // getaudiochannelfft(channel, [size]) -> table
+ // Performs FFT on samples from a specific APU channel and returns frequency domain data.
+ // Parameters: channel (integer, required, 0-4), size (integer, optional, default: 256, must be power of 2, max 512)
+ // Returns: Table with frequency domain data (same structure as getaudiofft)
+ // Use case: Channel-specific frequency analysis, isolating individual channel frequencies
+ static int lua_getaudiochannelfft(lua_State* L)
+ {
+	 int n = lua_gettop(L);
+	 if (n < 1) {
+		 return luaL_error(L, "getaudiochannelfft(channel, [size]) requires at least 1 argument");
+	 }
+	 
+	 int channel = (int)luaL_checkinteger(L, 1);
+	 
+	 // Validate channel number (0-4)
+	 if (channel < 0 || channel > 4) {
+		 return luaL_error(L, "getaudiochannelfft: channel must be 0-4 (0=Pulse1, 1=Pulse2, 2=Triangle, 3=Noise, 4=DMC)");
+	 }
+	 
+	 // If audio is disabled, return empty table
+	 if (FSettings.SndRate == 0) {
+		 lua_newtable(L);
+		 lua_pushstring(L, "size");
+		 lua_pushinteger(L, 0);
+		 lua_settable(L, -3);
+		 lua_pushstring(L, "sampleRate");
+		 lua_pushinteger(L, 0);
+		 lua_settable(L, -3);
+		 lua_pushstring(L, "channel");
+		 lua_pushinteger(L, channel);
+		 lua_settable(L, -3);
+		 return 1;
+	 }
+	 
+	 // Get FFT size parameter (optional, default 256)
+	 int fftSize = (int)luaL_optinteger(L, 2, 256);
+	 
+	 // Validate and adjust FFT size (must be power of 2, between 32 and 512)
+	 if (fftSize < 32) fftSize = 32;
+	 if (fftSize > 512) fftSize = 512;
+	 
+	 // Round down to nearest power of 2
+	 int bits = 0;
+	 int temp = fftSize;
+	 while (temp > 1) {
+		 temp >>= 1;
+		 bits++;
+	 }
+	 fftSize = 1 << bits;  // Round to power of 2
+	 
+	 // Limit to available buffer size (512 samples)
+	 if (fftSize > 512) fftSize = 512;
+	 
+	 // Allocate arrays for FFT (real and imaginary parts)
+	 std::vector<double> real(fftSize, 0.0);
+	 std::vector<double> imag(fftSize, 0.0);
+	 
+	 // Copy samples from channel buffer (circular buffer, get most recent samples)
+	 int bufferIndex = ChannelSampleBufferIndex[channel];
+	 int samplesToUse = fftSize;
+	 
+	 // Get samples from circular buffer (most recent samples first)
+	 for (int i = 0; i < samplesToUse; i++) {
+		 // Read from buffer in reverse order (newest to oldest)
+		 int readIndex = (bufferIndex - 1 - i + 512) % 512;
+		 // Normalize to -1.0 to 1.0 range
+		 real[samplesToUse - 1 - i] = (double)ChannelSampleBuffer[channel][readIndex] / 32768.0;
+		 imag[samplesToUse - 1 - i] = 0.0;
+	 }
+	 
+	 // Apply window function (Hanning window) to reduce spectral leakage
+	 if (samplesToUse > 1) {
+		 for (int i = 0; i < samplesToUse; i++) {
+			 double window = 0.5 * (1.0 - cos(2.0 * M_PI * i / (samplesToUse - 1)));
+			 real[i] *= window;
+		 }
+	 }
+	 
+	 // Perform Radix-2 FFT
+	 int bitsNeeded = bits;
+	 
+	 // Bit-reverse permutation
+	 for (int i = 0; i < fftSize; i++) {
+		 int j = ReverseBits(i, bitsNeeded);
+		 if (i < j) {
+			 // Swap
+			 double temp = real[i];
+			 real[i] = real[j];
+			 real[j] = temp;
+			 temp = imag[i];
+			 imag[i] = imag[j];
+			 imag[j] = temp;
+		 }
+	 }
+	 
+	 // FFT computation
+	 for (int size = 2; size <= fftSize; size <<= 1) {
+		 double angle = -2.0 * M_PI / size;
+		 double w_real = cos(angle);
+		 double w_imag = sin(angle);
+		 
+		 for (int i = 0; i < fftSize; i += size) {
+			 double w_real_current = 1.0;
+			 double w_imag_current = 0.0;
+			 
+			 for (int j = 0; j < size / 2; j++) {
+				 double u_real = real[i + j];
+				 double u_imag = imag[i + j];
+				 double v_real = real[i + j + size / 2] * w_real_current - imag[i + j + size / 2] * w_imag_current;
+				 double v_imag = real[i + j + size / 2] * w_imag_current + imag[i + j + size / 2] * w_real_current;
+				 
+				 real[i + j] = u_real + v_real;
+				 imag[i + j] = u_imag + v_imag;
+				 real[i + j + size / 2] = u_real - v_real;
+				 imag[i + j + size / 2] = u_imag - v_imag;
+				 
+				 double temp = w_real_current * w_real - w_imag_current * w_imag;
+				 w_imag_current = w_real_current * w_imag + w_imag_current * w_real;
+				 w_real_current = temp;
+			 }
+		 }
+	 }
+	 
+	 // Create result table
+	 lua_newtable(L);
+	 
+	 // Add magnitude array (only first half, since FFT is symmetric for real input)
+	 lua_pushstring(L, "magnitude");
+	 lua_newtable(L);
+	 int magnitudeSize = fftSize / 2 + 1;
+	 for (int i = 0; i < magnitudeSize; i++) {
+		 double mag = sqrt(real[i] * real[i] + imag[i] * imag[i]);
+		 lua_pushinteger(L, i + 1);  // Lua is 1-indexed
+		 lua_pushnumber(L, mag);
+		 lua_settable(L, -3);
+	 }
+	 lua_settable(L, -3);
+	 
+	 // Add phase array
+	 lua_pushstring(L, "phase");
+	 lua_newtable(L);
+	 for (int i = 0; i < magnitudeSize; i++) {
+		 double phase = atan2(imag[i], real[i]);
+		 lua_pushinteger(L, i + 1);  // Lua is 1-indexed
+		 lua_pushnumber(L, phase);
+		 lua_settable(L, -3);
+	 }
+	 lua_settable(L, -3);
+	 
+	 // Add size
+	 lua_pushstring(L, "size");
+	 lua_pushinteger(L, fftSize);
+	 lua_settable(L, -3);
+	 
+	 // Add sample rate (use frame rate as effective sample rate for channel samples)
+	 // Channel samples are stored once per frame, so effective rate is frame rate
+	 lua_pushstring(L, "sampleRate");
+	 lua_pushinteger(L, 60);  // Approximate frame rate (60 Hz)
+	 lua_settable(L, -3);
+	 
+	 // Add frequency resolution (Hz per bin)
+	 lua_pushstring(L, "frequencyResolution");
+	 lua_pushnumber(L, 60.0 / fftSize);  // Frame rate / FFT size
+	 lua_settable(L, -3);
+	 
+	 // Add channel number
+	 lua_pushstring(L, "channel");
+	 lua_pushinteger(L, channel);
+	 lua_settable(L, -3);
+	 
+	 return 1;
+ }
+
+ // Real-time frequency filtering - filter state structures
+ // Biquad filter (second-order IIR) for efficient real-time filtering
+ struct AudioFilterState {
+	 double x1, x2;  // Previous input samples
+	 double y1, y2;  // Previous output samples
+	 double b0, b1, b2;  // Numerator coefficients
+	 double a1, a2;  // Denominator coefficients
+	 bool initialized;
+ };
+
+ static AudioFilterState filterStates[10];  // Support up to 10 different filter instances
+
+ // Calculate biquad filter coefficients for different filter types
+ // Based on RBJ Audio EQ Cookbook formulas
+ static void CalculateFilterCoefficients(int filterType, double cutoff, double q, double sampleRate, 
+	 double& b0, double& b1, double& b2, double& a1, double& a2) {
+	 double w0 = 2.0 * M_PI * cutoff / sampleRate;
+	 double cosw0 = cos(w0);
+	 double sinw0 = sin(w0);
+	 double alpha = sinw0 / (2.0 * q);
+	 double a0 = 1.0 + alpha;
+	 
+	 switch (filterType) {
+		 case 0: // Low-pass
+			 b0 = (1.0 - cosw0) / (2.0 * a0);
+			 b1 = (1.0 - cosw0) / a0;
+			 b2 = (1.0 - cosw0) / (2.0 * a0);
+			 a1 = -2.0 * cosw0 / a0;
+			 a2 = (1.0 - alpha) / a0;
+			 break;
+		 case 1: // High-pass
+			 b0 = (1.0 + cosw0) / (2.0 * a0);
+			 b1 = -(1.0 + cosw0) / a0;
+			 b2 = (1.0 + cosw0) / (2.0 * a0);
+			 a1 = -2.0 * cosw0 / a0;
+			 a2 = (1.0 - alpha) / a0;
+			 break;
+		 case 2: // Band-pass
+			 b0 = sinw0 / (2.0 * a0);
+			 b1 = 0.0;
+			 b2 = -sinw0 / (2.0 * a0);
+			 a1 = -2.0 * cosw0 / a0;
+			 a2 = (1.0 - alpha) / a0;
+			 break;
+		 case 3: // Notch (band-stop)
+			 b0 = 1.0 / a0;
+			 b1 = -2.0 * cosw0 / a0;
+			 b2 = 1.0 / a0;
+			 a1 = -2.0 * cosw0 / a0;
+			 a2 = (1.0 - alpha) / a0;
+			 break;
+		 default:
+			 // Default to low-pass
+			 b0 = (1.0 - cosw0) / (2.0 * a0);
+			 b1 = (1.0 - cosw0) / a0;
+			 b2 = (1.0 - cosw0) / (2.0 * a0);
+			 a1 = -2.0 * cosw0 / a0;
+			 a2 = (1.0 - alpha) / a0;
+			 break;
+	 }
+	 
+	 // Normalize coefficients
+	 b0 /= a0;
+	 b1 /= a0;
+	 b2 /= a0;
+	 a1 /= a0;
+	 a2 /= a0;
+ }
+
+ // Apply biquad filter to a sample
+ static double ApplyBiquadFilter(AudioFilterState& state, double input) {
+	 if (!state.initialized) {
+		 // Initialize filter state
+		 state.x1 = 0.0;
+		 state.x2 = 0.0;
+		 state.y1 = 0.0;
+		 state.y2 = 0.0;
+		 state.initialized = true;
+	 }
+	 
+	 // Biquad filter: y[n] = b0*x[n] + b1*x[n-1] + b2*x[n-2] - a1*y[n-1] - a2*y[n-2]
+	 double output = state.b0 * input + state.b1 * state.x1 + state.b2 * state.x2
+		 - state.a1 * state.y1 - state.a2 * state.y2;
+	 
+	 // Update filter state
+	 state.x2 = state.x1;
+	 state.x1 = input;
+	 state.y2 = state.y1;
+	 state.y1 = output;
+	 
+	 return output;
+ }
+
+ // getaudiofiltered([filterType], [cutoff], [q], [filterId]) -> integer
+ // Applies real-time frequency filtering to audio samples.
+ // Parameters: 
+ //   filterType (string, optional, default: "lowpass") - Filter type: "lowpass", "highpass", "bandpass", "notch"
+ //   cutoff (number, optional, default: 1000.0) - Cutoff frequency in Hz (for lowpass/highpass) or center frequency (for bandpass/notch)
+ //   q (number, optional, default: 0.707) - Q factor (quality factor, bandwidth control)
+ //   filterId (integer, optional, default: 0) - Filter instance ID (0-9) for maintaining separate filter states
+ // Returns: Integer (filtered sample value)
+ // Use case: Real-time audio filtering, frequency-based effects, audio processing
+ static int lua_getaudiofiltered(lua_State* L)
+ {
+	 // If audio is disabled, return 0
+	 if (FSettings.SndRate == 0) {
+		 lua_pushinteger(L, 0);
+		 return 1;
+	 }
+	 
+	 // Get current audio sample
+	 int32* buffer = NULL;
+	 int count = GetSoundBuffer(&buffer);
+	 if (count <= 0 || !buffer) {
+		 lua_pushinteger(L, 0);
+		 return 1;
+	 }
+	 
+	 // Get last sample (most recent)
+	 int32 inputSample = buffer[count - 1];
+	 
+	 // Get filter parameters (all optional)
+	 const char* filterTypeStr = luaL_optstring(L, 1, "lowpass");
+	 double cutoff = luaL_optnumber(L, 2, 1000.0);
+	 double q = luaL_optnumber(L, 3, 0.707);
+	 int filterId = (int)luaL_optinteger(L, 4, 0);
+	 
+	 // Validate filter ID
+	 if (filterId < 0 || filterId >= 10) {
+		 filterId = 0;
+	 }
+	 
+	 // Parse filter type
+	 int filterType = 0;  // Default to low-pass
+	 if (strcmp(filterTypeStr, "lowpass") == 0 || strcmp(filterTypeStr, "lp") == 0) {
+		 filterType = 0;
+	 } else if (strcmp(filterTypeStr, "highpass") == 0 || strcmp(filterTypeStr, "hp") == 0) {
+		 filterType = 1;
+	 } else if (strcmp(filterTypeStr, "bandpass") == 0 || strcmp(filterTypeStr, "bp") == 0) {
+		 filterType = 2;
+	 } else if (strcmp(filterTypeStr, "notch") == 0 || strcmp(filterTypeStr, "bandstop") == 0 || strcmp(filterTypeStr, "bs") == 0) {
+		 filterType = 3;
+	 }
+	 
+	 // Validate parameters
+	 if (cutoff < 1.0) cutoff = 1.0;
+	 if (cutoff > FSettings.SndRate / 2.0) cutoff = FSettings.SndRate / 2.0;
+	 if (q < 0.1) q = 0.1;
+	 if (q > 10.0) q = 10.0;
+	 
+	 // Get filter state for this filter ID
+	 AudioFilterState& state = filterStates[filterId];
+	 
+	 // Check if filter needs to be recalculated (first call or parameters changed)
+	 // For simplicity, we'll recalculate on every call (could optimize by caching parameters)
+	 double b0, b1, b2, a1, a2;
+	 CalculateFilterCoefficients(filterType, cutoff, q, (double)FSettings.SndRate, b0, b1, b2, a1, a2);
+	 
+	 // Update filter coefficients
+	 state.b0 = b0;
+	 state.b1 = b1;
+	 state.b2 = b2;
+	 state.a1 = a1;
+	 state.a2 = a2;
+	 
+	 // Normalize input sample to -1.0 to 1.0 range
+	 double normalizedInput = (double)inputSample / 32768.0;
+	 
+	 // Apply filter
+	 double filteredOutput = ApplyBiquadFilter(state, normalizedInput);
+	 
+	 // Convert back to integer sample value
+	 int32 outputSample = (int32)(filteredOutput * 32768.0);
+	 
+	 // Clamp to prevent overflow
+	 if (outputSample > 32767) outputSample = 32767;
+	 if (outputSample < -32768) outputSample = -32768;
+	 
+	 lua_pushinteger(L, outputSample);
+	 return 1;
+ }
+
+ // setaudiofilter(enabled, [filterType], [cutoff], [q]) -> nil
+ // Enables/disables and configures the audio output filter (affects actual audio playback).
+ // Parameters:
+ //   enabled (boolean, required) - Whether to enable the output filter
+ //   filterType (string, optional, default: "lowpass") - Filter type: "lowpass", "highpass", "bandpass", "notch"
+ //   cutoff (number, optional, default: 1000.0) - Cutoff frequency in Hz
+ //   q (number, optional, default: 0.707) - Q factor (quality factor, bandwidth control)
+ // Returns: Nothing
+ // Use case: Real-time audio filtering that affects actual audio output
+ static int lua_setaudiofilter(lua_State* L)
+ {
+	 int n = lua_gettop(L);
+	 if (n < 1) {
+		 return luaL_error(L, "setaudiofilter(enabled, [filterType], [cutoff], [q]) requires at least 1 argument");
+	 }
+	 
+	 bool enabled = lua_toboolean(L, 1) != 0;
+	 
+	 // Get filter parameters (all optional)
+	 const char* filterTypeStr = luaL_optstring(L, 2, "lowpass");
+	 double cutoff = luaL_optnumber(L, 3, 1000.0);
+	 double q = luaL_optnumber(L, 4, 0.707);
+	 
+	 // Parse filter type
+	 int filterType = 0;  // Default to low-pass
+	 if (strcmp(filterTypeStr, "lowpass") == 0 || strcmp(filterTypeStr, "lp") == 0) {
+		 filterType = 0;
+	 } else if (strcmp(filterTypeStr, "highpass") == 0 || strcmp(filterTypeStr, "hp") == 0) {
+		 filterType = 1;
+	 } else if (strcmp(filterTypeStr, "bandpass") == 0 || strcmp(filterTypeStr, "bp") == 0) {
+		 filterType = 2;
+	 } else if (strcmp(filterTypeStr, "notch") == 0 || strcmp(filterTypeStr, "bandstop") == 0 || strcmp(filterTypeStr, "bs") == 0) {
+		 filterType = 3;
+	 }
+	 
+	 // Set the output filter
+	 SetAudioOutputFilter(enabled, filterType, cutoff, q);
+	 
+	 return 0;
+ }
+
+ // getaudiofilter() -> table
+ // Gets the current audio output filter settings.
+ // Returns: Table with filter settings:
+ //   enabled (boolean) - Whether output filter is enabled
+ //   filterType (string) - Current filter type ("lowpass", "highpass", "bandpass", "notch")
+ //   cutoff (number) - Cutoff frequency in Hz
+ //   q (number) - Q factor
+ // Use case: Check current output filter settings
+ static int lua_getaudiofilter(lua_State* L)
+ {
+	 bool enabled;
+	 int filterType;
+	 double cutoff;
+	 double q;
+	 
+	 GetAudioOutputFilter(&enabled, &filterType, &cutoff, &q);
+	 
+	 // Create result table
+	 lua_newtable(L);
+	 
+	 // Add enabled
+	 lua_pushstring(L, "enabled");
+	 lua_pushboolean(L, enabled ? 1 : 0);
+	 lua_settable(L, -3);
+	 
+	 // Add filter type string
+	 const char* filterTypeStr = "lowpass";
+	 switch (filterType) {
+		 case 0: filterTypeStr = "lowpass"; break;
+		 case 1: filterTypeStr = "highpass"; break;
+		 case 2: filterTypeStr = "bandpass"; break;
+		 case 3: filterTypeStr = "notch"; break;
+	 }
+	 lua_pushstring(L, "filterType");
+	 lua_pushstring(L, filterTypeStr);
+	 lua_settable(L, -3);
+	 
+	 // Add cutoff
+	 lua_pushstring(L, "cutoff");
+	 lua_pushnumber(L, cutoff);
+	 lua_settable(L, -3);
+	 
+	 // Add q
+	 lua_pushstring(L, "q");
+	 lua_pushnumber(L, q);
+	 lua_settable(L, -3);
+	 
+	return 1;
+}
+
+// audiosampletofloat(sample) -> number
+// Converts an audio sample (integer) to a normalized float value (-1.0 to 1.0).
+// Parameters: sample (integer) - Audio sample value (typically -32768 to 32767)
+// Returns: Number (float, -1.0 to 1.0)
+// Use case: Normalized audio processing, floating-point calculations
+static int lua_audiosampletofloat(lua_State* L)
+{
+	int n = lua_gettop(L);
+	if (n < 1) {
+		return luaL_error(L, "audiosampletofloat(sample) requires 1 argument");
+	}
+	
+	int32 sample = (int32)luaL_checkinteger(L, 1);
+	
+	// Normalize to -1.0 to 1.0 range (assuming 16-bit range)
+	double normalized = (double)sample / 32768.0;
+	
+	// Clamp to prevent values outside -1.0 to 1.0
+	if (normalized > 1.0) normalized = 1.0;
+	if (normalized < -1.0) normalized = -1.0;
+	
+	lua_pushnumber(L, normalized);
+	return 1;
+}
+
+// floattosample(floatValue) -> integer
+// Converts a normalized float value (-1.0 to 1.0) to an audio sample (integer).
+// Parameters: floatValue (number) - Normalized float value (-1.0 to 1.0)
+// Returns: Integer (audio sample, typically -32768 to 32767)
+// Use case: Converting processed float audio back to integer samples
+static int lua_floattosample(lua_State* L)
+{
+	int n = lua_gettop(L);
+	if (n < 1) {
+		return luaL_error(L, "floattosample(floatValue) requires 1 argument");
+	}
+	
+	double floatValue = luaL_checknumber(L, 1);
+	
+	// Clamp to -1.0 to 1.0 range
+	if (floatValue > 1.0) floatValue = 1.0;
+	if (floatValue < -1.0) floatValue = -1.0;
+	
+	// Convert to 16-bit signed integer
+	int32 sample = (int32)(floatValue * 32768.0);
+	
+	// Clamp to prevent overflow
+	if (sample > 32767) sample = 32767;
+	if (sample < -32768) sample = -32768;
+	
+	lua_pushinteger(L, sample);
+	return 1;
+}
+
+// audiosampletouint8(sample) -> integer
+// Converts an audio sample (signed integer) to 8-bit unsigned (0-255).
+// Parameters: sample (integer) - Audio sample value (typically -32768 to 32767)
+// Returns: Integer (0-255)
+// Use case: 8-bit audio processing, compatibility with 8-bit systems
+static int lua_audiosampletouint8(lua_State* L)
+{
+	int n = lua_gettop(L);
+	if (n < 1) {
+		return luaL_error(L, "audiosampletouint8(sample) requires 1 argument");
+	}
+	
+	int32 sample = (int32)luaL_checkinteger(L, 1);
+	
+	// Convert signed 16-bit to unsigned 8-bit
+	// Shift and add 128 to convert from -128..127 to 0..255
+	uint8 uint8Value = (uint8)((sample >> 8) + 128);
+	
+	lua_pushinteger(L, uint8Value);
+	return 1;
+}
+
+// uint8tosample(uint8Value) -> integer
+// Converts an 8-bit unsigned value (0-255) to an audio sample (signed integer).
+// Parameters: uint8Value (integer) - 8-bit unsigned value (0-255)
+// Returns: Integer (audio sample, -32768 to 32767)
+// Use case: Converting 8-bit audio to 16-bit samples
+static int lua_uint8tosample(lua_State* L)
+{
+	int n = lua_gettop(L);
+	if (n < 1) {
+		return luaL_error(L, "uint8tosample(uint8Value) requires 1 argument");
+	}
+	
+	int uint8Value = (int)luaL_checkinteger(L, 1);
+	
+	// Clamp to 0-255 range
+	if (uint8Value < 0) uint8Value = 0;
+	if (uint8Value > 255) uint8Value = 255;
+	
+	// Convert unsigned 8-bit to signed 16-bit
+	// Subtract 128 to convert from 0..255 to -128..127, then scale to 16-bit
+	int32 sample = ((int32)uint8Value - 128) << 8;
+	
+	lua_pushinteger(L, sample);
+	return 1;
+}
+
+// normalizeaudiosample(sample, maxValue) -> integer
+// Normalizes an audio sample to a specific maximum value range.
+// Parameters: 
+//   sample (integer) - Audio sample value to normalize
+//   maxValue (number, optional, default: 32767) - Maximum value for normalization range
+// Returns: Integer (normalized sample)
+// Use case: Scaling audio samples to different ranges, volume adjustment
+static int lua_normalizeaudiosample(lua_State* L)
+{
+	int n = lua_gettop(L);
+	if (n < 1) {
+		return luaL_error(L, "normalizeaudiosample(sample, [maxValue]) requires at least 1 argument");
+	}
+	
+	int32 sample = (int32)luaL_checkinteger(L, 1);
+	double maxValue = luaL_optnumber(L, 2, 32767.0);
+	
+	if (maxValue <= 0.0) {
+		return luaL_error(L, "normalizeaudiosample: maxValue must be positive");
+	}
+	
+	// Normalize to -1.0 to 1.0, then scale to new range
+	double normalized = (double)sample / 32768.0;
+	if (normalized > 1.0) normalized = 1.0;
+	if (normalized < -1.0) normalized = -1.0;
+	
+	int32 normalizedSample = (int32)(normalized * maxValue);
+	
+	// Clamp to prevent overflow
+	if (normalizedSample > (int32)maxValue) normalizedSample = (int32)maxValue;
+	if (normalizedSample < -(int32)maxValue) normalizedSample = -(int32)maxValue;
+	
+	lua_pushinteger(L, normalizedSample);
+	return 1;
+}
+
+// monotostereo(monoSample) -> table
+// Converts a mono audio sample to stereo (duplicates to left and right channels).
+// Parameters: monoSample (integer) - Mono audio sample value
+// Returns: Table {left, right} - Both channels contain the same sample value
+// Use case: Converting mono audio to stereo format
+static int lua_monotostereo(lua_State* L)
+{
+	int n = lua_gettop(L);
+	if (n < 1) {
+		return luaL_error(L, "monotostereo(monoSample) requires 1 argument");
+	}
+	
+	int32 monoSample = (int32)luaL_checkinteger(L, 1);
+	
+	// Create result table with left and right channels (both same value)
+	lua_newtable(L);
+	
+	lua_pushstring(L, "left");
+	lua_pushinteger(L, monoSample);
+	lua_settable(L, -3);
+	
+	lua_pushstring(L, "right");
+	lua_pushinteger(L, monoSample);
+	lua_settable(L, -3);
+	
+	return 1;
+}
+
+// stereotomono(leftSample, rightSample) -> integer
+// Converts stereo audio samples (left and right) to mono by averaging.
+// Parameters:
+//   leftSample (integer) - Left channel audio sample
+//   rightSample (integer) - Right channel audio sample
+// Returns: Integer (mono audio sample, average of left and right)
+// Use case: Converting stereo audio to mono, downmixing
+static int lua_stereotomono(lua_State* L)
+{
+	int n = lua_gettop(L);
+	if (n < 2) {
+		return luaL_error(L, "stereotomono(leftSample, rightSample) requires 2 arguments");
+	}
+	
+	int32 leftSample = (int32)luaL_checkinteger(L, 1);
+	int32 rightSample = (int32)luaL_checkinteger(L, 2);
+	
+	// Average left and right channels
+	int32 monoSample = (leftSample + rightSample) / 2;
+	
+	lua_pushinteger(L, monoSample);
+	return 1;
+}
+
+// getcolorrgb(paletteIndex) -> table
  // Gets RGB values for a palette color
  // Parameters: paletteIndex (0-63)
  // Returns: Table {r, g, b} (0-255 each)
@@ -6809,6 +7665,19 @@ int lua_ismemorywritable(lua_State *L) {
 	 lua_register(luaState, "getaudiosampleleft", lua_getaudiosampleleft);
 	 lua_register(luaState, "getaudiosampleright", lua_getaudiosampleright);
 	 lua_register(luaState, "getaudiochannel", lua_getaudiochannel);
+	 lua_register(luaState, "getaudiochannelsample", lua_getaudiochannelsample);
+	 lua_register(luaState, "getaudiofft", lua_getaudiofft);
+	 lua_register(luaState, "getaudiochannelfft", lua_getaudiochannelfft);
+	 lua_register(luaState, "getaudiofiltered", lua_getaudiofiltered);
+	 lua_register(luaState, "setaudiofilter", lua_setaudiofilter);
+	 lua_register(luaState, "getaudiofilter", lua_getaudiofilter);
+	 lua_register(luaState, "audiosampletofloat", lua_audiosampletofloat);
+	 lua_register(luaState, "floattosample", lua_floattosample);
+	 lua_register(luaState, "audiosampletouint8", lua_audiosampletouint8);
+	 lua_register(luaState, "uint8tosample", lua_uint8tosample);
+	 lua_register(luaState, "normalizeaudiosample", lua_normalizeaudiosample);
+	 lua_register(luaState, "monotostereo", lua_monotostereo);
+	 lua_register(luaState, "stereotomono", lua_stereotomono);
 	 lua_register(luaState, "getcolorrgb", lua_getcolorrgb);
 	 lua_register(luaState, "getpalettecolor", lua_getpalettecolor);
 	 lua_register(luaState, "setpalettecolor", lua_setpalettecolor);
@@ -6960,6 +7829,19 @@ static void EnsureLuaInit() {
 	REG("getaudiosampleleft", lua_getaudiosampleleft);
 	REG("getaudiosampleright", lua_getaudiosampleright);
 	REG("getaudiochannel", lua_getaudiochannel);
+	REG("getaudiochannelsample", lua_getaudiochannelsample);
+	REG("getaudiofft", lua_getaudiofft);
+	REG("getaudiochannelfft", lua_getaudiochannelfft);
+	REG("getaudiofiltered", lua_getaudiofiltered);
+	REG("setaudiofilter", lua_setaudiofilter);
+	REG("getaudiofilter", lua_getaudiofilter);
+	REG("audiosampletofloat", lua_audiosampletofloat);
+	REG("floattosample", lua_floattosample);
+	REG("audiosampletouint8", lua_audiosampletouint8);
+	REG("uint8tosample", lua_uint8tosample);
+	REG("normalizeaudiosample", lua_normalizeaudiosample);
+	REG("monotostereo", lua_monotostereo);
+	REG("stereotomono", lua_stereotomono);
 	REG("getcolorrgb", lua_getcolorrgb);
 	REG("getpalettecolor", lua_getpalettecolor);
 	REG("setpalettecolor", lua_setpalettecolor);
@@ -8093,6 +8975,9 @@ void FCEU_ReloadLuaCode(void) {
 		 return;
 	 }
 	 
+	 // Check for audio events and trigger callbacks
+	 FCEU_LuaCheckAudioEvents();
+	 
 	 // Update FPS
 	 DWORD currentTime = GetTickCount();
 	 frameCount++;
@@ -8428,8 +9313,20 @@ void FCEU_ReloadLuaCode(void) {
 	 }
  }
  
+ // Audio event callback system - static variables
+ static uint8 lastEnabledChannels = 0;
+ 
  // Stop Lua
  void FCEU_LuaStop() {
+	 // Reset filter states
+	 for (int i = 0; i < 10; i++) {
+		 filterStates[i].initialized = false;
+		 filterStates[i].x1 = 0.0;
+		 filterStates[i].x2 = 0.0;
+		 filterStates[i].y1 = 0.0;
+		 filterStates[i].y2 = 0.0;
+	 }
+	 
 	 if (luaState != NULL) {
 		 lua_close(luaState);
 		 luaState = NULL;
@@ -8437,6 +9334,7 @@ void FCEU_ReloadLuaCode(void) {
 	 luaInitialized = false;
 	 ClearOverlaysIfAny();
 	 s_watchedAddresses.clear();  // Clear all watchpoints
+	 lastEnabledChannels = 0;  // Reset audio event tracking
 	 printf("FCEU_LuaStop: Lua state closed and overlays cleared\n");
  }
  
@@ -8444,6 +9342,63 @@ void FCEU_ReloadLuaCode(void) {
  void CallRegisteredLuaFunctions(LUACALL callID) {
 	 // Not implemented yet - can be extended for more callbacks
 	 (void)callID;
+ }
+ 
+ // Call audio event callbacks from Lua
+ void FCEU_LuaAudioEvent(const char* eventName, int channel, bool enabled) {
+	 if (!luaInitialized || luaState == NULL) {
+		 return;
+	 }
+	 
+	 // Call the callback function if it exists
+	 lua_getglobal(luaState, eventName);
+	 if (lua_isfunction(luaState, -1)) {
+		 lua_pushinteger(luaState, channel);
+		 lua_pushboolean(luaState, enabled ? 1 : 0);
+		 if (lua_pcall(luaState, 2, 0, 0) != 0) {
+			 // Error occurred - log it but don't crash
+			 const char* err = lua_tostring(luaState, -1);
+			 if (err) {
+				 printf("LUA AUDIO EVENT ERROR: %s\n", err);
+			 }
+			 lua_pop(luaState, 1);
+		 }
+	 } else {
+		 lua_pop(luaState, 1);
+	 }
+ }
+ 
+ // Check for audio channel state changes and trigger callbacks
+ void FCEU_LuaCheckAudioEvents(void) {
+	 if (!luaInitialized || luaState == NULL || FSettings.SndRate == 0) {
+		 return;
+	 }
+	 
+	 // Check for channel enable/disable changes
+	 uint8 currentChannels = EnabledChannels;
+	 if (currentChannels != lastEnabledChannels) {
+		 // Check each channel for changes
+		 for (int channel = 0; channel < 5; channel++) {
+			 bool wasEnabled = false;
+			 bool isEnabled = false;
+			 
+			 if (channel < 4) {
+				 wasEnabled = (lastEnabledChannels & (1 << channel)) != 0;
+				 isEnabled = (currentChannels & (1 << channel)) != 0;
+			 } else {
+				 // DMC channel (bit 4)
+				 wasEnabled = (lastEnabledChannels & 0x10) != 0;
+				 isEnabled = (currentChannels & 0x10) != 0;
+			 }
+			 
+			 // If state changed, trigger callback
+			 if (wasEnabled != isEnabled) {
+				 FCEU_LuaAudioEvent("onaudiochannelchange", channel, isEnabled);
+			 }
+		 }
+		 
+		 lastEnabledChannels = currentChannels;
+	 }
  }
  
  // Memory hook callback

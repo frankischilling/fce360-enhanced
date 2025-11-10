@@ -56,6 +56,7 @@ void FCEU_LuaStop(void);
 void CallRegisteredLuaFunctions(LUACALL callID);
 void CallRegisteredLuaMemHook(unsigned int address, int size, uint8 value, LUAMEMHOOK hookType);
 uint32 FCEU_LuaReadJoypad(int n, uint32 ret);
+void FCEU_LuaCheckAudioEvents(void);  // Check and trigger audio event callbacks
 
 #ifdef __cplusplus
 extern "C" {

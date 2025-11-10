@@ -69,6 +69,9 @@ extern uint8 DMCFormat;
 extern uint8 DMCAddressLatch;
 extern uint8 DMCSizeLatch;
 extern uint8 RawDALatch;
+extern int32 ChannelLastSample[5];  // Last sample from each channel (0=Pulse1, 1=Pulse2, 2=Triangle, 3=Noise, 4=DMC)
+extern int32 ChannelSampleBuffer[5][512];  // Circular buffer of recent samples for each channel (for FFT)
+extern int ChannelSampleBufferIndex[5];  // Current write index for each channel buffer
 
 void SetNESSoundMap(void);
 void FrameSoundUpdate(void);
@@ -82,5 +85,9 @@ void FCEU_SoundCPUHook(int);
 void Write_IRQFM (uint32 A, uint8 V); //mbg merge 7/17/06 brought over from latest mmbuild
 
 void LogDPCM(int romaddress, int dpcmsize);
+
+// Audio output filter control (for Lua API)
+void SetAudioOutputFilter(bool enabled, int filterType, double cutoff, double q);
+void GetAudioOutputFilter(bool* enabled, int* filterType, double* cutoff, double* q);
 
 #endif

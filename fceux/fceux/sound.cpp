@@ -20,6 +20,7 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <math.h>
 
 #include <string.h>
 
@@ -54,6 +55,171 @@ uint8 PSG[0x10];  // Exposed for Lua API
 uint8 RawDALatch=0;  // Exposed for Lua API
 
 uint8 EnabledChannels=0;		/* Byte written to $4015 */
+
+// Channel-specific sample tracking for Lua API
+int32 ChannelLastSample[5] = {0, 0, 0, 0, 0};  // Last sample from each channel
+int32 ChannelSampleBuffer[5][512];  // Circular buffer for FFT (512 samples per channel)
+int ChannelSampleBufferIndex[5] = {0, 0, 0, 0, 0};  // Write index for each buffer
+
+// Initialize channel sample buffers to zero
+static void InitChannelSampleBuffers(void) {
+    memset(ChannelSampleBuffer, 0, sizeof(ChannelSampleBuffer));
+}
+
+// Real-time audio output filtering - filter state for output
+struct AudioOutputFilterState {
+	double x1, x2;  // Previous input samples
+	double y1, y2;  // Previous output samples
+	double b0, b1, b2;  // Numerator coefficients
+	double a1, a2;  // Denominator coefficients
+	bool initialized;
+	bool enabled;
+	int filterType;  // 0=lowpass, 1=highpass, 2=bandpass, 3=notch
+	double cutoff;
+	double q;
+};
+
+static AudioOutputFilterState outputFilterState = {0, 0, 0, 0, 0, 0, 0, 0, false, false, 0, 1000.0, 0.707};
+
+// Calculate biquad filter coefficients for output filtering
+static void CalculateOutputFilterCoefficients(int filterType, double cutoff, double q, double sampleRate, 
+	double& b0, double& b1, double& b2, double& a1, double& a2) {
+	double w0 = 2.0 * 3.14159265358979323846 * cutoff / sampleRate;
+	double cosw0 = cos(w0);
+	double sinw0 = sin(w0);
+	double alpha = sinw0 / (2.0 * q);
+	double a0 = 1.0 + alpha;
+	
+	switch (filterType) {
+		case 0: // Low-pass
+			b0 = (1.0 - cosw0) / (2.0 * a0);
+			b1 = (1.0 - cosw0) / a0;
+			b2 = (1.0 - cosw0) / (2.0 * a0);
+			a1 = -2.0 * cosw0 / a0;
+			a2 = (1.0 - alpha) / a0;
+			break;
+		case 1: // High-pass
+			b0 = (1.0 + cosw0) / (2.0 * a0);
+			b1 = -(1.0 + cosw0) / a0;
+			b2 = (1.0 + cosw0) / (2.0 * a0);
+			a1 = -2.0 * cosw0 / a0;
+			a2 = (1.0 - alpha) / a0;
+			break;
+		case 2: // Band-pass
+			b0 = sinw0 / (2.0 * a0);
+			b1 = 0.0;
+			b2 = -sinw0 / (2.0 * a0);
+			a1 = -2.0 * cosw0 / a0;
+			a2 = (1.0 - alpha) / a0;
+			break;
+		case 3: // Notch (band-stop)
+			b0 = 1.0 / a0;
+			b1 = -2.0 * cosw0 / a0;
+			b2 = 1.0 / a0;
+			a1 = -2.0 * cosw0 / a0;
+			a2 = (1.0 - alpha) / a0;
+			break;
+		default:
+			b0 = (1.0 - cosw0) / (2.0 * a0);
+			b1 = (1.0 - cosw0) / a0;
+			b2 = (1.0 - cosw0) / (2.0 * a0);
+			a1 = -2.0 * cosw0 / a0;
+			a2 = (1.0 - alpha) / a0;
+			break;
+	}
+	
+	// Normalize coefficients
+	b0 /= a0;
+	b1 /= a0;
+	b2 /= a0;
+	a1 /= a0;
+	a2 /= a0;
+}
+
+// Apply biquad filter to output sample
+static double ApplyOutputBiquadFilter(AudioOutputFilterState& state, double input) {
+	if (!state.initialized) {
+		state.x1 = 0.0;
+		state.x2 = 0.0;
+		state.y1 = 0.0;
+		state.y2 = 0.0;
+		state.initialized = true;
+	}
+	
+	double output = state.b0 * input + state.b1 * state.x1 + state.b2 * state.x2
+		- state.a1 * state.y1 - state.a2 * state.y2;
+	
+	state.x2 = state.x1;
+	state.x1 = input;
+	state.y2 = state.y1;
+	state.y1 = output;
+	
+	return output;
+}
+
+// Apply filter to audio output buffer
+static void ApplyOutputFilter(int32* buffer, int count) {
+	if (!outputFilterState.enabled || count <= 0 || !buffer) {
+		return;
+	}
+	
+	// Update filter coefficients if parameters changed
+	if (FSettings.SndRate > 0) {
+		double b0, b1, b2, a1, a2;
+		CalculateOutputFilterCoefficients(outputFilterState.filterType, 
+			outputFilterState.cutoff, outputFilterState.q, 
+			(double)FSettings.SndRate, b0, b1, b2, a1, a2);
+		
+		outputFilterState.b0 = b0;
+		outputFilterState.b1 = b1;
+		outputFilterState.b2 = b2;
+		outputFilterState.a1 = a1;
+		outputFilterState.a2 = a2;
+	}
+	
+	// Apply filter to each sample
+	for (int i = 0; i < count; i++) {
+		double normalizedInput = (double)buffer[i] / 32768.0;
+		double filteredOutput = ApplyOutputBiquadFilter(outputFilterState, normalizedInput);
+		int32 outputSample = (int32)(filteredOutput * 32768.0);
+		
+		// Clamp to prevent overflow
+		if (outputSample > 32767) outputSample = 32767;
+		if (outputSample < -32768) outputSample = -32768;
+		
+		buffer[i] = outputSample;
+	}
+}
+
+// Set audio output filter (called from Lua)
+void SetAudioOutputFilter(bool enabled, int filterType, double cutoff, double q) {
+	outputFilterState.enabled = enabled;
+	outputFilterState.filterType = filterType;
+	
+	// Validate and clamp parameters
+	if (cutoff < 1.0) cutoff = 1.0;
+	if (FSettings.SndRate > 0 && cutoff > FSettings.SndRate / 2.0) {
+		cutoff = FSettings.SndRate / 2.0;
+	}
+	if (q < 0.1) q = 0.1;
+	if (q > 10.0) q = 10.0;
+	
+	outputFilterState.cutoff = cutoff;
+	outputFilterState.q = q;
+	
+	// Reset filter state when changing parameters
+	if (enabled) {
+		outputFilterState.initialized = false;
+	}
+}
+
+// Get audio output filter settings (called from Lua)
+void GetAudioOutputFilter(bool* enabled, int* filterType, double* cutoff, double* q) {
+	if (enabled) *enabled = outputFilterState.enabled;
+	if (filterType) *filterType = outputFilterState.filterType;
+	if (cutoff) *cutoff = outputFilterState.cutoff;
+	if (q) *q = outputFilterState.q;
+}
 
 typedef struct {
 	uint8 Speed;
@@ -593,6 +759,15 @@ void RDoPCM(void)
 
  for(V=ChannelBC[4];V<SOUNDTS;V++)
   WaveHi[V]+=(((RawDALatch<<16)/256) * FSettings.PCMVolume)&(~0xFFFF); // TODO get rid of floating calculations to binary. set log volume scaling. 
+  
+ // Track last sample for Lua API
+ int32 dmcSample = (((RawDALatch<<16)/256) * FSettings.PCMVolume)&(~0xFFFF);
+ ChannelLastSample[4] = dmcSample >> 8;  // Representative sample (scaled down)
+ 
+ // Update circular buffer for FFT
+ ChannelSampleBuffer[4][ChannelSampleBufferIndex[4]] = ChannelLastSample[4];
+ ChannelSampleBufferIndex[4] = (ChannelSampleBufferIndex[4] + 1) % 512;
+ 
  ChannelBC[4]=SOUNDTS;
 }
 
@@ -651,6 +826,24 @@ static INLINE void RDoSQ(int x)		//Int x decides if this is Square Wave 1 or 2
   
    RectDutyCount[x]=currdc;
    wlcount[x]=rc;
+
+   // Track last sample for Lua API (compute representative sample)
+   if(curfreq[x]>=8 && curfreq[x]<=0x7ff && CheckFreq(curfreq[x],PSG[(x<<2)|0x1]) && lengthcount[x])
+   {
+    int32 sampleAmp = (EnvUnits[x].Mode&0x1) ? EnvUnits[x].Speed : EnvUnits[x].decvolume;
+    int32 sampleAmpX = x ? FSettings.Square2Volume : FSettings.Square1Volume;
+    if (sampleAmpX != 256) sampleAmp = (sampleAmp * sampleAmpX) / 256;
+    int32 sampleRthresh=RectDuties[(PSG[(x<<2)]&0xC0)>>6];
+    ChannelLastSample[x] = (currdc < sampleRthresh) ? (sampleAmp << 8) : 0;  // Representative sample (scaled down from 24-bit)
+   }
+   else
+   {
+    ChannelLastSample[x] = 0;
+   }
+   
+   // Update circular buffer for FFT (store one sample per frame)
+   ChannelSampleBuffer[x][ChannelSampleBufferIndex[x]] = ChannelLastSample[x];
+   ChannelSampleBufferIndex[x] = (ChannelSampleBufferIndex[x] + 1) % 512;
 
    endit:
    ChannelBC[x]=SOUNDTS;
@@ -802,6 +995,24 @@ static void RDoTriangle(void)
      tcout=(tcout*3) << 16;
     }
   }
+
+ // Track last sample for Lua API
+ tcout=(tristep&0xF);
+ if(!(tristep&0x10)) tcout^=0xF;
+ tcout=(tcout*3) << 16;
+ if(!lengthcount[2] || !TriCount)
+ {
+  ChannelLastSample[2] = 0;  // Triangle muted
+ }
+ else
+ {
+  int32 triSample = (tcout/256*FSettings.TriangleVolume)&(~0xFFFF);
+  ChannelLastSample[2] = triSample >> 8;  // Representative sample (scaled down)
+ }
+ 
+ // Update circular buffer for FFT
+ ChannelSampleBuffer[2][ChannelSampleBufferIndex[2]] = ChannelLastSample[2];
+ ChannelSampleBufferIndex[2] = (ChannelSampleBufferIndex[2] + 1) % 512;
 
  ChannelBC[2]=SOUNDTS;
 }
@@ -1000,6 +1211,14 @@ static void RDoNoise(void)
     outo=amptab[(nreg>>0xe)&1];
    }
   }
+  
+ // Track last sample for Lua API
+ ChannelLastSample[3] = outo >> 8;  // Representative sample (scaled down from 16-bit)
+ 
+ // Update circular buffer for FFT
+ ChannelSampleBuffer[3][ChannelSampleBufferIndex[3]] = ChannelLastSample[3];
+ ChannelSampleBufferIndex[3] = (ChannelSampleBufferIndex[3] + 1) % 512;
+ 
  ChannelBC[3]=SOUNDTS;
 }
 
@@ -1097,6 +1316,11 @@ int FlushEmulateSound(void)
   }
   inbuf=end;
 
+  // Apply output filter if enabled (before sending to audio output)
+  if (outputFilterState.enabled && end > 0) {
+	  ApplyOutputFilter(WaveFinal, end);
+  }
+
   FCEU_WriteWaveData(WaveFinal, end); /* This function will just return
 				    if sound recording is off. */
   return(end);
@@ -1115,6 +1339,13 @@ due to that whole MegaMan 2 Game Genie thing.
 void FCEUSND_Reset(void)
 {
 	int x;
+	
+	// Reset output filter state
+	outputFilterState.initialized = false;
+	outputFilterState.x1 = 0.0;
+	outputFilterState.x2 = 0.0;
+	outputFilterState.y1 = 0.0;
+	outputFilterState.y2 = 0.0;
 	
 	IRQFrameMode=0x0;
 	fhcnt=fhinc;
@@ -1203,6 +1434,7 @@ void FCEUSND_Power(void)
 	memset(Wave,0,sizeof(Wave));
         memset(WaveHi,0,sizeof(WaveHi));
 	memset(&EnvUnits,0,sizeof(EnvUnits));
+	InitChannelSampleBuffers();  // Initialize channel sample buffers for FFT
 
         for(x=0;x<5;x++)
          ChannelBC[x]=0;
