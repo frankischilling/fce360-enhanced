@@ -32,6 +32,7 @@
 #include "drawing.h"
 #include "video.h"
 #include "driver.h"
+#include "state.h"
 #include "ppu.h"
 #include "git.h"
 #include "cart.h"
@@ -76,6 +77,18 @@ extern struct GAMEPAD {
 } Gamepads[];
 #define XINPUT_GAMEPAD_DPAD_UP    0x0001
 #define XINPUT_GAMEPAD_DPAD_DOWN  0x0002
+#define XINPUT_GAMEPAD_DPAD_LEFT  0x0004
+#define XINPUT_GAMEPAD_DPAD_RIGHT 0x0008
+#define XINPUT_GAMEPAD_A          0x1000
+#define XINPUT_GAMEPAD_B          0x2000
+#define XINPUT_GAMEPAD_X          0x4000
+#define XINPUT_GAMEPAD_Y          0x8000
+#define XINPUT_GAMEPAD_LEFT_SHOULDER  0x0100
+#define XINPUT_GAMEPAD_RIGHT_SHOULDER 0x0200
+#define XINPUT_GAMEPAD_LEFT_THUMB     0x0040
+#define XINPUT_GAMEPAD_RIGHT_THUMB    0x0080
+#define XINPUT_GAMEPAD_START          0x0010
+#define XINPUT_GAMEPAD_BACK           0x0020
 
 // Minimal Lua API forward declarations (avoid changing symbol mappings)
 extern "C" {
@@ -1035,6 +1048,81 @@ static void DrawLuaConsole(uint8* buf) {
 	 
 	 // Return hardware button state (before Lua override)
 	 lua_pushinteger(L, (int)s_hardwareJoypad[player]);
+	 return 1;
+ }
+ 
+ // isxboxbuttonpressed(player, button) -> boolean
+ // Checks if a specific Xbox 360 controller button is pressed
+ // Button names: "A", "B", "X", "Y", "START", "BACK", "LEFT_SHOULDER", "RIGHT_SHOULDER", "LEFT_THUMB", "RIGHT_THUMB", "DPAD_UP", "DPAD_DOWN", "DPAD_LEFT", "DPAD_RIGHT" (case-insensitive)
+ static int lua_isxboxbuttonpressed(lua_State* L)
+ {
+	 int player = (int)luaL_checkinteger(L, 1);
+	 const char* buttonName = luaL_checkstring(L, 2);
+	 
+	 // Validate player number (0-3)
+	 if (player < 0 || player > 3) {
+		 return luaL_error(L, "isxboxbuttonpressed: player must be 0-3 (0=Player 1, 1=Player 2, 2=Player 3, 3=Player 4)");
+	 }
+	 
+	 if (!buttonName || !buttonName[0]) {
+		 return luaL_error(L, "isxboxbuttonpressed: button name cannot be empty");
+	 }
+	 
+	 // Get current Xbox 360 controller button state
+	 WORD buttons = Gamepads[player].wButtons;
+	 
+	 // Map button name to XINPUT bitmask (case-insensitive)
+	 WORD buttonMask = 0;
+	 
+	 // Convert to uppercase for case-insensitive comparison
+	 char upperButton[32];
+	 int i = 0;
+	 for (; buttonName[i] && i < 31; ++i) {
+		 char c = buttonName[i];
+		 if (c >= 'a' && c <= 'z') {
+			 upperButton[i] = c - 'a' + 'A';
+		 } else {
+			 upperButton[i] = c;
+		 }
+	 }
+	 upperButton[i] = '\0';
+	 
+	 // Map button name to XINPUT bitmask
+	 if (strcmp(upperButton, "A") == 0) {
+		 buttonMask = XINPUT_GAMEPAD_A;
+	 } else if (strcmp(upperButton, "B") == 0) {
+		 buttonMask = XINPUT_GAMEPAD_B;
+	 } else if (strcmp(upperButton, "X") == 0) {
+		 buttonMask = XINPUT_GAMEPAD_X;
+	 } else if (strcmp(upperButton, "Y") == 0) {
+		 buttonMask = XINPUT_GAMEPAD_Y;
+	 } else if (strcmp(upperButton, "START") == 0) {
+		 buttonMask = XINPUT_GAMEPAD_START;
+	 } else if (strcmp(upperButton, "BACK") == 0) {
+		 buttonMask = XINPUT_GAMEPAD_BACK;
+	 } else if (strcmp(upperButton, "LEFT_SHOULDER") == 0 || strcmp(upperButton, "LB") == 0) {
+		 buttonMask = XINPUT_GAMEPAD_LEFT_SHOULDER;
+	 } else if (strcmp(upperButton, "RIGHT_SHOULDER") == 0 || strcmp(upperButton, "RB") == 0) {
+		 buttonMask = XINPUT_GAMEPAD_RIGHT_SHOULDER;
+	 } else if (strcmp(upperButton, "LEFT_THUMB") == 0 || strcmp(upperButton, "LS") == 0) {
+		 buttonMask = XINPUT_GAMEPAD_LEFT_THUMB;
+	 } else if (strcmp(upperButton, "RIGHT_THUMB") == 0 || strcmp(upperButton, "RS") == 0) {
+		 buttonMask = XINPUT_GAMEPAD_RIGHT_THUMB;
+	 } else if (strcmp(upperButton, "DPAD_UP") == 0 || strcmp(upperButton, "UP") == 0) {
+		 buttonMask = XINPUT_GAMEPAD_DPAD_UP;
+	 } else if (strcmp(upperButton, "DPAD_DOWN") == 0 || strcmp(upperButton, "DOWN") == 0) {
+		 buttonMask = XINPUT_GAMEPAD_DPAD_DOWN;
+	 } else if (strcmp(upperButton, "DPAD_LEFT") == 0 || strcmp(upperButton, "LEFT") == 0) {
+		 buttonMask = XINPUT_GAMEPAD_DPAD_LEFT;
+	 } else if (strcmp(upperButton, "DPAD_RIGHT") == 0 || strcmp(upperButton, "RIGHT") == 0) {
+		 buttonMask = XINPUT_GAMEPAD_DPAD_RIGHT;
+	 } else {
+		 return luaL_error(L, "isxboxbuttonpressed: invalid button name '%s'. Valid buttons: A, B, X, Y, START, BACK, LEFT_SHOULDER, RIGHT_SHOULDER, LEFT_THUMB, RIGHT_THUMB, DPAD_UP, DPAD_DOWN, DPAD_LEFT, DPAD_RIGHT", buttonName);
+	 }
+	 
+	 // Check if button is pressed (bit is set)
+	 bool isPressed = (buttons & buttonMask) != 0;
+	 lua_pushboolean(L, isPressed ? 1 : 0);
 	 return 1;
  }
  
@@ -3560,6 +3648,326 @@ int lua_screenshot(lua_State *L) {
 	}
 }
 
+// Lua function - saves state to slot
+int lua_savestate(lua_State *L) {
+	int n = lua_gettop(L);
+	int slot = 0;
+	
+	// Get slot parameter (optional, default 0)
+	if (n >= 1 && !lua_isnil(L, 1)) {
+		slot = (int)luaL_checkinteger(L, 1);
+	}
+	
+	// Validate slot range (0-9)
+	if (slot < 0 || slot > 9) {
+		return luaL_error(L, "savestate(slot) failed: slot must be 0-9, got %d", slot);
+	}
+	
+	// Generate filename for state slot
+	extern std::string FCEU_MakeFName(int type, int id1, const char *cd1);
+	std::string stateFilename = FCEU_MakeFName(1, slot, 0);  // 1 = FCEUMKF_STATE
+	
+	// Check if game is loaded (required for save states)
+	extern FCEUGI *GameInfo;
+	if (!GameInfo) {
+		return luaL_error(L, "savestate(slot) failed: no game loaded");
+	}
+	
+	// Ensure state directory exists (extract directory from path)
+	size_t lastSlash = stateFilename.find_last_of("\\/");
+	if (lastSlash != std::string::npos) {
+		std::string stateDir = stateFilename.substr(0, lastSlash);
+		// Normalize path separators for Windows
+		for (size_t i = 0; i < stateDir.length(); i++) {
+			if (stateDir[i] == '/') {
+				stateDir[i] = '\\';
+			}
+		}
+		// Remove trailing backslash for CreateDirectoryA
+		if (stateDir.length() > 0 && (stateDir[stateDir.length() - 1] == '\\' || stateDir[stateDir.length() - 1] == '/')) {
+			stateDir = stateDir.substr(0, stateDir.length() - 1);
+		}
+		// Create directory if it doesn't exist
+		CreateDirectoryA(stateDir.c_str(), NULL);
+	}
+	
+	// Save state directly using FCEUSS_Save (bypasses UI validation)
+	extern void FCEUSS_Save(const char *fname);
+	FCEUSS_Save(stateFilename.c_str());
+	
+	// Verify save succeeded by checking if file exists and has content
+	extern bool file_exists(const char * filename);
+	bool success = false;
+	if (file_exists(stateFilename.c_str())) {
+		// Check if file has content (savestates should be at least a few KB)
+		FILE *fp = fopen(stateFilename.c_str(), "rb");
+		if (fp) {
+			fseek(fp, 0, SEEK_END);
+			long size = ftell(fp);
+			fclose(fp);
+			success = (size > 100);  // Savestates should be at least 100 bytes
+			if (!success) {
+				printf("savestate() failed: file exists but is too small (%ld bytes) at '%s'\n", size, stateFilename.c_str());
+			}
+		} else {
+			printf("savestate() failed: cannot open file for verification at '%s'\n", stateFilename.c_str());
+		}
+	} else {
+		printf("savestate() failed: file not created at '%s'\n", stateFilename.c_str());
+	}
+	
+	lua_pushboolean(L, success ? 1 : 0);
+	return 1;
+}
+
+// Lua function - loads state from slot
+int lua_loadstate(lua_State *L) {
+	int n = lua_gettop(L);
+	int slot = 0;
+	
+	// Get slot parameter (optional, default 0)
+	if (n >= 1 && !lua_isnil(L, 1)) {
+		slot = (int)luaL_checkinteger(L, 1);
+	}
+	
+	// Validate slot range (0-9)
+	if (slot < 0 || slot > 9) {
+		return luaL_error(L, "loadstate(slot) failed: slot must be 0-9, got %d", slot);
+	}
+	
+	// Generate filename for state slot
+	extern std::string FCEU_MakeFName(int type, int id1, const char *cd1);
+	std::string stateFilename = FCEU_MakeFName(1, slot, 0);  // 1 = FCEUMKF_STATE
+	
+	// Check if game is loaded (required for load states)
+	extern FCEUGI *GameInfo;
+	if (!GameInfo) {
+		return luaL_error(L, "loadstate(slot) failed: no game loaded");
+	}
+	
+	// Check if state file exists
+	extern bool file_exists(const char * filename);
+	if (!file_exists(stateFilename.c_str())) {
+		// State file doesn't exist
+		lua_pushboolean(L, 0);
+		return 1;
+	}
+	
+	// Load state (FCEUSS_Load returns bool)
+	extern bool FCEUSS_Load(const char *fname);
+	bool success = FCEUSS_Load(stateFilename.c_str());
+	
+	lua_pushboolean(L, success ? 1 : 0);
+	return 1;
+}
+
+// Lua function - checks if save state exists in slot
+int lua_hasstate(lua_State *L) {
+	int n = lua_gettop(L);
+	int slot = 0;
+	
+	// Get slot parameter (optional, default 0)
+	if (n >= 1 && !lua_isnil(L, 1)) {
+		slot = (int)luaL_checkinteger(L, 1);
+	}
+	
+	// Validate slot range (0-9)
+	if (slot < 0 || slot > 9) {
+		return luaL_error(L, "hasstate(slot) failed: slot must be 0-9, got %d", slot);
+	}
+	
+	// Generate filename for state slot
+	extern std::string FCEU_MakeFName(int type, int id1, const char *cd1);
+	std::string stateFilename = FCEU_MakeFName(1, slot, 0);  // 1 = FCEUMKF_STATE
+	
+	// Check if state file exists
+	extern bool file_exists(const char * filename);
+	bool exists = file_exists(stateFilename.c_str());
+	
+	lua_pushboolean(L, exists ? 1 : 0);
+	return 1;
+}
+
+// Lua function - saves state to custom filename
+int lua_savestatefile(lua_State *L) {
+	int n = lua_gettop(L);
+	
+	// Get filename parameter (required)
+	if (n < 1 || lua_isnil(L, 1)) {
+		return luaL_error(L, "savestatefile(filename) failed: filename is required");
+	}
+	
+	const char* customFilename = luaL_checkstring(L, 1);
+	if (!customFilename || strlen(customFilename) == 0) {
+		return luaL_error(L, "savestatefile(filename) failed: filename cannot be empty");
+	}
+	
+	// Check if game is loaded (required for save states)
+	extern FCEUGI *GameInfo;
+	if (!GameInfo) {
+		return luaL_error(L, "savestatefile(filename) failed: no game loaded");
+	}
+	
+	// Get state directory (same as savestate uses)
+	extern std::string FCEU_MakeFName(int type, int id1, const char *cd1);
+	std::string tempStatePath = FCEU_MakeFName(1, 0, 0);  // 1 = FCEUMKF_STATE, use slot 0 to get directory
+	size_t lastSlash = tempStatePath.find_last_of("\\/");
+	std::string stateDir;
+	if (lastSlash != std::string::npos) {
+		stateDir = tempStatePath.substr(0, lastSlash);
+	} else {
+		// Fallback to game:\states if path extraction fails
+		stateDir = "game:\\states";
+	}
+	
+	// Normalize path separators for Windows
+	for (size_t i = 0; i < stateDir.length(); i++) {
+		if (stateDir[i] == '/') {
+			stateDir[i] = '\\';
+		}
+	}
+	// Remove trailing backslash for CreateDirectoryA
+	if (stateDir.length() > 0 && (stateDir[stateDir.length() - 1] == '\\' || stateDir[stateDir.length() - 1] == '/')) {
+		stateDir = stateDir.substr(0, stateDir.length() - 1);
+	}
+	
+	// Ensure state directory exists
+	CreateDirectoryA(stateDir.c_str(), NULL);
+	
+	// Build filename with extension if not present
+	std::string baseFilename = customFilename;
+	
+	// Add .fc0 extension if no extension present (check for common extensions)
+	size_t lastDot = baseFilename.find_last_of(".");
+	bool hasExtension = (lastDot != std::string::npos && lastDot < baseFilename.length() - 1);
+	if (!hasExtension) {
+		baseFilename += ".fc0";  // Default save state extension
+	}
+	
+	// Build full path (ensure backslash separator)
+	std::string fullPath = stateDir;
+	if (fullPath.length() > 0 && fullPath[fullPath.length() - 1] != '\\' && fullPath[fullPath.length() - 1] != '/') {
+		fullPath += "\\";
+	}
+	fullPath += baseFilename;
+	
+	// Ensure path uses backslashes for Windows
+	for (size_t i = 0; i < fullPath.length(); i++) {
+		if (fullPath[i] == '/') {
+			fullPath[i] = '\\';
+		}
+	}
+	
+	// Save state directly using FCEUSS_Save
+	extern void FCEUSS_Save(const char *fname);
+	FCEUSS_Save(fullPath.c_str());
+	
+	// Verify save succeeded by checking if file exists and has content
+	extern bool file_exists(const char * filename);
+	bool success = false;
+	if (file_exists(fullPath.c_str())) {
+		// Check if file has content (savestates should be at least a few KB)
+		FILE *fp = fopen(fullPath.c_str(), "rb");
+		if (fp) {
+			fseek(fp, 0, SEEK_END);
+			long size = ftell(fp);
+			fclose(fp);
+			success = (size > 100);  // Savestates should be at least 100 bytes
+			if (!success) {
+				printf("savestatefile() failed: file exists but is too small (%ld bytes) at '%s'\n", size, fullPath.c_str());
+			}
+		} else {
+			printf("savestatefile() failed: cannot open file for verification at '%s'\n", fullPath.c_str());
+		}
+	} else {
+		printf("savestatefile() failed: file not created at '%s'\n", fullPath.c_str());
+	}
+	
+	lua_pushboolean(L, success ? 1 : 0);
+	return 1;
+}
+
+// Lua function - loads state from custom filename
+int lua_loadstatefile(lua_State *L) {
+	int n = lua_gettop(L);
+	
+	// Get filename parameter (required)
+	if (n < 1 || lua_isnil(L, 1)) {
+		return luaL_error(L, "loadstatefile(filename) failed: filename is required");
+	}
+	
+	const char* customFilename = luaL_checkstring(L, 1);
+	if (!customFilename || strlen(customFilename) == 0) {
+		return luaL_error(L, "loadstatefile(filename) failed: filename cannot be empty");
+	}
+	
+	// Check if game is loaded (required for load states)
+	extern FCEUGI *GameInfo;
+	if (!GameInfo) {
+		return luaL_error(L, "loadstatefile(filename) failed: no game loaded");
+	}
+	
+	// Get state directory (same as loadstate uses)
+	extern std::string FCEU_MakeFName(int type, int id1, const char *cd1);
+	std::string tempStatePath = FCEU_MakeFName(1, 0, 0);  // 1 = FCEUMKF_STATE, use slot 0 to get directory
+	size_t lastSlash = tempStatePath.find_last_of("\\/");
+	std::string stateDir;
+	if (lastSlash != std::string::npos) {
+		stateDir = tempStatePath.substr(0, lastSlash);
+	} else {
+		// Fallback to game:\states if path extraction fails
+		stateDir = "game:\\states";
+	}
+	
+	// Normalize path separators for Windows
+	for (size_t i = 0; i < stateDir.length(); i++) {
+		if (stateDir[i] == '/') {
+			stateDir[i] = '\\';
+		}
+	}
+	// Remove trailing backslash
+	if (stateDir.length() > 0 && (stateDir[stateDir.length() - 1] == '\\' || stateDir[stateDir.length() - 1] == '/')) {
+		stateDir = stateDir.substr(0, stateDir.length() - 1);
+	}
+	
+	// Build filename (use as-is, but add extension if not present)
+	std::string baseFilename = customFilename;
+	size_t lastDot = baseFilename.find_last_of(".");
+	bool hasExtension = (lastDot != std::string::npos && lastDot < baseFilename.length() - 1);
+	if (!hasExtension) {
+		baseFilename += ".fc0";  // Default save state extension
+	}
+	
+	// Build full path (ensure backslash separator)
+	std::string fullPath = stateDir;
+	if (fullPath.length() > 0 && fullPath[fullPath.length() - 1] != '\\' && fullPath[fullPath.length() - 1] != '/') {
+		fullPath += "\\";
+	}
+	fullPath += baseFilename;
+	
+	// Ensure path uses backslashes for Windows
+	for (size_t i = 0; i < fullPath.length(); i++) {
+		if (fullPath[i] == '/') {
+			fullPath[i] = '\\';
+		}
+	}
+	
+	// Check if state file exists
+	extern bool file_exists(const char * filename);
+	if (!file_exists(fullPath.c_str())) {
+		// State file doesn't exist
+		lua_pushboolean(L, 0);
+		return 1;
+	}
+	
+	// Load state (FCEUSS_Load returns bool)
+	extern bool FCEUSS_Load(const char *fname);
+	bool success = FCEUSS_Load(fullPath.c_str());
+	
+	lua_pushboolean(L, success ? 1 : 0);
+	return 1;
+}
+
 // Lua drawing function - allows scripts to draw an image from byte data
 int lua_drawimage(lua_State *L) {
 	 int n = lua_gettop(L);
@@ -6082,6 +6490,7 @@ int lua_ismemorywritable(lua_State *L) {
 	 lua_register(luaState, "getmapper", lua_getmapper);
 	 lua_register(luaState, "getmapperstring", lua_getmapperstring);
 	 lua_register(luaState, "isbuttonpressed", lua_isbuttonpressed);
+	 lua_register(luaState, "isxboxbuttonpressed", lua_isxboxbuttonpressed);
 	 lua_register(luaState, "getbuttonname", lua_getbuttonname);
 	 lua_register(luaState, "getbuttonmask", lua_getbuttonmask);
 	 lua_register(luaState, "drawpixel", lua_drawpixel);
@@ -6096,6 +6505,11 @@ int lua_ismemorywritable(lua_State *L) {
 	 lua_register(luaState, "clearscreen", lua_clearscreen);
 	 lua_register(luaState, "fillscreen", lua_fillscreen);
 	 lua_register(luaState, "screenshot", lua_screenshot);
+	 lua_register(luaState, "savestate", lua_savestate);
+	 lua_register(luaState, "loadstate", lua_loadstate);
+	 lua_register(luaState, "hasstate", lua_hasstate);
+	 lua_register(luaState, "savestatefile", lua_savestatefile);
+	 lua_register(luaState, "loadstatefile", lua_loadstatefile);
 	 lua_register(luaState, "drawimage", lua_drawimage);
 	 lua_register(luaState, "drawimageindexed", lua_drawimageindexed);
 	 lua_register(luaState, "drawtile", lua_drawtile);
@@ -6221,6 +6635,7 @@ static void EnsureLuaInit() {
 	REG("getmapper", lua_getmapper);
 	REG("getmapperstring", lua_getmapperstring);
 	REG("isbuttonpressed", lua_isbuttonpressed);
+	REG("isxboxbuttonpressed", lua_isxboxbuttonpressed);
 	REG("getbuttonname",  lua_getbuttonname);
 	REG("getbuttonmask",  lua_getbuttonmask);
 	REG("drawpixel",      lua_drawpixel);
@@ -6235,6 +6650,11 @@ static void EnsureLuaInit() {
 	REG("clearscreen",    lua_clearscreen);
 	REG("fillscreen",     lua_fillscreen);
 	REG("screenshot",     lua_screenshot);
+	REG("savestate",      lua_savestate);
+	REG("loadstate",      lua_loadstate);
+	REG("hasstate",       lua_hasstate);
+	REG("savestatefile",  lua_savestatefile);
+	REG("loadstatefile",  lua_loadstatefile);
 	REG("drawimage",      lua_drawimage);
 	REG("drawimageindexed", lua_drawimageindexed);
 	REG("drawtile",       lua_drawtile);
