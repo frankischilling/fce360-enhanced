@@ -24,6 +24,102 @@
 #include "zlib.h"
 
 //-----------------------------------------------------------------------------
+// Screenshot warmup helpers (eliminate first-use stall)
+//-----------------------------------------------------------------------------
+static bool g_zlibWarm = false;
+
+static void WarmupZlibOnce() {
+	if (g_zlibWarm) return;
+	z_stream s = {};
+	if (deflateInit(&s, Z_DEFAULT_COMPRESSION) == Z_OK) {
+		unsigned char in[256] = {0}, out[256] = {0};
+		s.next_in = in;
+		s.avail_in = sizeof(in);
+		s.next_out = out;
+		s.avail_out = sizeof(out);
+		deflate(&s, Z_FINISH);
+		deflateEnd(&s);
+		g_zlibWarm = true;
+	}
+}
+
+static void WarmupSnapshotFilesystemOnce(const char* dir) {
+	// Touch file system in the exact target directory to populate caches
+	// This runs on every ROM load to ensure filesystem cache is warm for this directory
+	char path[MAX_PATH];
+	snprintf(path, sizeof(path), "%s\\~snap_warmup.tmp", dir);
+	HANDLE h = CreateFileA(path, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS,
+		FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, NULL);
+	if (h != INVALID_HANDLE_VALUE) {
+		DWORD w = 0;
+		char b[64] = {0};
+		WriteFile(h, b, sizeof(b), &w, NULL);
+		CloseHandle(h); // DELETE_ON_CLOSE releases on close
+	}
+}
+
+static void WarmupSnapshotPathAfterRomLoad() {
+	// Warmup FCEU_MakeFName and actual snapshot path generation
+	// This must be called AFTER ROM is loaded (FileBase is set)
+	extern std::string FCEU_MakeFName(int type, int id1, const char *cd1);
+	extern FILE* FCEUD_UTF8fopen(const char* fn, const char* mode);
+	
+	// Generate a real snapshot path to warm up FCEU_MakeFName
+	std::string testPath = FCEU_MakeFName(2, 99999, "png"); // 2 = FCEUMKF_SNAP
+	
+	// Open and immediately close a file to warm up the full I/O path
+	FILE* f = FCEUD_UTF8fopen(testPath.c_str(), "wb");
+	if (f) {
+		// Write PNG header and minimal valid PNG to warm up compression path
+		static uint8_t pngHeader[8] = {137, 80, 78, 71, 13, 10, 26, 10};
+		fwrite(pngHeader, 8, 1, f);
+		
+		// Write IHDR chunk (1x1 image)
+		uint8_t ihdr[25] = {
+			0, 0, 0, 13,           // chunk length = 13
+			73, 72, 68, 82,        // "IHDR"
+			0, 0, 0, 1,            // width = 1
+			0, 0, 0, 1,            // height = 1
+			8, 3, 0, 0, 0,         // 8-bit indexed, no interlace
+			0xb1, 0x8e, 0x7c, 0xfb // CRC
+		};
+		fwrite(ihdr, 25, 1, f);
+		
+		// Write minimal PLTE chunk (1 color palette)
+		uint8_t plte[15] = {
+			0, 0, 0, 3,      // chunk length = 3
+			80, 76, 84, 69,  // "PLTE"
+			0, 0, 0,         // RGB for palette entry 0
+			0xa7, 0x7a, 0x71, 0x1d // CRC
+		};
+		fwrite(plte, 15, 1, f);
+		
+		// Write minimal IDAT chunk with compressed 1x1 data
+		uint8_t idat[19] = {
+			0, 0, 0, 10,     // chunk length = 10
+			73, 68, 65, 84,  // "IDAT"
+			0x78, 0x9c,      // zlib header
+			0x63, 0x00, 0x01, // compressed data (1 pixel)
+			0x00, 0x00, 0x00, 0x02, 0x00, 0x01
+		};
+		fwrite(idat, 19, 1, f);
+		
+		// Write IEND chunk
+		uint8_t iend[12] = {
+			0, 0, 0, 0,            // chunk length = 0
+			73, 69, 78, 68,        // "IEND"
+			0xae, 0x42, 0x60, 0x82 // CRC
+		};
+		fwrite(iend, 12, 1, f);
+		
+		fclose(f);
+		
+		// Delete the warmup file immediately
+		DeleteFileA(testPath.c_str());
+	}
+}
+
+//-----------------------------------------------------------------------------
 // Performance: Disable printf spam in retail builds
 //-----------------------------------------------------------------------------
 #if !defined(DEBUG) && !defined(_DEBUG)
@@ -1048,14 +1144,24 @@ HRESULT Cemulator::LoadGame(std::string name, bool restart) {
 	FCEUI_SetDirOverride(FCEUIOD_SNAPS, snapDir);
 
 	// Create snaps directory if it doesn't exist
-	CreateDirectoryA("game:\\snaps", NULL);
+	DWORD snapAttrib = GetFileAttributesA("game:\\snaps");
+	if (snapAttrib == 0xFFFFFFFF || !(snapAttrib & FILE_ATTRIBUTE_DIRECTORY)) {
+		CreateDirectoryA("game:\\snaps", NULL);
+	}
 	
+	// Warmup screenshot infrastructure to eliminate first-use stall
+	WarmupZlibOnce();
+	WarmupSnapshotFilesystemOnce("game:\\snaps");
+
 	// Set save state directory to game: drive
 	static char stateDir[] = "game:\\states";
 	FCEUI_SetDirOverride(FCEUIOD_STATES, stateDir);
 	
 	// Create states directory if it doesn't exist
+	DWORD stateAttrib = GetFileAttributesA("game:\\states");
+	if (stateAttrib == 0xFFFFFFFF || !(stateAttrib & FILE_ATTRIBUTE_DIRECTORY)) {
 	CreateDirectoryA("game:\\states", NULL);
+	}
 
 	// Create user directories on hdd1 (always writable) for lua
 	CreateDirectoryA("hdd1:\\fce360-enhanced", NULL);
@@ -1149,6 +1255,9 @@ HRESULT Cemulator::LoadGame(std::string name, bool restart) {
 		FCEU_ApplyLuaMode(Settings::LUA_AUTO_ALL, NULL);
 		printf("LoadGame: Auto-loaded all Lua scripts\n");
 #endif
+
+		// Warmup screenshot path now that ROM is loaded and FileBase is set
+		WarmupSnapshotPathAfterRomLoad();
 
 		return S_OK;
 	}
