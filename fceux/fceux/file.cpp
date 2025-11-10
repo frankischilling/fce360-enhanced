@@ -622,9 +622,9 @@ std::string FCEU_MakeFName(int type, int id1, const char *cd1)
 			break;
 		case FCEUMKF_SNAP:
 			if(odirs[FCEUIOD_SNAPS])
-				sprintf(ret,"%s"PSS"%s-%d.%s",odirs[FCEUIOD_SNAPS],FileBase,id1,cd1);
+				sprintf(ret,"%s"PSS"%s - %d.%s",odirs[FCEUIOD_SNAPS],FileBase,id1,cd1);
 			else
-				sprintf(ret,"%s"PSS"snaps"PSS"%s-%d.%s",BaseDirectory.c_str(),FileBase,id1,cd1);
+				sprintf(ret,"%s"PSS"snaps"PSS"%s - %d.%s",BaseDirectory.c_str(),FileBase,id1,cd1);
 			break;
 		case FCEUMKF_FDS:
 			if(odirs[FCEUIOD_NV])

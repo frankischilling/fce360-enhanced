@@ -504,6 +504,10 @@ static int frameCount = 0;  // FPS calculation counter (resets every second)
  
  // Forward declaration
  static uint8* currentXBuf = NULL;
+ // Store the actual frame buffer passed to FCEU_LuaGui (not the overlay)
+ static uint8* s_frameXBuf = NULL;
+ // Pre-initialize screenshot directory path to avoid lag on first screenshot
+ static bool s_screenshotDirInitialized = false;
 
  // Transparent text with no outline/shadow/background.
  static inline void DrawTextNoBorder(uint8* base, int pitch, const char* s, uint8 color)
@@ -751,8 +755,8 @@ static void DrawLuaConsole(uint8* buf) {
 		 if (wpx <= 0) return 0;
 	 }
 	 
-	 // Clear only the text's own bounding box so it never erases a neighboring console line
-	 clear_rect(currentXBuf, x, y, wpx, GLYPH_H);
+	 // Note: We don't clear the area - DrawTextTrans only draws glyph pixels,
+	 // so text will draw over existing content (colors, fills, etc.)
 	 
 	 // Final buffer pointer validation before drawing
 	 if (y * OVL_W + x < 0 || y * OVL_W + x >= OVL_W * OVL_H) return 0;
@@ -833,8 +837,8 @@ static void DrawLuaConsole(uint8* buf) {
 	 if (border < 0) border = 0;
 	 if (border > 2) border = 2;
 	 
-	 // optional: proactively clear the draw region when border==0
-	 if (border <= 0) clear_rect(currentXBuf, x, y, max_w, max_h);
+	 // Note: We don't clear the area - DrawTextTransWH only draws glyph pixels when border==0,
+	 // so text will draw over existing content (colors, fills, etc.)
 	 
 	 DrawTextTransWH(dest, OVL_W, (uint8*)text, mapped, max_w, max_h, border <= 0 ? 0 : border);
 	 
@@ -3367,6 +3371,193 @@ static void DrawLuaConsole(uint8* buf) {
 	 }
 	 
 	 return 0;
+}
+
+// Lua drawing function - clears entire overlay screen
+int lua_clearscreen(lua_State *L) {
+	 if (!currentXBuf) return 0;
+	 
+	 // Clear entire overlay buffer (set all pixels to 0 = transparent)
+	 memset(currentXBuf, 0, OVL_W * OVL_H);
+	 g_overlayDirty = true;  // Mark that something was changed
+	 
+	 return 0;
+}
+
+// Lua drawing function - fills entire overlay screen with color
+int lua_fillscreen(lua_State *L) {
+	 int n = lua_gettop(L);
+	 if (n < 1) {
+		 return luaL_error(L, "fillscreen(color) requires 1 argument");
+	 }
+	 
+	 int color = (int)luaL_checkinteger(L, 1);
+	 
+	 if (!currentXBuf) return 0;
+	 
+	 // Map color to overlay format (0x00-0x3F -> 0x80-0xBF)
+	 uint8 mappedColor = map_overlay_color(color);
+	 
+	 // Fill entire overlay buffer (respects blending modes like fillrect)
+	 for (int y = 0; y < OVL_H; ++y) {
+		 for (int x = 0; x < OVL_W; ++x) {
+			 uint8 *dest = currentXBuf + y * OVL_W + x;
+			 *dest = apply_blend_mode(*dest, mappedColor);
+		 }
+	 }
+	 
+	 g_overlayDirty = true;  // Mark that something was drawn
+	 
+	 return 0;
+}
+
+// Lua function - takes screenshot with optional filename
+int lua_screenshot(lua_State *L) {
+	int n = lua_gettop(L);
+	
+	// Use s_frameXBuf which is set by FCEU_LuaGui with the actual frame buffer
+	// This ensures we're capturing the correct frame data (not the overlay)
+	extern uint8 *XBuf;
+	extern uint8 *s_frameXBuf;
+	
+	// Save the original XBuf pointer
+	uint8 *oldXBuf = XBuf;
+	
+	// Use s_frameXBuf if available (set by FCEU_LuaGui with current frame)
+	// This is the bitmap buffer passed to FCEU_LuaGui, which should be the current frame
+	if (s_frameXBuf) {
+		XBuf = s_frameXBuf;
+	} else if (!XBuf) {
+		return luaL_error(L, "screenshot() failed: XBuf not available");
+	}
+	// If XBuf is already set and s_frameXBuf is NULL, use XBuf directly
+	
+	char filename[512] = {0};
+	int result = 0;
+	
+	if (n >= 1 && !lua_isnil(L, 1)) {
+		// Filename provided - use it
+		const char *customFilename = luaL_checkstring(L, 1);
+		if (!customFilename || strlen(customFilename) == 0) {
+			return luaL_error(L, "screenshot() failed: filename cannot be empty");
+		}
+		
+		// Get snapshot directory - cache the path calculation to avoid repeated FCEU_MakeFName calls
+		static std::string cachedSnapPath = "";
+		static bool snapPathCached = false;
+		
+		std::string snapPath;
+		if (!snapPathCached) {
+			// Calculate directory path once and cache it
+			extern std::string FCEU_MakeFName(int type, int id1, const char *cd1);
+			std::string tempPath = FCEU_MakeFName(2, 0, "png");  // 2 = FCEUMKF_SNAP
+			
+			// Extract directory from the generated path
+			size_t lastSlash = tempPath.find_last_of("\\/");
+			if (lastSlash != std::string::npos) {
+				cachedSnapPath = tempPath.substr(0, lastSlash + 1);
+			} else {
+				// Fallback: use current directory
+				cachedSnapPath = ".\\";
+			}
+			snapPathCached = true;
+		}
+		snapPath = cachedSnapPath;
+		
+		// Ensure directory exists (Windows/Xbox) - cache result to avoid repeated checks
+		// Pre-create directory on first use to avoid lag during screenshot
+		static std::string lastCheckedDir = "";
+		static bool dirInitialized = false;
+		
+		// Convert path separators if needed
+		std::string dirPath = snapPath;
+		// Replace forward slashes with backslashes for Windows
+		for (size_t i = 0; i < dirPath.length(); i++) {
+			if (dirPath[i] == '/') {
+				dirPath[i] = '\\';
+			}
+		}
+		// Remove trailing backslash for CreateDirectoryA
+		if (dirPath.length() > 0 && (dirPath[dirPath.length() - 1] == '\\' || dirPath[dirPath.length() - 1] == '/')) {
+			dirPath = dirPath.substr(0, dirPath.length() - 1);
+		}
+		
+		// Only create directory once (on first screenshot) to avoid lag
+		if (!dirInitialized || dirPath != lastCheckedDir) {
+			// Create directory if it doesn't exist (Windows/Xbox API)
+			// CreateDirectoryA is available via stdafx.h on Xbox
+			// This is fast even if directory already exists
+			CreateDirectoryA(dirPath.c_str(), NULL);
+			lastCheckedDir = dirPath;
+			dirInitialized = true;
+		}
+		
+		// Copy base filename
+		std::string baseFilename = customFilename;
+		
+		// Add .png extension if not present
+		if (baseFilename.length() < 4 || baseFilename.substr(baseFilename.length() - 4) != ".png") {
+			baseFilename += ".png";
+		}
+		
+		// Build full path (ensure backslash separator)
+		std::string fullPath = snapPath;
+		if (fullPath.length() > 0 && fullPath[fullPath.length() - 1] != '\\' && fullPath[fullPath.length() - 1] != '/') {
+			fullPath += "\\";
+		}
+		fullPath += baseFilename;
+		
+		// Ensure path uses backslashes for Windows
+		for (size_t i = 0; i < fullPath.length(); i++) {
+			if (fullPath[i] == '/') {
+				fullPath[i] = '\\';
+			}
+		}
+		
+		// Copy to char array for SaveSnapshot
+		strncpy(filename, fullPath.c_str(), sizeof(filename) - 1);
+		filename[sizeof(filename) - 1] = '\0';
+		
+		// Save with custom filename
+		extern int SaveSnapshot(char fileName[512]);
+		result = SaveSnapshot(filename);
+		
+		if (result == 0) {
+			// SaveSnapshot with filename returns 0 on success
+			// Restore XBuf before returning
+			XBuf = oldXBuf;
+			// Return just the filename (not full path) for consistency
+			lua_pushstring(L, baseFilename.c_str());
+			return 1;
+		} else {
+			// Restore XBuf before returning error
+			XBuf = oldXBuf;
+			return luaL_error(L, "screenshot() failed: could not save to '%s'", filename);
+		}
+	} else {
+		// No filename provided - use auto-generated name
+		extern int SaveSnapshot(void);
+		result = SaveSnapshot();
+		
+		if (result > 0) {
+			// SaveSnapshot() returns index (1-based), construct filename
+			int index = result - 1;  // Convert to 0-based index
+			
+			// Construct filename using FCEU_MakeFName
+			// FCEUMKF_SNAP is defined in file.h
+			extern std::string FCEU_MakeFName(int type, int id1, const char *cd1);
+			std::string autoFilename = FCEU_MakeFName(2, index, "png");  // 2 = FCEUMKF_SNAP
+			
+			// Restore XBuf before returning
+			XBuf = oldXBuf;
+			lua_pushstring(L, autoFilename.c_str());
+			return 1;
+		} else {
+			// Restore XBuf before returning error
+			XBuf = oldXBuf;
+			return luaL_error(L, "screenshot() failed: could not save screenshot (XBuf may not be set correctly)");
+		}
+	}
 }
 
 // Lua drawing function - allows scripts to draw an image from byte data
@@ -5902,6 +6093,9 @@ int lua_ismemorywritable(lua_State *L) {
 	 lua_register(luaState, "drawrect", lua_drawrect);
 	 lua_register(luaState, "fillrect", lua_fillrect);
 	 lua_register(luaState, "clearrect", lua_clearrect);
+	 lua_register(luaState, "clearscreen", lua_clearscreen);
+	 lua_register(luaState, "fillscreen", lua_fillscreen);
+	 lua_register(luaState, "screenshot", lua_screenshot);
 	 lua_register(luaState, "drawimage", lua_drawimage);
 	 lua_register(luaState, "drawimageindexed", lua_drawimageindexed);
 	 lua_register(luaState, "drawtile", lua_drawtile);
@@ -6038,6 +6232,9 @@ static void EnsureLuaInit() {
 	REG("drawrect",       lua_drawrect);
 	REG("fillrect",       lua_fillrect);
 	REG("clearrect",      lua_clearrect);
+	REG("clearscreen",    lua_clearscreen);
+	REG("fillscreen",     lua_fillscreen);
+	REG("screenshot",     lua_screenshot);
 	REG("drawimage",      lua_drawimage);
 	REG("drawimageindexed", lua_drawimageindexed);
 	REG("drawtile",       lua_drawtile);
@@ -7178,10 +7375,34 @@ void FCEU_ReloadLuaCode(void) {
  // Update Lua at 30Hz, but composite the last overlay every frame to prevent flicker
  // Double-buffered: only publish new overlay if Lua succeeds (fail-safe)
  void FCEU_LuaGui(uint8 *XBuf) {
+	 // Store the frame buffer for screenshot() function to use
+	 // This MUST be set before any early returns, so screenshot() always has valid data
+	 s_frameXBuf = XBuf;
+	 
+	 // Pre-initialize screenshot directory path on first call to avoid lag
+	 if (!s_screenshotDirInitialized) {
+		 extern std::string FCEU_MakeFName(int type, int id1, const char *cd1);
+		 std::string tempPath = FCEU_MakeFName(2, 0, "png");  // 2 = FCEUMKF_SNAP
+		 size_t lastSlash = tempPath.find_last_of("\\/");
+		 if (lastSlash != std::string::npos) {
+			 std::string dirPath = tempPath.substr(0, lastSlash);
+			 // Normalize path separators
+			 for (size_t i = 0; i < dirPath.length(); i++) {
+				 if (dirPath[i] == '/') {
+					 dirPath[i] = '\\';
+				 }
+			 }
+			 // Ensure directory exists (fast if already exists)
+			 CreateDirectoryA(dirPath.c_str(), NULL);
+		 }
+		 s_screenshotDirInitialized = true;
+	 }
+	 
 	 // Safety check: ensure overlay is initialized before proceeding
 	 EnsureOverlay();
 	 if (!s_overlay_back || !s_overlay_front) {
 		 // Overlay buffers not initialized - skip this frame
+		 // But keep s_frameXBuf set so screenshots can still work
 		 return;
 	 }
 	 
@@ -7189,6 +7410,7 @@ void FCEU_ReloadLuaCode(void) {
 	 // Otherwise, if Lua is disabled, clear overlays and return early
 	 if (s_luaDisabled && !s_consoleVisible) {
 		 ClearOverlaysIfAny();
+		 // Keep s_frameXBuf set even when Lua is disabled, so screenshots can work
 		 return; // no composite, no "LUA OFF" banner, truly silent
 	 }
 	 

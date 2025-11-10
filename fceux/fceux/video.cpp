@@ -696,8 +696,7 @@ int SaveSnapshot(char fileName[512])
 	if(!(compmem=(uint8 *)FCEU_malloc(compmemsize)))
 		return 0;
 
-	pp = fopen(fileName, "w");
-
+	// Use FCEUD_UTF8fopen directly (removed unnecessary fopen call that created empty files)
 	if(!(pp=FCEUD_UTF8fopen(fileName,"wb")))
 	{
 		free(compmem);
