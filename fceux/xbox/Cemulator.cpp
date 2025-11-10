@@ -1049,6 +1049,13 @@ HRESULT Cemulator::LoadGame(std::string name, bool restart) {
 
 	// Create snaps directory if it doesn't exist
 	CreateDirectoryA("game:\\snaps", NULL);
+	
+	// Set save state directory to game: drive
+	static char stateDir[] = "game:\\states";
+	FCEUI_SetDirOverride(FCEUIOD_STATES, stateDir);
+	
+	// Create states directory if it doesn't exist
+	CreateDirectoryA("game:\\states", NULL);
 
 	// Create user directories on hdd1 (always writable) for lua
 	CreateDirectoryA("hdd1:\\fce360-enhanced", NULL);
