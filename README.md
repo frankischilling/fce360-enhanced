@@ -7,7 +7,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.7.9** — *Complete Audio API Suite: getaudioenabled(), getaudiosample(), getaudiobuffer(), getaudiosampleleft(), getaudiosampleright(), getaudiochannel() + all prior features from v0.7.8–v0.6.1*
+* Current release: **v0.7.9** — *Comprehensive Audio API Suite: Channel analysis, FFT, filtering, format conversion + all prior features from v0.7.8–v0.6.1*
 
 ---
 
@@ -83,93 +83,197 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 ## What's new (v0.7.9)
 
-* **New Lua API Functions:** Added **complete audio API suite** with **6 powerful functions** for comprehensive audio analysis, visualization, and channel monitoring!
+* **New Lua API Functions:** Added **comprehensive audio API suite** with **13 powerful functions** plus **1 callback** for complete audio analysis, frequency domain processing, real-time filtering, and format conversion!
 
-  * **Complete Audio API Suite:**
-    * `getaudioenabled()` - Checks if audio output is currently enabled
-      * Parameters: None
-      * Returns: Boolean (`true` if audio enabled, `false` if disabled)
-      * Checks `FSettings.SndRate != 0` to determine audio state
-      * Useful for audio-dependent scripts, conditional audio visualization logic, and scripts that behave differently based on audio state
-      * Registered in both `InitLua()` and `EnsureLuaInit()` for consistent availability
-    * `getaudiosample([index])` - Enhanced with buffer access! Retrieves audio sample from final mix buffer
-      * Parameters: `index` (integer, optional, default: -1 for last/newest sample)
-        * `0` = oldest sample in buffer
-        * `count-1` = newest sample in buffer
-        * `-1` = last sample (default, same as count-1)
-        * Negative indices count from end (-1 = last, -2 = second-to-last, etc.)
-      * Returns: Integer (32-bit signed audio sample value, typically within 16-bit range)
-      * Backward compatible: No parameter returns last sample (same as v0.7.8 behavior)
-      * Reads from `WaveFinal` buffer via `GetSoundBuffer()`
-      * Returns `0` when audio disabled or buffer empty
-      * Sample values can exceed ±32767 if filters/expansion audio boost the mix
-      * Useful for audio visualization (oscilloscopes, waveforms, VU meters), peak level detection, audio-reactive visual effects, and real-time audio analysis
-      * Registered in both `InitLua()` and `EnsureLuaInit()` for consistent availability
-    * `getaudiobuffer([count])` - Retrieves multiple audio samples as a Lua table for efficient batch access
-      * Parameters: `count` (integer, optional, default: all available samples, max 256)
-      * Returns: Table (1-indexed array of sample values)
-      * More efficient than calling `getaudiosample()` multiple times in a loop
-      * Returns empty table when audio disabled or buffer empty
-      * Useful for waveform visualization, oscilloscope displays, and audio analysis
-      * Registered in both `InitLua()` and `EnsureLuaInit()` for consistent availability
-    * `getaudiosampleleft()` - Gets left channel audio sample (NES is mono, so same as `getaudiosample()`)
-      * Parameters: None
-      * Returns: Integer (sample value; 32-bit signed, typically within 16-bit range)
-      * Returns `0` when audio is disabled
-      * For NES: Same value as `getaudiosample()` (mono audio)
-      * Use case: Stereo API compatibility, future stereo support
-      * Registered in both `InitLua()` and `EnsureLuaInit()` for consistent availability
-    * `getaudiosampleright()` - Gets right channel audio sample (NES is mono, so same as `getaudiosample()`)
-      * Parameters: None
-      * Returns: Integer (sample value; 32-bit signed, typically within 16-bit range)
-      * Returns `0` when audio is disabled
-      * For NES: Same value as `getaudiosample()` (mono audio)
-      * Use case: Stereo API compatibility, future stereo support
-      * Registered in both `InitLua()` and `EnsureLuaInit()` for consistent availability
-    * `getaudiochannel(channel)` - Gets detailed state information for a specific NES APU channel
+  * **Channel-Specific Audio Analysis:**
+    * `getaudiochannelsample(channel)` - Returns the last sample from a specific APU channel before mixing
       * Parameters: `channel` (integer, required, 0-4)
         * `0` = Pulse 1 (Square 1)
         * `1` = Pulse 2 (Square 2)
         * `2` = Triangle
         * `3` = Noise
         * `4` = DMC (Delta Modulation Channel)
-      * Returns: Table with channel-specific information:
-        * **All channels:** `name`, `enabled`, `channel`, `lengthCounter`
-        * **Pulse channels (0, 1):** `dutyCycle`, `volume`, `constantVolume`, `sweepEnabled`, `sweepPeriod`, `sweepNegate`, `sweepShift`, `period`, `periodLow`, `periodHigh`, `lengthCounterHalt`
-        * **Triangle (2):** `linearCounterReload`, `linearCounterControl`, `period`, `periodLow`, `periodHigh`, `lengthCounterHalt`
-        * **Noise (3):** `volume`, `constantVolume`, `period`, `loopNoise`, `lengthCounterHalt`
-        * **DMC (4):** `irqEnabled`, `loop`, `period`, `directLoad`, `sampleAddress`, `sampleLength`, `remainingSize`, `active`
-      * Channel register values read from APU's internal PSG register array
-      * Length counter values are real-time and update as the channel plays
-      * Period values determine the frequency/pitch of the channel
-      * DMC channel information includes sample playback state
-      * Returns basic channel info with `enabled = false` when audio is disabled
-      * Throws error if `channel` is outside valid range (0-4)
-      * Useful for debugging audio issues, monitoring channel activity, and creating detailed audio analysis tools
-      * Registered in both `InitLua()` and `EnsureLuaInit()` for consistent availability
+      * Returns: Integer (sample value from the specified channel, 32-bit signed)
+      * Enables per-channel audio isolation and analysis
+      * Uses ChannelLastSample[5] array populated during APU rendering in sound.cpp
+      * Samples are representative values scaled down from 24-bit internal format
+      * Returns `0` when channel is disabled or audio is off
+      * Useful for channel-specific visualization, isolating individual channels, and analyzing channel contributions
+
+  * **Frequency Domain Analysis:**
+    * `getaudiofft([size])` - Performs Fast Fourier Transform on mixed audio samples
+      * Parameters: `size` (integer, optional, default: 256, must be power of 2, max 512)
+        * Valid range: 32 to 512 (automatically rounded to nearest power of 2)
+        * Larger sizes provide better frequency resolution but require more computation
+      * Returns: Table with frequency domain data:
+        * `magnitude[i]` - Magnitude of frequency bin i (0 to size/2)
+        * `phase[i]` - Phase of frequency bin i (in radians, -π to π)
+        * `size` - FFT size used
+        * `sampleRate` - Audio sample rate in Hz
+        * `frequencyResolution` - Hz per frequency bin
+      * Uses radix-2 FFT algorithm with Hanning windowing to reduce spectral leakage
+      * Helper functions: IsPowerOf2(), ReverseBits() for bit reversal
+      * Enables spectrum analysis, frequency visualization, peak frequency detection, and audio frequency analysis
+      * Returns empty table when audio is disabled
+    * `getaudiochannelfft(channel, [size])` - Performs FFT on samples from a specific APU channel
+      * Parameters: `channel` (integer, required, 0-4), `size` (integer, optional, default: 256)
+      * Returns: Table with frequency domain data (same structure as getaudiofft)
+      * Uses circular buffer (ChannelSampleBuffer[5][512]) of frame-rate samples for each channel
+      * Buffers are populated during APU rendering (RDoSQ, RDoTriangle, RDoNoise, RDoPCM)
+      * Enables channel-specific frequency analysis, isolating individual channel frequencies, and per-channel spectrum visualization
+      * Returns empty table when channel is disabled or audio is off
+
+  * **Audio Event Callbacks:**
+    * `onaudiochannelchange(channel, enabled)` - Lua callback function automatically called when APU channel state changes
+      * Parameters: `channel` (integer, 0-4), `enabled` (boolean)
+      * Returns: Nothing (callback function - define in your script)
+      * Provides real-time notification of channel enable/disable events
+      * Detected via FCEU_LuaCheckAudioEvents() comparing EnabledChannels with previous state
+      * Called during frame boundary processing when channel state changes
+      * Enables reactive audio visualizations, sound effect detection, music monitoring, and audio-reactive visual effects
+      * Can receive events for all 5 channels independently
+      * Can be combined with other audio APIs for comprehensive audio analysis
+
+  * **Real-Time Audio Filtering:**
+    * `getaudiofiltered([filterType], [cutoff], [q], [filterId])` - Applies frequency filtering for analysis/visualization
+      * Parameters:
+        * `filterType` (string, optional, default: "lowpass"): "lowpass"/"lp", "highpass"/"hp", "bandpass"/"bp", "notch"/"bandstop"/"bs"
+        * `cutoff` (number, optional, default: 1000.0): Cutoff frequency in Hz (1.0 to sampleRate/2)
+        * `q` (number, optional, default: 0.707): Q factor/quality factor (0.1 to 10.0, controls bandwidth/sharpness)
+        * `filterId` (integer, optional, default: 0): Filter instance ID (0-9) for maintaining separate filter states
+      * Returns: Integer (filtered sample value, 32-bit signed)
+      * Uses biquad (second-order IIR) filters for efficient real-time processing
+      * Based on RBJ Audio EQ Cookbook formulas
+      * Each filterId maintains independent filter state for parallel filtering
+      * **For analysis/visualization only** - does NOT affect actual audio output
+      * Returns `0` when audio is disabled
+      * Useful for analyzing filtered audio data, visualizing filtered waveforms, and comparing original vs filtered samples
+      * To filter actual audio output, use `setaudiofilter()` instead
+    * `setaudiofilter(enabled, [filterType], [cutoff], [q])` - Enables/disables and configures audio output filter
+      * Parameters:
+        * `enabled` (boolean, required): Whether to enable the output filter
+        * `filterType` (string, optional, default: "lowpass"): Same as getaudiofiltered()
+        * `cutoff` (number, optional, default: 1000.0): Cutoff frequency in Hz
+        * `q` (number, optional, default: 0.707): Q factor
+      * Returns: Nothing
+      * **Affects actual audio playback** - filters audio before it's sent to speakers
+      * Filter is applied to entire audio buffer in FlushEmulateSound() via ApplyOutputFilter()
+      * Uses AudioOutputFilterState struct to maintain filter coefficients and state
+      * Filter state is reset when parameters are changed
+      * Useful for real-time audio effects, frequency-based audio processing, and creating audio filters you can hear
+    * `getaudiofilter()` - Gets current audio output filter settings
+      * Parameters: None
+      * Returns: Table with `enabled` (boolean), `filterType` (string), `cutoff` (number), `q` (number)
+      * Returns current state of output filter (set by setaudiofilter())
+      * All fields are always present in returned table
+      * Useful for checking filter state, displaying current settings, or conditional logic
+
+  * **Audio Format Conversion Functions:**
+    * `audiosampletofloat(sample)` - Converts integer sample to normalized float (-1.0 to 1.0)
+      * Parameters: `sample` (integer, required): Audio sample value (typically -32768 to 32767)
+      * Returns: Number (float, -1.0 to 1.0, clamped)
+      * Formula: `floatValue = sample / 32768.0`
+      * Useful for floating-point audio processing, mathematical operations, normalized audio visualization, and audio analysis
+      * To convert back, use `floattosample()`
+    * `floattosample(floatValue)` - Converts normalized float back to integer sample
+      * Parameters: `floatValue` (number, required): Normalized float (-1.0 to 1.0, clamped)
+      * Returns: Integer (audio sample, -32768 to 32767, clamped)
+      * Formula: `sample = floatValue * 32768.0` (rounded to integer)
+      * Inverse of audiosampletofloat()
+      * Useful for converting processed float audio back to integer samples, audio synthesis, and applying floating-point effects
+      * Round-trip conversion may have small rounding errors
+    * `audiosampletouint8(sample)` - Converts signed integer to 8-bit unsigned (0-255)
+      * Parameters: `sample` (integer, required): Audio sample value (typically -32768 to 32767)
+      * Returns: Integer (0-255)
+      * Conversion formula: `uint8 = (sample >> 8) + 128`
+      * Zero (silence) maps to 128 (middle of range)
+      * Maximum positive (32767) maps to 255, minimum negative (-32768) maps to 0
+      * Useful for 8-bit audio processing, compatibility with legacy systems, audio visualization, and compact audio storage
+      * To convert back, use `uint8tosample()`
+    * `uint8tosample(uint8Value)` - Converts 8-bit unsigned to signed integer sample
+      * Parameters: `uint8Value` (integer, required): 8-bit unsigned value (0-255, clamped)
+      * Returns: Integer (audio sample, -32768 to 32767)
+      * Conversion formula: `sample = (uint8Value - 128) << 8`
+      * Value 128 maps to 0 (silence), 255 maps to 32512, 0 maps to -32768
+      * Inverse of audiosampletouint8()
+      * Useful for converting 8-bit audio to 16-bit samples, processing legacy audio formats, and audio synthesis from 8-bit data
+      * Round-trip conversion may have precision differences due to bit depth reduction
+    * `normalizeaudiosample(sample, [maxValue])` - Normalizes sample to specific range
+      * Parameters:
+        * `sample` (integer, required): Audio sample value to normalize
+        * `maxValue` (number, optional, default: 32767): Maximum value for normalization range (must be positive)
+      * Returns: Integer (normalized sample, range: -maxValue to +maxValue)
+      * Normalizes by converting to float (-1.0 to 1.0), then scaling to target range
+      * Preserves relative amplitude and sign of original sample
+      * Formula: `normalized = (sample / 32768.0) * maxValue`
+      * Useful for scaling audio to different bit depths, volume adjustment, audio format conversion, and normalizing audio levels
+    * `monotostereo(monoSample)` - Converts mono to stereo (duplicates to both channels)
+      * Parameters: `monoSample` (integer, required): Mono audio sample value
+      * Returns: Table with `{left, right}` structure (both contain same sample value)
+      * Simply duplicates mono sample to both stereo channels
+      * No panning or spatial processing applied
+      * Useful for converting mono audio to stereo format, ensuring stereo compatibility, and mono source playback through stereo system
+      * To convert back, use `stereotomono()`
+    * `stereotomono(leftSample, rightSample)` - Converts stereo to mono (averages channels)
+      * Parameters:
+        * `leftSample` (integer, required): Left channel audio sample
+        * `rightSample` (integer, required): Right channel audio sample
+      * Returns: Integer (mono audio sample, average of left and right)
+      * Formula: `mono = (leftSample + rightSample) / 2`
+      * Preserves overall amplitude while combining channels
+      * Useful for downmixing stereo to mono, mono output compatibility, audio analysis, and reducing audio data size
+      * To convert back, use `monotostereo()`
 
 * **Technical Enhancements:**
-  * Enhanced `getaudiosample()` to accept optional index parameter with negative index support
-  * Added `getaudiobuffer()` for efficient batch sample retrieval (max 256 samples)
-  * Added `getaudiosampleleft()` and `getaudiosampleright()` for stereo API compatibility
-  * Implemented `getaudiochannel()` with full APU channel state access:
-    * Exposed PSG register array, `EnabledChannels`, `lengthcount[4]`, `DMCSize`, `DMCFormat`, `DMCAddressLatch`, `DMCSizeLatch`, `RawDALatch` from `sound.cpp`
-    * Made variables non-static in `sound.cpp` and added extern declarations in `sound.h`
-    * Reads channel registers directly from PSG array for channels 0-3
-    * Uses exposed DMC variables for channel 4
-    * Returns comprehensive channel-specific information based on channel type
+  * **Channel Sample Tracking:**
+    * Added ChannelLastSample[5] array in sound.cpp to track last sample from each APU channel
+    * Updated RDoSQ(), RDoTriangle(), RDoNoise(), and RDoPCM() to populate channel samples
+    * Samples are representative values scaled down from 24-bit internal format
+  * **Channel FFT Buffers:**
+    * Added ChannelSampleBuffer[5][512] circular buffers for each channel
+    * Added ChannelSampleBufferIndex[5] to track write positions
+    * Buffers populated during APU rendering and used for FFT analysis
+    * Initialized to zero in InitChannelSampleBuffers() called from FCEUSND_Power()
+  * **FFT Implementation:**
+    * Radix-2 FFT algorithm with bit reversal and butterfly operations
+    * Hanning window function applied to reduce spectral leakage
+    * Helper functions: IsPowerOf2(), ReverseBits()
+    * Returns magnitude and phase arrays, size, sample rate, and frequency resolution
+  * **Audio Event Detection:**
+    * FCEU_LuaCheckAudioEvents() compares EnabledChannels with lastEnabledChannels
+    * Detects changes in channel enable/disable state
+    * Calls Lua callback function onaudiochannelchange(channel, enabled) if defined
+    * Checked during frame boundary processing
+  * **Output Filtering:**
+    * AudioOutputFilterState struct in sound.cpp maintains filter coefficients and state
+    * CalculateOutputFilterCoefficients() computes biquad filter coefficients (RBJ Audio EQ Cookbook)
+    * ApplyOutputBiquadFilter() processes individual samples
+    * ApplyOutputFilter() applies filter to entire audio buffer in FlushEmulateSound()
+    * Filter state reset in FCEUSND_Reset()
+  * **Format Conversion:**
+    * All conversion functions include input validation and clamping
+    * Float conversions normalize to -1.0 to 1.0 range
+    * Uint8 conversions use bit shifting and offset (128 for zero crossing)
+    * Normalization preserves relative amplitude while scaling to target range
+    * Stereo/mono conversions use simple duplication or averaging
   * All functions handle audio-disabled state gracefully (return 0, empty table, or false)
-  * Input validation and error handling for all parameters
-  * All functions registered in both `InitLua()` and `EnsureLuaInit()` for consistent availability
+  * Comprehensive error handling and input validation for all parameters
+  * All functions registered in both InitLua() and EnsureLuaInit() for consistent availability
 
 * **Documentation:**
-  * Complete API documentation added to README.md for all 6 audio functions
+  * Complete API documentation added to README.md for all 13 functions plus callback
   * All functions documented with parameters, returns, notes, and multiple examples
   * Table of contents updated with all new audio API functions
-  * Test scripts provided: `test_audio_api.lua` and `test_audio_channel.lua`
+  * Test scripts provided:
+    * `test_audio_channel_sample.lua` - Channel-specific sample extraction with peak tracking and waveform visualization
+    * `test_audio_fft.lua` - FFT analysis with spectrum visualization, peak detection, and waterfall display
+    * `test_audio_callbacks.lua` - Audio event callback testing with event history tracking and visual display
+    * `test_audio_channel_fft.lua` - Channel-specific FFT analysis with visual spectrum display and comparison
+    * `test_audio_filtered.lua` - Real-time filtering tests with D-pad filter type switching and output filter control
+    * `test_audio_format_conversion.lua` - Format conversion test suite with comprehensive pass/fail tracking
 
 * **Includes Previous Features:**
-  * All v0.7.8 features: getaudioenabled(), getaudiosample() (enhanced), screenshot performance fix
+  * All v0.7.8 features: getaudioenabled(), getaudiosample(), getaudiobuffer(), getaudiosampleleft(), getaudiosampleright(), getaudiochannel(), screenshot performance fix
   * All v0.7.7 features: savestate(), loadstate(), hasstate(), savestatefile(), loadstatefile(), isxboxbuttonpressed()
   * All v0.7.6 features: clearscreen(), fillscreen(), screenshot(), improved text rendering, screenshot fixes
   * All v0.7.5 features: sleepframes(), gettime(), gettimedelta(), getscreensize(), getcolorrgb(), getpalettecolor(), setpalettecolor(), getnescolor(), blendcolors()
@@ -1360,6 +1464,32 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
       - Parameters, Returns, Notes, Examples
     - [`getaudiochannel(channel)`](#getaudiochannelchannel)
       - Parameters, Returns, Notes, Examples
+    - [`getaudiochannelsample(channel)`](#getaudiochannelsamplechannel)
+      - Parameters, Returns, Notes, Examples
+    - [`getaudiochannelfft(channel, [size])`](#getaudiochannelfftchannel-size)
+      - Parameters, Returns, Notes, Examples
+    - [`getaudiofft([size])`](#getaudiofftsize)
+      - Parameters, Returns, Notes, Examples
+    - [`getaudiofiltered([filterType], [cutoff], [q], [filterId])`](#getaudiofilteredfiltertype-cutoff-q-filterid)
+      - Parameters, Returns, Notes, Examples
+    - [`setaudiofilter(enabled, [filterType], [cutoff], [q])`](#setaudiofilterenabled-filtertype-cutoff-q)
+      - Parameters, Returns, Notes, Examples
+    - [`getaudiofilter()`](#getaudiofilter)
+      - Parameters, Returns, Notes, Examples
+    - [`audiosampletofloat(sample)`](#audiosampletofloatsample)
+      - Parameters, Returns, Notes, Examples
+    - [`floattosample(floatValue)`](#floattosamplefloatvalue)
+      - Parameters, Returns, Notes, Examples
+    - [`audiosampletouint8(sample)`](#audiosampletouint8sample)
+      - Parameters, Returns, Notes, Examples
+    - [`uint8tosample(uint8Value)`](#uint8tosampleuint8value)
+      - Parameters, Returns, Notes, Examples
+    - [`normalizeaudiosample(sample, [maxValue])`](#normalizeaudiosamplesample-maxvalue)
+      - Parameters, Returns, Notes, Examples
+    - [`monotostereo(monoSample)`](#monotostereomonosample)
+      - Parameters, Returns, Notes, Examples
+    - [`stereotomono(leftSample, rightSample)`](#stereotomonoleftsample-rightsample)
+      - Parameters, Returns, Notes, Examples
     - [`getcolorrgb(paletteIndex)`](#getcolorrgbpaletteindex)
       - Parameters, Returns, Notes, Examples
     - [`getpalettecolor(index)`](#getpalettecolorindex)
@@ -1484,6 +1614,8 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
     - Backward Compatibility: `gui()` is also supported
   - [`joypad(player, buttons)`](#joypadplayer-buttons-optional) - *Optional callback*
     - Button Bitmask Reference, Bitwise Operations, Multiple Examples
+  - [`onaudiochannelchange(channel, enabled)`](#onaudiochannelchangechannel-enabled-optional) - *Optional callback*
+    - Channel Change Detection, Event Logging, Audio Activity Monitoring, Multiple Examples
   - [`beforeframe()`](#beforeframe-optional) - *Optional callback*
     - When Called, Important Notes, TAS Examples
 - [Complete Examples](#complete-examples)
@@ -5658,6 +5790,1356 @@ function script()
             lastStates[i].enabled = ch.enabled
         end
     end
+end
+```
+
+##### `getaudiochannelsample(channel)`
+Gets the last sample from a specific NES APU channel before mixing. This function extracts individual channel samples before they are combined into the final mixed audio output. Useful for channel-specific audio visualization, isolating individual channel waveforms, and analyzing each channel's contribution to the final mix.
+
+**Parameters:**
+- `channel` (integer, required): Channel number (0-4)
+  - `0` = Pulse 1 (Square 1)
+  - `1` = Pulse 2 (Square 2)
+  - `2` = Triangle
+  - `3` = Noise
+  - `4` = DMC (Delta Modulation Channel)
+
+**Returns:**
+- `integer` - Sample value (32-bit signed, typically within 16-bit range)
+  - Returns the last representative sample from the specified channel
+  - Sample values are computed from the channel's current state (duty cycle, volume, frequency, etc.)
+  - Values are scaled to be comparable to mixed audio samples
+  - Returns `0` when audio is disabled or channel is not producing output
+
+**Notes:**
+- Returns samples from individual channels **before** they are mixed together
+- Samples are computed in real-time from the channel's current rendering state
+- Each channel's sample represents its contribution before mixing with other channels
+- Sample values are representative and may not exactly match the raw buffer values due to scaling
+- When audio is disabled (`getaudioenabled()` is `false`), this function returns `0`
+- Throws an error if `channel` is outside the valid range (0-4)
+- Useful for:
+  - Channel-specific audio visualization (oscilloscopes, waveforms)
+  - Isolating individual channel outputs
+  - Comparing individual channels vs. mixed output
+  - Audio analysis and debugging
+  - Creating channel-specific visual effects
+
+**Example: Basic Usage:**
+```lua
+-- Get sample from Pulse 1 channel
+local pulse1Sample = getaudiochannelsample(0)
+print(string.format("Pulse 1 sample: %d", pulse1Sample))
+```
+
+**Example: Display All Channel Samples:**
+```lua
+function gui()
+    if not getaudioenabled() then
+        return
+    end
+    
+    local y = 4
+    local channelNames = {"Pulse1", "Pulse2", "Triangle", "Noise", "DMC"}
+    
+    for i = 0, 4 do
+        local sample = getaudiochannelsample(i)
+        drawtext(4, y, string.format("%s: %d", channelNames[i + 1], sample), 0x27)
+        y = y + 10
+    end
+end
+```
+
+**Example: Channel-Specific Waveform Visualization:**
+```lua
+local waveformData = {}
+
+function script()
+    if not getaudioenabled() then
+        return
+    end
+    
+    -- Store samples for waveform display
+    for i = 0, 4 do
+        if not waveformData[i] then
+            waveformData[i] = {}
+        end
+        local sample = getaudiochannelsample(i)
+        table.insert(waveformData[i], 1, sample)
+        if #waveformData[i] > 64 then
+            table.remove(waveformData[i])
+        end
+    end
+end
+
+function gui()
+    if not getaudioenabled() then
+        return
+    end
+    
+    -- Draw waveform for Pulse 1 channel
+    local y = 100
+    local centerY = y + 20
+    local width = 200
+    
+    drawtext(4, y - 12, "Pulse 1 Waveform:", 0x27)
+    
+    -- Draw center line
+    for i = 0, width do
+        drawpixel(4 + i, centerY, 0x10)
+    end
+    
+    -- Draw waveform
+    if waveformData[0] and #waveformData[0] > 1 then
+        for i = 1, math.min(#waveformData[0] - 1, width) do
+            local x1 = 4 + (i - 1) * (width / #waveformData[0])
+            local x2 = 4 + i * (width / #waveformData[0])
+            local y1 = centerY - (waveformData[0][i] / 200)
+            local y2 = centerY - (waveformData[0][i + 1] / 200)
+            drawline(x1, y1, x2, y2, 0x27)
+        end
+    end
+end
+```
+
+**Example: Compare Individual Channels vs. Mixed Audio:**
+```lua
+function gui()
+    if not getaudioenabled() then
+        return
+    end
+    
+    -- Get individual channel samples
+    local pulse1 = getaudiochannelsample(0)
+    local pulse2 = getaudiochannelsample(1)
+    local triangle = getaudiochannelsample(2)
+    local noise = getaudiochannelsample(3)
+    local dmc = getaudiochannelsample(4)
+    
+    -- Get mixed audio sample
+    local mixed = getaudiosample()
+    
+    -- Calculate sum of channels (approximate)
+    local sum = pulse1 + pulse2 + triangle + noise + dmc
+    
+    drawtext(4, 4, string.format("Pulse1: %d", pulse1), 0x27)
+    drawtext(4, 14, string.format("Pulse2: %d", pulse2), 0x37)
+    drawtext(4, 24, string.format("Triangle: %d", triangle), 0x2F)
+    drawtext(4, 34, string.format("Noise: %d", noise), 0x3F)
+    drawtext(4, 44, string.format("DMC: %d", dmc), 0x1F)
+    drawtext(4, 54, string.format("Sum: %d", sum), 0x37)
+    drawtext(4, 64, string.format("Mixed: %d", mixed), 0x29)
+end
+```
+
+**Example: Channel Peak Detection:**
+```lua
+local peakSamples = {0, 0, 0, 0, 0}
+
+function script()
+    if not getaudioenabled() then
+        return
+    end
+    
+    -- Track peak samples for each channel
+    for i = 0, 4 do
+        local sample = getaudiochannelsample(i)
+        local absSample = math.abs(sample)
+        if absSample > math.abs(peakSamples[i + 1]) then
+            peakSamples[i + 1] = sample
+        end
+    end
+end
+
+function gui()
+    if not getaudioenabled() then
+        return
+    end
+    
+    local channelNames = {"Pulse1", "Pulse2", "Triangle", "Noise", "DMC"}
+    local y = 4
+    
+    for i = 0, 4 do
+        local current = getaudiochannelsample(i)
+        local peak = peakSamples[i + 1]
+        drawtext(4, y, string.format("%s: %d (Peak: %d)", 
+            channelNames[i + 1], current, peak), 0x27)
+        y = y + 10
+    end
+end
+```
+
+##### `getaudiochannelfft(channel, [size])`
+Performs Fast Fourier Transform (FFT) on samples from a specific NES APU channel and returns frequency domain data. This function performs channel-specific frequency analysis by analyzing individual channel samples before they are mixed into the final audio output. Uses a radix-2 FFT algorithm with Hanning window function to reduce spectral leakage. Channel samples are stored at frame rate (60 Hz) in a circular buffer, allowing for real-time frequency analysis of individual channels.
+
+**Parameters:**
+- `channel` (integer, required): Channel number (0-4)
+  - `0` = Pulse 1 (Square 1)
+  - `1` = Pulse 2 (Square 2)
+  - `2` = Triangle
+  - `3` = Noise
+  - `4` = DMC (Delta Modulation Channel)
+- `size` (integer, optional, default: 256): FFT size (must be power of 2)
+  - Valid range: 32 to 512 (automatically rounded to nearest power of 2)
+  - Limited to available buffer size (512 samples maximum)
+  - Larger sizes provide better frequency resolution but require more computation
+  - Common sizes: 128, 256, 512
+  - If non-power-of-2 is provided, it's automatically rounded down to nearest power of 2
+
+**Returns:**
+- `table` - Frequency domain data table with the following structure:
+  - `magnitude` (table, 1-indexed array) - Magnitude of each frequency bin
+    - `magnitude[i]` - Magnitude of frequency bin i (0 to size/2)
+    - Values represent the amplitude of each frequency component for the specific channel
+    - Higher values indicate stronger presence of that frequency in the channel
+    - Magnitudes are typically smaller than mixed audio FFT due to frame-rate sampling (60 Hz)
+  - `phase` (table, 1-indexed array) - Phase of each frequency bin
+    - `phase[i]` - Phase of frequency bin i in radians (-π to π)
+    - Represents the phase angle of each frequency component
+  - `size` (integer) - FFT size actually used (power of 2)
+  - `sampleRate` (integer) - Effective sample rate in Hz (60 Hz, frame rate)
+    - Channel samples are stored once per frame, so effective rate is frame rate
+    - This is different from mixed audio FFT which uses audio sample rate (e.g., 44100 Hz)
+  - `frequencyResolution` (number) - Frequency resolution in Hz per bin
+    - Calculated as `sampleRate / size` (typically `60 / size`)
+    - Determines how many Hz each frequency bin represents
+    - Example: 60 Hz sample rate with 256-point FFT = ~0.23 Hz per bin
+    - Much finer resolution than mixed audio FFT, but limited to lower frequencies
+  - `channel` (integer) - Channel number that was analyzed (0-4)
+
+**Notes:**
+- Performs FFT on channel-specific samples from a circular buffer (512 samples per channel)
+- Channel samples are stored once per frame (60 Hz), not at audio sample rate
+- This analyzes channel activity patterns/envelopes rather than raw audio waveforms
+- Uses most recent samples from the circular buffer (newest to oldest)
+- Returns only the first half of frequency bins (size/2 + 1) since FFT is symmetric for real input
+- Frequency bin 1 (index 1) represents DC component (0 Hz)
+- Frequency bin i (index i) represents frequency: `(i - 1) * frequencyResolution` Hz
+- Maximum frequency represented: `sampleRate / 2` (30 Hz for 60 Hz frame rate)
+- When audio is disabled (`getaudioenabled()` is `false`), returns table with `size = 0`
+- FFT computation uses double-precision floating point for accuracy
+- Sample values are normalized to -1.0 to 1.0 range before FFT
+- Magnitude values are typically much smaller than mixed audio FFT (e.g., 0.0001-0.01 range is normal)
+- Useful for:
+  - Channel-specific frequency analysis and visualization
+  - Isolating individual channel frequencies from the mix
+  - Detecting musical patterns and rhythms in channel activity
+  - Creating channel-specific spectrum analyzers
+  - Analyzing frequency content of individual channels
+  - Comparing frequency characteristics between channels
+  - Audio debugging and channel-specific analysis
+
+**Example: Basic Usage:**
+```lua
+-- Perform FFT on Pulse 1 channel with default size (256)
+local pulse1FFT = getaudiochannelfft(0)
+print(string.format("Pulse 1 FFT Size: %d", pulse1FFT.size))
+print(string.format("Sample Rate: %d Hz", pulse1FFT.sampleRate))
+print(string.format("Frequency Resolution: %.2f Hz/bin", pulse1FFT.frequencyResolution))
+```
+
+**Example: Channel-Specific Spectrum Visualization:**
+```lua
+function gui()
+    if not getaudioenabled() then
+        return
+    end
+    
+    -- Get FFT for Pulse 1 channel
+    local fft = getaudiochannelfft(0, 256)
+    if not fft.magnitude then
+        return
+    end
+    
+    -- Draw frequency spectrum bars
+    local y = 100
+    local height = 60
+    local width = 200
+    local maxBins = math.min(64, #fft.magnitude)
+    
+    -- Find maximum magnitude for scaling
+    local maxMag = 0
+    for i = 1, maxBins do
+        if fft.magnitude[i] > maxMag then
+            maxMag = fft.magnitude[i]
+        end
+    end
+    
+    -- Draw spectrum bars
+    if maxMag > 0 then
+        local barWidth = width / maxBins
+        for i = 1, maxBins do
+            local mag = fft.magnitude[i]
+            local barHeight = (mag / maxMag) * height
+            local x = 4 + (i - 1) * barWidth
+            
+            -- Draw bar
+            for j = 0, barHeight do
+                for k = 0, barWidth - 1 do
+                    drawpixel(x + k, y + height - j, 0x27)
+                end
+            end
+        end
+    end
+end
+```
+
+**Example: Compare All Channels:**
+```lua
+function gui()
+    if not getaudioenabled() then
+        return
+    end
+    
+    local channelNames = {"Pulse1", "Pulse2", "Triangle", "Noise", "DMC"}
+    local channelColors = {0x27, 0x37, 0x2F, 0x3F, 0x1F}
+    local y = 4
+    
+    for channel = 0, 4 do
+        local fft = getaudiochannelfft(channel, 128)
+        if fft.magnitude then
+            -- Find peak frequency
+            local maxMag = 0
+            local peakBin = 1
+            for i = 1, #fft.magnitude do
+                if fft.magnitude[i] > maxMag then
+                    maxMag = fft.magnitude[i]
+                    peakBin = i
+                end
+            end
+            
+            if fft.frequencyResolution and peakBin > 1 then
+                local peakFreq = (peakBin - 1) * fft.frequencyResolution
+                drawtext(4, y, string.format("%s: Peak %.2f Hz (%.4f)", 
+                    channelNames[channel + 1], peakFreq, maxMag), channelColors[channel + 1])
+            else
+                drawtext(4, y, string.format("%s: No signal", channelNames[channel + 1]), 0x10)
+            end
+        end
+        y = y + 10
+    end
+end
+```
+
+**Example: Channel vs. Mixed Audio Comparison:**
+```lua
+function script()
+    if not getaudioenabled() then
+        return
+    end
+    
+    -- Get channel-specific FFT
+    local pulse1FFT = getaudiochannelfft(0, 256)
+    
+    -- Get mixed audio FFT for comparison
+    local mixedFFT = getaudiofft(256)
+    
+    if pulse1FFT.magnitude and mixedFFT.magnitude then
+        -- Find peak in Pulse 1
+        local maxMag1 = 0
+        local peakBin1 = 1
+        for i = 1, #pulse1FFT.magnitude do
+            if pulse1FFT.magnitude[i] > maxMag1 then
+                maxMag1 = pulse1FFT.magnitude[i]
+                peakBin1 = i
+            end
+        end
+        
+        -- Find peak in mixed audio
+        local maxMag2 = 0
+        local peakBin2 = 1
+        for i = 1, #mixedFFT.magnitude do
+            if mixedFFT.magnitude[i] > maxMag2 then
+                maxMag2 = mixedFFT.magnitude[i]
+                peakBin2 = i
+            end
+        end
+        
+        if pulse1FFT.frequencyResolution and mixedFFT.frequencyResolution then
+            local freq1 = (peakBin1 - 1) * pulse1FFT.frequencyResolution
+            local freq2 = (peakBin2 - 1) * mixedFFT.frequencyResolution
+            print(string.format("Pulse1 peak: %.2f Hz (%.4f), Mixed peak: %.1f Hz (%.4f)", 
+                freq1, maxMag1, freq2, maxMag2))
+        end
+    end
+end
+```
+
+**Example: Channel Frequency Analysis:**
+```lua
+function script()
+    if not getaudioenabled() then
+        return
+    end
+    
+    -- Analyze Triangle channel (good for bass frequencies)
+    local triFFT = getaudiochannelfft(2, 256)
+    
+    if triFFT.magnitude and triFFT.frequencyResolution then
+        -- Find top 5 frequencies
+        local topFreqs = {}
+        for i = 1, #triFFT.magnitude do
+            local mag = triFFT.magnitude[i]
+            if mag > 0.0001 then  -- Threshold for significant frequencies
+                local freq = (i - 1) * triFFT.frequencyResolution
+                table.insert(topFreqs, {freq = freq, mag = mag})
+            end
+        end
+        
+        -- Sort by magnitude
+        table.sort(topFreqs, function(a, b) return a.mag > b.mag end)
+        
+        -- Print top frequencies
+        print("Triangle Channel Top Frequencies:")
+        for i = 1, math.min(5, #topFreqs) do
+            print(string.format("  %d. %.2f Hz (magnitude: %.6f)", 
+                i, topFreqs[i].freq, topFreqs[i].mag))
+        end
+    end
+end
+```
+
+##### `getaudiofiltered([filterType], [cutoff], [q], [filterId])`
+Applies real-time frequency filtering to audio samples and returns the filtered sample value. This function performs frequency filtering for analysis and visualization purposes. Uses a biquad (second-order IIR) filter for efficient real-time processing. **Note:** This function returns filtered samples for analysis only - it does not affect the actual audio output. To filter the audio that plays through speakers, use `setaudiofilter()` instead.
+
+**Parameters:**
+- `filterType` (string, optional, default: "lowpass"): Filter type
+  - `"lowpass"` or `"lp"` - Low-pass filter (removes high frequencies)
+  - `"highpass"` or `"hp"` - High-pass filter (removes low frequencies)
+  - `"bandpass"` or `"bp"` - Band-pass filter (keeps only a frequency range)
+  - `"notch"` or `"bandstop"` or `"bs"` - Notch filter (removes a frequency range)
+- `cutoff` (number, optional, default: 1000.0): Cutoff frequency in Hz
+  - For low-pass/high-pass: Frequency where response is -3dB
+  - For band-pass/notch: Center frequency of the band
+  - Valid range: 1.0 to sampleRate/2 (automatically clamped)
+- `q` (number, optional, default: 0.707): Q factor (quality factor)
+  - Controls bandwidth/sharpness of the filter
+  - Higher Q = sharper filter (narrower bandwidth)
+  - Lower Q = gentler filter (wider bandwidth)
+  - Valid range: 0.1 to 10.0 (automatically clamped)
+- `filterId` (integer, optional, default: 0): Filter instance ID (0-9)
+  - Allows maintaining separate filter states for parallel filtering
+  - Each filter ID maintains its own state independently
+
+**Returns:**
+- `integer` - Filtered sample value (32-bit signed, typically within 16-bit range)
+  - Returns the filtered version of the current audio sample
+  - Sample values are normalized, filtered, then converted back to integer range
+  - Returns `0` when audio is disabled
+
+**Notes:**
+- **Analysis only** - This function does NOT affect the actual audio output
+- Uses biquad (second-order IIR) filter for efficient real-time processing
+- Filter state is maintained between calls for continuous filtering
+- Each `filterId` maintains independent filter state
+- Filter coefficients are recalculated on every call (could be optimized)
+- Based on RBJ Audio EQ Cookbook formulas
+- Useful for:
+  - Analyzing filtered audio data
+  - Visualizing filtered waveforms
+  - Comparing original vs filtered samples
+  - Processing audio data in scripts
+- To filter actual audio output, use `setaudiofilter()` instead
+
+**Example: Basic Usage:**
+```lua
+-- Get filtered sample with default low-pass filter
+local filtered = getaudiofiltered()
+print(string.format("Filtered sample: %d", filtered))
+```
+
+**Example: Different Filter Types:**
+```lua
+function script()
+    if not getaudioenabled() then
+        return
+    end
+    
+    local original = getaudiosample()
+    
+    -- Test different filter types
+    local lowpass = getaudiofiltered("lowpass", 1000.0, 0.707, 0)
+    local highpass = getaudiofiltered("highpass", 1000.0, 0.707, 1)
+    local bandpass = getaudiofiltered("bandpass", 1000.0, 0.707, 2)
+    local notch = getaudiofiltered("notch", 1000.0, 0.707, 3)
+    
+    print(string.format("Original: %d", original))
+    print(string.format("Low-pass: %d, High-pass: %d", lowpass, highpass))
+    print(string.format("Band-pass: %d, Notch: %d", bandpass, notch))
+end
+```
+
+**Example: Filter Visualization:**
+```lua
+function script()
+    if not getaudioenabled() then
+        return
+    end
+    
+    local original = getaudiosample()
+    local filtered = getaudiofiltered("lowpass", 2000.0, 0.707, 0)
+    
+    -- Store for waveform display
+    -- ... waveform visualization code ...
+end
+```
+
+##### `setaudiofilter(enabled, [filterType], [cutoff], [q])`
+Enables/disables and configures the audio output filter that affects actual audio playback. This function applies frequency filtering to the audio buffer before it's sent to the speakers, allowing you to hear the filtered audio in real-time. Uses a biquad (second-order IIR) filter for efficient processing.
+
+**Parameters:**
+- `enabled` (boolean, required): Whether to enable the output filter
+  - `true` - Enable output filtering (audio will be filtered)
+  - `false` - Disable output filtering (audio passes through unchanged)
+- `filterType` (string, optional, default: "lowpass"): Filter type
+  - `"lowpass"` or `"lp"` - Low-pass filter (removes high frequencies)
+  - `"highpass"` or `"hp"` - High-pass filter (removes low frequencies)
+  - `"bandpass"` or `"bp"` - Band-pass filter (keeps only a frequency range)
+  - `"notch"` or `"bandstop"` or `"bs"` - Notch filter (removes a frequency range)
+- `cutoff` (number, optional, default: 1000.0): Cutoff frequency in Hz
+  - For low-pass/high-pass: Frequency where response is -3dB
+  - For band-pass/notch: Center frequency of the band
+  - Valid range: 1.0 to sampleRate/2 (automatically clamped)
+- `q` (number, optional, default: 0.707): Q factor (quality factor)
+  - Controls bandwidth/sharpness of the filter
+  - Higher Q = sharper filter (narrower bandwidth)
+  - Lower Q = gentler filter (wider bandwidth)
+  - Valid range: 0.1 to 10.0 (automatically clamped)
+
+**Returns:**
+- Nothing (nil)
+
+**Notes:**
+- **Affects actual audio output** - This function modifies the audio that plays through speakers
+- Filter is applied to the entire audio buffer before playback
+- Filter state is maintained between frames for continuous filtering
+- When `enabled` is changed or parameters are modified, filter state is reset
+- Uses biquad (second-order IIR) filter for efficient real-time processing
+- Based on RBJ Audio EQ Cookbook formulas
+- Filter is applied in `FlushEmulateSound()` before audio is sent to output
+- Useful for:
+  - Real-time audio effects
+  - Frequency-based audio processing
+  - Creating audio filters that you can hear
+  - Audio experimentation and testing
+
+**Example: Enable Low-Pass Filter:**
+```lua
+-- Enable low-pass filter with 1000 Hz cutoff
+setaudiofilter(true, "lowpass", 1000.0, 0.707)
+print("Low-pass filter enabled")
+```
+
+**Example: Switch Filter Types:**
+```lua
+local currentFilter = "lowpass"
+
+function script()
+    -- Switch filter type (example: on button press)
+    if isxboxbuttonpressed(0, "Y") then
+        if currentFilter == "lowpass" then
+            currentFilter = "highpass"
+        elseif currentFilter == "highpass" then
+            currentFilter = "bandpass"
+        elseif currentFilter == "bandpass" then
+            currentFilter = "notch"
+        else
+            currentFilter = "lowpass"
+        end
+        
+        setaudiofilter(true, currentFilter, 1000.0, 0.707)
+        print(string.format("Switched to: %s", currentFilter))
+    end
+end
+```
+
+**Example: Disable Filter:**
+```lua
+-- Disable output filter (audio returns to normal)
+setaudiofilter(false)
+print("Output filter disabled")
+```
+
+**Example: Adjust Filter Parameters:**
+```lua
+local cutoff = 1000.0
+local q = 0.707
+
+function script()
+    -- Adjust cutoff frequency (example: with D-pad)
+    if isxboxbuttonpressed(0, "DPAD_UP") then
+        cutoff = cutoff + 100.0
+        if cutoff > 20000.0 then cutoff = 20000.0 end
+        setaudiofilter(true, "lowpass", cutoff, q)
+        print(string.format("Cutoff: %.0f Hz", cutoff))
+    elseif isxboxbuttonpressed(0, "DPAD_DOWN") then
+        cutoff = cutoff - 100.0
+        if cutoff < 1.0 then cutoff = 1.0 end
+        setaudiofilter(true, "lowpass", cutoff, q)
+        print(string.format("Cutoff: %.0f Hz", cutoff))
+    end
+end
+```
+
+##### `getaudiofilter()`
+Gets the current audio output filter settings. Returns a table containing the enabled state, filter type, cutoff frequency, and Q factor of the output filter.
+
+**Parameters:**
+- None
+
+**Returns:**
+- `table` - Filter settings table with the following structure:
+  - `enabled` (boolean) - Whether the output filter is currently enabled
+  - `filterType` (string) - Current filter type ("lowpass", "highpass", "bandpass", "notch")
+  - `cutoff` (number) - Current cutoff frequency in Hz
+  - `q` (number) - Current Q factor
+
+**Notes:**
+- Returns the current state of the output filter (set by `setaudiofilter()`)
+- All fields are always present in the returned table
+- Useful for checking filter state, displaying current settings, or conditional logic
+- Returns default values if filter has never been configured
+
+**Example: Check Filter Status:**
+```lua
+local filter = getaudiofilter()
+if filter.enabled then
+    print(string.format("Filter: %s, Cutoff: %.0f Hz, Q: %.2f", 
+        filter.filterType, filter.cutoff, filter.q))
+else
+    print("Output filter is disabled")
+end
+```
+
+**Example: Display Filter Settings:**
+```lua
+function gui()
+    local filter = getaudiofilter()
+    
+    if filter.enabled then
+        drawtext(4, 4, string.format("Filter: %s", filter.filterType), 0x27)
+        drawtext(4, 14, string.format("Cutoff: %.0f Hz", filter.cutoff), 0x37)
+        drawtext(4, 24, string.format("Q: %.2f", filter.q), 0x37)
+    else
+        drawtext(4, 4, "Output Filter: DISABLED", 0x10)
+    end
+end
+```
+
+**Example: Conditional Filter Application:**
+```lua
+function script()
+    local filter = getaudiofilter()
+    
+    -- Only enable filter if audio is playing
+    if getaudioenabled() and not filter.enabled then
+        setaudiofilter(true, "lowpass", 2000.0, 0.707)
+    elseif not getaudioenabled() and filter.enabled then
+        setaudiofilter(false)
+    end
+end
+```
+
+##### `audiosampletofloat(sample)`
+Converts an audio sample (integer) to a normalized float value in the range -1.0 to 1.0. This is useful for floating-point audio processing, mathematical operations, and when working with normalized audio values.
+
+**Parameters:**
+- `sample` (integer, required): Audio sample value to convert
+  - Typically ranges from -32768 to 32767 (16-bit signed integer)
+  - Can accept values outside this range, but will be clamped to -1.0 to 1.0
+
+**Returns:**
+- `number` (float): Normalized float value between -1.0 and 1.0
+  - Value of 0.0 represents silence
+  - Positive values represent positive audio samples
+  - Negative values represent negative audio samples
+  - Values are clamped to prevent overflow
+
+**Notes:**
+- Normalizes based on 16-bit signed integer range (32768)
+- Formula: `floatValue = sample / 32768.0`
+- Output is clamped to -1.0 to 1.0 range
+- Useful for:
+  - Floating-point audio processing
+  - Mathematical operations on audio
+  - Normalized audio visualization
+  - Audio analysis and filtering
+- To convert back to integer, use `floattosample()`
+
+**Example: Basic Usage:**
+```lua
+local sample = getaudiosample()
+local floatVal = audiosampletofloat(sample)
+print(string.format("Sample: %d -> Float: %.6f", sample, floatVal))
+```
+
+**Example: Audio Processing:**
+```lua
+function script()
+    if not getaudioenabled() then
+        return
+    end
+    
+    local sample = getaudiosample()
+    local floatVal = audiosampletofloat(sample)
+    
+    -- Apply gain (multiply by 0.5 for half volume)
+    local processedFloat = floatVal * 0.5
+    
+    -- Convert back to sample
+    local processedSample = floattosample(processedFloat)
+    
+    -- Use processedSample for further processing
+end
+```
+
+**Example: Normalized Visualization:**
+```lua
+function script()
+    if not getaudioenabled() then
+        return
+    end
+    
+    local sample = getaudiosample()
+    local floatVal = audiosampletofloat(sample)
+    
+    -- Draw waveform using normalized values
+    local x = 4
+    local y = 100 + math.floor(floatVal * 50)  -- Scale to screen
+    drawtext(x, y, "*", 0x27)
+end
+```
+
+##### `floattosample(floatValue)`
+Converts a normalized float value (-1.0 to 1.0) back to an audio sample (integer). This is the inverse operation of `audiosampletofloat()`.
+
+**Parameters:**
+- `floatValue` (number, required): Normalized float value to convert
+  - Should be in range -1.0 to 1.0 (will be clamped if outside)
+  - 0.0 represents silence
+  - Positive values become positive samples
+  - Negative values become negative samples
+
+**Returns:**
+- `integer`: Audio sample value (typically -32768 to 32767)
+  - Clamped to prevent overflow
+  - Formula: `sample = floatValue * 32768.0` (rounded to integer)
+
+**Notes:**
+- Converts from normalized float range to 16-bit signed integer range
+- Input values are clamped to -1.0 to 1.0 before conversion
+- Output is clamped to -32768 to 32767 to prevent overflow
+- Useful for:
+  - Converting processed float audio back to integer samples
+  - Audio synthesis and generation
+  - Applying floating-point effects to audio
+- Round-trip conversion (sample -> float -> sample) may have small rounding errors
+
+**Example: Basic Usage:**
+```lua
+local floatVal = 0.5  -- Half amplitude
+local sample = floattosample(floatVal)
+print(string.format("Float: %.2f -> Sample: %d", floatVal, sample))
+-- Output: Float: 0.50 -> Sample: 16384
+```
+
+**Example: Audio Synthesis:**
+```lua
+function script()
+    local time = getframecount() / 60.0  -- Time in seconds
+    local frequency = 440.0  -- A4 note
+    
+    -- Generate sine wave
+    local floatVal = math.sin(2.0 * math.pi * frequency * time)
+    
+    -- Convert to sample
+    local sample = floattosample(floatVal)
+    
+    -- Use sample for audio output or visualization
+end
+```
+
+**Example: Round-Trip Conversion:**
+```lua
+local originalSample = 12345
+local floatVal = audiosampletofloat(originalSample)
+local convertedBack = floattosample(floatVal)
+
+print(string.format("Original: %d -> Float: %.6f -> Sample: %d", 
+    originalSample, floatVal, convertedBack))
+-- Note: Small rounding differences are expected
+```
+
+##### `audiosampletouint8(sample)`
+Converts an audio sample (signed integer) to an 8-bit unsigned value (0-255). Useful for compatibility with 8-bit audio systems, visualization, or when working with unsigned audio formats.
+
+**Parameters:**
+- `sample` (integer, required): Audio sample value to convert
+  - Typically ranges from -32768 to 32767 (16-bit signed)
+  - Zero (silence) maps to 128 (middle of 8-bit range)
+
+**Returns:**
+- `integer`: 8-bit unsigned value (0-255)
+  - Value 128 represents silence (zero crossing)
+  - Values 0-127 represent negative samples
+  - Values 129-255 represent positive samples
+
+**Notes:**
+- Conversion formula: `uint8 = (sample >> 8) + 128`
+- Zero (silence) maps to 128 (middle of unsigned range)
+- Maximum positive sample (32767) maps to 255
+- Minimum negative sample (-32768) maps to 0
+- Useful for:
+  - 8-bit audio processing
+  - Compatibility with legacy systems
+  - Audio visualization (8-bit color mapping)
+  - Compact audio storage
+- To convert back to signed sample, use `uint8tosample()`
+
+**Example: Basic Usage:**
+```lua
+local sample = getaudiosample()
+local uint8Val = audiosampletouint8(sample)
+print(string.format("Sample: %d -> Uint8: %d", sample, uint8Val))
+```
+
+**Example: 8-bit Visualization:**
+```lua
+function script()
+    if not getaudioenabled() then
+        return
+    end
+    
+    local sample = getaudiosample()
+    local uint8Val = audiosampletouint8(sample)
+    
+    -- Use uint8 value as color intensity
+    local color = uint8Val
+    drawtext(4, 4, string.format("Audio Level: %d", uint8Val), color)
+end
+```
+
+**Example: Zero Detection:**
+```lua
+local sample = 0
+local uint8Val = audiosampletouint8(sample)
+print(string.format("Zero sample -> Uint8: %d (expected 128)", uint8Val))
+-- Output: Zero sample -> Uint8: 128 (expected 128)
+```
+
+##### `uint8tosample(uint8Value)`
+Converts an 8-bit unsigned value (0-255) to an audio sample (signed integer). This is the inverse operation of `audiosampletouint8()`.
+
+**Parameters:**
+- `uint8Value` (integer, required): 8-bit unsigned value to convert
+  - Should be in range 0-255 (will be clamped if outside)
+  - Value 128 represents silence (zero crossing)
+  - Values 0-127 represent negative samples
+  - Values 129-255 represent positive samples
+
+**Returns:**
+- `integer`: Audio sample value (typically -32768 to 32767)
+  - Clamped to prevent overflow
+  - Formula: `sample = (uint8Value - 128) << 8`
+
+**Notes:**
+- Converts from 8-bit unsigned range to 16-bit signed integer range
+- Input values are clamped to 0-255 before conversion
+- Value 128 (middle of range) maps to 0 (silence)
+- Maximum value (255) maps to 32512 (close to max positive)
+- Minimum value (0) maps to -32768 (max negative)
+- Useful for:
+  - Converting 8-bit audio to 16-bit samples
+  - Processing legacy audio formats
+  - Audio synthesis from 8-bit data
+- Round-trip conversion may have precision differences due to bit depth reduction
+
+**Example: Basic Usage:**
+```lua
+local uint8Val = 200  -- Positive sample
+local sample = uint8tosample(uint8Val)
+print(string.format("Uint8: %d -> Sample: %d", uint8Val, sample))
+```
+
+**Example: Converting 8-bit Audio:**
+```lua
+-- Simulate 8-bit audio data
+local uint8Audio = {128, 150, 200, 180, 128, 100, 50, 128}
+
+for i = 1, #uint8Audio do
+    local sample = uint8tosample(uint8Audio[i])
+    print(string.format("Uint8[%d]: %d -> Sample: %d", i, uint8Audio[i], sample))
+end
+```
+
+**Example: Zero Detection:**
+```lua
+local uint8Val = 128  -- Middle of range (silence)
+local sample = uint8tosample(uint8Val)
+print(string.format("Uint8: %d -> Sample: %d (expected 0)", uint8Val, sample))
+-- Output: Uint8: 128 -> Sample: 0 (expected 0)
+```
+
+##### `normalizeaudiosample(sample, [maxValue])`
+Normalizes an audio sample to a specific maximum value range. This is useful for scaling audio samples to different bit depths or volume levels.
+
+**Parameters:**
+- `sample` (integer, required): Audio sample value to normalize
+  - Typically ranges from -32768 to 32767
+  - Can accept values outside this range
+- `maxValue` (number, optional, default: 32767): Maximum value for the normalization range
+  - Must be positive
+  - Determines the output range: -maxValue to +maxValue
+  - Common values:
+    - `127` for 8-bit signed range
+    - `32767` for 16-bit signed range
+    - `16383` for 14-bit range
+    - Custom values for volume scaling
+
+**Returns:**
+- `integer`: Normalized sample value
+  - Range: -maxValue to +maxValue
+  - Preserves the relative amplitude of the original sample
+  - Clamped to prevent overflow
+
+**Notes:**
+- Normalizes by first converting to float (-1.0 to 1.0), then scaling to the target range
+- Preserves the original sample's relative amplitude and sign
+- Useful for:
+  - Scaling audio to different bit depths
+  - Volume adjustment
+  - Audio format conversion
+  - Normalizing audio levels
+- Formula: `normalized = (sample / 32768.0) * maxValue`
+
+**Example: Basic Usage:**
+```lua
+local sample = 16384  -- Half amplitude
+local normalized8 = normalizeaudiosample(sample, 127)
+local normalized16 = normalizeaudiosample(sample, 32767)
+
+print(string.format("Original: %d", sample))
+print(string.format("Normalized to 8-bit: %d", normalized8))
+print(string.format("Normalized to 16-bit: %d", normalized16))
+```
+
+**Example: Volume Scaling:**
+```lua
+function script()
+    if not getaudioenabled() then
+        return
+    end
+    
+    local sample = getaudiosample()
+    
+    -- Reduce volume to 50%
+    local halfVolume = normalizeaudiosample(sample, 16383)  -- Half of 32767
+    
+    -- Reduce volume to 25%
+    local quarterVolume = normalizeaudiosample(sample, 8191)  -- Quarter of 32767
+    
+    -- Use scaled samples for processing
+end
+```
+
+**Example: Bit Depth Conversion:**
+```lua
+-- Convert 16-bit sample to 8-bit range
+local sample16 = 20000
+local sample8 = normalizeaudiosample(sample16, 127)
+
+print(string.format("16-bit: %d -> 8-bit range: %d", sample16, sample8))
+```
+
+##### `monotostereo(monoSample)`
+Converts a mono audio sample to stereo format by duplicating the sample to both left and right channels. Useful for converting mono audio sources to stereo output.
+
+**Parameters:**
+- `monoSample` (integer, required): Mono audio sample value
+  - Single sample value to be duplicated to both channels
+
+**Returns:**
+- `table`: Stereo sample table with the following structure:
+  - `left` (integer) - Left channel sample (same as input)
+  - `right` (integer) - Right channel sample (same as input)
+  - Both channels contain identical sample values
+
+**Notes:**
+- Simply duplicates the mono sample to both stereo channels
+- No panning or spatial processing is applied
+- Both channels receive identical values
+- Useful for:
+  - Converting mono audio to stereo format
+  - Ensuring stereo compatibility
+  - Audio format conversion
+  - Mono source playback through stereo system
+- To convert stereo back to mono, use `stereotomono()`
+
+**Example: Basic Usage:**
+```lua
+local monoSample = 1000
+local stereo = monotostereo(monoSample)
+
+print(string.format("Mono: %d -> Stereo: L=%d, R=%d", 
+    monoSample, stereo.left, stereo.right))
+-- Output: Mono: 1000 -> Stereo: L=1000, R=1000
+```
+
+**Example: Converting Mono Audio:**
+```lua
+function script()
+    if not getaudioenabled() then
+        return
+    end
+    
+    local sample = getaudiosample()  -- Mono sample
+    
+    -- Convert to stereo
+    local stereo = monotostereo(sample)
+    
+    -- Use stereo.left and stereo.right for processing
+    print(string.format("Stereo channels: L=%d, R=%d", stereo.left, stereo.right))
+end
+```
+
+**Example: Stereo Compatibility:**
+```lua
+-- Ensure audio is in stereo format
+local audioSample = getaudiosample()
+local stereo = monotostereo(audioSample)
+
+-- Now both channels are available
+if stereo.left == stereo.right then
+    print("Mono audio converted to stereo (both channels identical)")
+end
+```
+
+##### `stereotomono(leftSample, rightSample)`
+Converts stereo audio samples (left and right channels) to mono by averaging the two channels. Useful for downmixing stereo audio to mono or extracting a single channel representation.
+
+**Parameters:**
+- `leftSample` (integer, required): Left channel audio sample
+  - Typically ranges from -32768 to 32767
+- `rightSample` (integer, required): Right channel audio sample
+  - Typically ranges from -32768 to 32767
+
+**Returns:**
+- `integer`: Mono audio sample (average of left and right)
+  - Calculated as: `(leftSample + rightSample) / 2`
+  - Preserves overall amplitude while combining channels
+
+**Notes:**
+- Averages the left and right channels to create a mono representation
+- Simple arithmetic mean: `mono = (left + right) / 2`
+- Preserves the overall audio level while combining channels
+- Useful for:
+  - Downmixing stereo to mono
+  - Mono output compatibility
+  - Audio analysis (single channel representation)
+  - Reducing audio data size
+- To convert mono to stereo, use `monotostereo()`
+
+**Example: Basic Usage:**
+```lua
+local leftSample = 1000
+local rightSample = 2000
+local mono = stereotomono(leftSample, rightSample)
+
+print(string.format("Stereo: L=%d, R=%d -> Mono: %d", 
+    leftSample, rightSample, mono))
+-- Output: Stereo: L=1000, R=2000 -> Mono: 1500
+```
+
+**Example: Downmixing Stereo Audio:**
+```lua
+function script()
+    if not getaudioenabled() then
+        return
+    end
+    
+    local leftSample = getaudiosampleleft()
+    local rightSample = getaudiosampleright()
+    
+    -- Convert to mono
+    local mono = stereotomono(leftSample, rightSample)
+    
+    -- Use mono sample for processing or visualization
+    print(string.format("Mono sample: %d", mono))
+end
+```
+
+**Example: Audio Analysis:**
+```lua
+-- Analyze stereo audio as mono
+local left = getaudiosampleleft()
+local right = getaudiosampleright()
+local mono = stereotomono(left, right)
+
+-- Perform analysis on mono representation
+local floatVal = audiosampletofloat(mono)
+local magnitude = math.abs(floatVal)
+
+print(string.format("Mono magnitude: %.4f", magnitude))
+```
+
+##### `getaudiofft([size])`
+Performs Fast Fourier Transform (FFT) on audio samples and returns frequency domain data. This function converts time-domain audio samples into frequency-domain representation, allowing for spectrum analysis, frequency visualization, and audio frequency analysis. Uses a radix-2 FFT algorithm with Hanning window function to reduce spectral leakage.
+
+**Parameters:**
+- `size` (integer, optional, default: 256): FFT size (must be power of 2)
+  - Valid range: 32 to 512 (automatically rounded to nearest power of 2)
+  - Larger sizes provide better frequency resolution but require more computation
+  - Common sizes: 128, 256, 512
+  - If non-power-of-2 is provided, it's automatically rounded down to nearest power of 2
+
+**Returns:**
+- `table` - Frequency domain data table with the following structure:
+  - `magnitude` (table, 1-indexed array) - Magnitude of each frequency bin
+    - `magnitude[i]` - Magnitude of frequency bin i (0 to size/2)
+    - Values represent the amplitude of each frequency component
+    - Higher values indicate stronger presence of that frequency
+  - `phase` (table, 1-indexed array) - Phase of each frequency bin
+    - `phase[i]` - Phase of frequency bin i in radians (-π to π)
+    - Represents the phase angle of each frequency component
+  - `size` (integer) - FFT size actually used (power of 2)
+  - `sampleRate` (integer) - Audio sample rate in Hz
+  - `frequencyResolution` (number) - Frequency resolution in Hz per bin
+    - Calculated as `sampleRate / size`
+    - Determines how many Hz each frequency bin represents
+    - Example: 44100 Hz sample rate with 256-point FFT = ~172 Hz per bin
+
+**Notes:**
+- Performs real-time FFT on the most recent audio samples from the buffer
+- Uses Hanning window function to reduce spectral leakage and improve frequency accuracy
+- Returns only the first half of frequency bins (size/2 + 1) since FFT is symmetric for real input
+- Frequency bin 1 (index 1) represents DC component (0 Hz)
+- Frequency bin i (index i) represents frequency: `(i - 1) * frequencyResolution` Hz
+- Maximum frequency represented: `sampleRate / 2` (Nyquist frequency)
+- When audio is disabled (`getaudioenabled()` is `false`), returns table with `size = 0`
+- FFT computation uses double-precision floating point for accuracy
+- Sample values are normalized to -1.0 to 1.0 range before FFT
+- Useful for:
+  - Frequency spectrum visualization (spectrum analyzers)
+  - Identifying dominant frequencies in audio
+  - Audio frequency analysis and debugging
+  - Real-time audio visualization effects
+  - Creating frequency-domain visualizations
+
+**Example: Basic Usage:**
+```lua
+-- Perform FFT with default size (256)
+local fft = getaudiofft()
+print(string.format("FFT Size: %d", fft.size))
+print(string.format("Sample Rate: %d Hz", fft.sampleRate))
+print(string.format("Frequency Resolution: %.2f Hz/bin", fft.frequencyResolution))
+```
+
+**Example: Frequency Spectrum Visualization:**
+```lua
+function gui()
+    if not getaudioenabled() then
+        return
+    end
+    
+    local fft = getaudiofft(256)
+    if not fft.magnitude then
+        return
+    end
+    
+    -- Draw frequency spectrum bars
+    local y = 100
+    local height = 60
+    local width = 200
+    local maxBins = math.min(64, #fft.magnitude)
+    
+    -- Find maximum magnitude for scaling
+    local maxMag = 0
+    for i = 1, maxBins do
+        if fft.magnitude[i] > maxMag then
+            maxMag = fft.magnitude[i]
+        end
+    end
+    
+    -- Draw spectrum bars
+    if maxMag > 0 then
+        local barWidth = width / maxBins
+        for i = 1, maxBins do
+            local mag = fft.magnitude[i]
+            local barHeight = (mag / maxMag) * height
+            local x = 4 + (i - 1) * barWidth
+            
+            -- Draw bar
+            for j = 0, barHeight do
+                for k = 0, barWidth - 1 do
+                    drawpixel(x + k, y + height - j, 0x27)
+                end
+            end
+        end
+    end
+end
+```
+
+**Example: Find Peak Frequency:**
+```lua
+function script()
+    if not getaudioenabled() then
+        return
+    end
+    
+    local fft = getaudiofft(256)
+    if not fft.magnitude or not fft.frequencyResolution then
+        return
+    end
+    
+    -- Find frequency with highest magnitude
+    local maxMagnitude = 0
+    local peakBin = 1
+    for i = 1, #fft.magnitude do
+        if fft.magnitude[i] > maxMagnitude then
+            maxMagnitude = fft.magnitude[i]
+            peakBin = i
+        end
+    end
+    
+    -- Calculate peak frequency
+    local peakFreq = (peakBin - 1) * fft.frequencyResolution
+    print(string.format("Peak frequency: %.1f Hz (magnitude: %.4f)", peakFreq, maxMagnitude))
+end
+```
+
+**Example: Display Top Frequencies:**
+```lua
+function gui()
+    if not getaudioenabled() then
+        return
+    end
+    
+    local fft = getaudiofft(256)
+    if not fft.magnitude or not fft.frequencyResolution then
+        return
+    end
+    
+    -- Collect significant frequencies
+    local freqs = {}
+    for i = 2, #fft.magnitude do  -- Skip DC (bin 1)
+        local mag = fft.magnitude[i]
+        if mag > 0.01 then  -- Threshold
+            local freq = (i - 1) * fft.frequencyResolution
+            table.insert(freqs, {freq = freq, mag = mag})
+        end
+    end
+    
+    -- Sort by magnitude
+    table.sort(freqs, function(a, b) return a.mag > b.mag end)
+    
+    -- Display top 5 frequencies
+    local y = 4
+    drawtext(4, y, "Top Frequencies:", 0x29)
+    y = y + 12
+    
+    for i = 1, math.min(5, #freqs) do
+        drawtext(4, y, string.format("%d. %.1f Hz (%.3f)", 
+            i, freqs[i].freq, freqs[i].mag), 0x27)
+        y = y + 10
+    end
+end
+```
+
+**Example: Waterfall Visualization:**
+```lua
+local spectrumHistory = {}
+
+function script()
+    if not getaudioenabled() then
+        return
+    end
+    
+    local fft = getaudiofft(256)
+    if fft.magnitude then
+        -- Store spectrum history
+        table.insert(spectrumHistory, 1, fft.magnitude)
+        if #spectrumHistory > 64 then
+            table.remove(spectrumHistory)
+        end
+    end
+end
+
+function gui()
+    if not getaudioenabled() or #spectrumHistory == 0 then
+        return
+    end
+    
+    -- Draw waterfall (time vs frequency)
+    local x = 4
+    local y = 100
+    local width = 200
+    local height = 64
+    
+    for timeIdx = 1, math.min(#spectrumHistory, width) do
+        local spectrum = spectrumHistory[timeIdx]
+        if spectrum then
+            local maxMag = 0
+            for i = 1, math.min(height, #spectrum) do
+                if spectrum[i] > maxMag then
+                    maxMag = spectrum[i]
+                end
+            end
+            
+            if maxMag > 0 then
+                for freqIdx = 1, math.min(height, #spectrum) do
+                    local mag = spectrum[freqIdx]
+                    local intensity = (mag / maxMag) * 255
+                    local color = 0x10
+                    
+                    -- Color based on intensity
+                    if intensity > 200 then color = 0x27
+                    elseif intensity > 150 then color = 0x37
+                    elseif intensity > 100 then color = 0x2F
+                    elseif intensity > 50 then color = 0x1F
+                    end
+                    
+                    drawpixel(x + timeIdx - 1, y + height - freqIdx, color)
+                end
+            end
+        end
+    end
+end
+```
+
+**Example: Frequency Band Analysis:**
+```lua
+function gui()
+    if not getaudioenabled() then
+        return
+    end
+    
+    local fft = getaudiofft(256)
+    if not fft.magnitude or not fft.frequencyResolution then
+        return
+    end
+    
+    -- Analyze frequency bands
+    local lowFreq = 0    -- 0-200 Hz
+    local midFreq = 0    -- 200-2000 Hz
+    local highFreq = 0   -- 2000+ Hz
+    
+    for i = 2, #fft.magnitude do
+        local freq = (i - 1) * fft.frequencyResolution
+        local mag = fft.magnitude[i]
+        
+        if freq < 200 then
+            lowFreq = lowFreq + mag
+        elseif freq < 2000 then
+            midFreq = midFreq + mag
+        else
+            highFreq = highFreq + mag
+        end
+    end
+    
+    -- Display frequency bands
+    drawtext(4, 4, string.format("Low (0-200 Hz): %.3f", lowFreq), 0x27)
+    drawtext(4, 14, string.format("Mid (200-2kHz): %.3f", midFreq), 0x37)
+    drawtext(4, 24, string.format("High (2kHz+): %.3f", highFreq), 0x2F)
 end
 ```
 
@@ -10817,6 +12299,321 @@ function joypad(player, buttons)
     -- You can log or monitor input without modifying it
     -- Just return the original buttons value
     return buttons
+end
+```
+
+#### `onaudiochannelchange(channel, enabled)` *(Optional)*
+Optional callback - Called automatically when an APU channel is enabled or disabled. This callback is triggered in real-time when the audio channel state changes, allowing scripts to react to audio events such as sound effects starting/stopping, music changes, or channel muting.
+
+**Parameters:**
+- `channel` (integer): Channel number (0-4)
+  - `0` = Pulse 1 (Square 1) - Used for melodies, sound effects, bass lines
+  - `1` = Pulse 2 (Square 2) - Used for harmonies, sound effects, additional melodies
+  - `2` = Triangle - Used for bass lines, melodies, and smooth tones
+  - `3` = Noise - Used for percussion, sound effects, white noise
+  - `4` = DMC (Delta Modulation Channel) - Used for sample playback, drums, speech
+- `enabled` (boolean): Whether the channel is now enabled
+  - `true` = Channel was enabled (turned on) - Sound is now playing
+  - `false` = Channel was disabled (turned off) - Sound has stopped
+
+**Returns:** Nothing (return values are ignored)
+
+**When Called:**
+- Automatically called by the emulator when a channel's enabled state changes
+- Called from `FCEU_LuaFrameBoundary()` which runs every frame
+- Triggered by comparing the current `EnabledChannels` register value with the previous frame's value
+- Only fires when the state actually changes (enabled → disabled or disabled → enabled)
+- Called even when audio is disabled (though channels will typically be disabled in that case)
+- Runs synchronously during the frame boundary, before `script()` / `gui()` callbacks
+
+**Important Notes:**
+- **No registration required** - Simply define the function in your script to receive events
+- **Automatic detection** - The emulator automatically detects channel state changes every frame
+- **State change only** - Only triggers when the channel state actually changes, not on every frame
+- **Frame-accurate** - Events are detected with frame-level precision
+- **Error handling** - Errors in the callback are logged to console but don't crash the emulator
+- **Performance** - The callback check is lightweight and runs every frame with minimal overhead
+- **Channel state tracking** - The emulator maintains internal state to detect changes
+- **Multiple channels** - Can receive events for all 5 channels independently
+- **Combined with other APIs** - Can be combined with:
+  - `getaudiochannel()` - Get detailed channel information when events occur
+  - `getaudiochannelsample()` - Get channel-specific samples when enabled
+  - `getaudiosample()` - Get mixed audio samples
+  - `getaudiofft()` - Perform frequency analysis
+
+**Use Cases:**
+- **Sound effect detection** - Detect when sound effects start/stop
+- **Music monitoring** - Track which channels are active during music playback
+- **Audio-reactive visualizations** - Trigger visual effects when channels change
+- **Event logging** - Log audio events for analysis and debugging
+- **Game state detection** - Use audio events to detect game state changes (e.g., level transitions)
+- **Audio analysis** - Track channel usage patterns and statistics
+- **TAS scripting** - Use audio events to synchronize TAS inputs with game audio
+- **Accessibility** - Provide audio feedback or visual indicators for audio events
+
+**Technical Details:**
+- Detection mechanism: Compares `EnabledChannels` register (APU $4015) between frames
+- Channel mapping: Bits 0-3 for Pulse/Triangle/Noise, bit 4 for DMC
+- Timing: Checked every frame in `FCEU_LuaFrameBoundary()`
+- State persistence: Previous channel state is maintained between frames
+- Reset behavior: Channel state tracking resets when Lua is stopped/reloaded
+
+**Example: Basic Channel Change Detection:**
+```lua
+function onaudiochannelchange(channel, enabled)
+    local channelNames = {"Pulse1", "Pulse2", "Triangle", "Noise", "DMC"}
+    local name = channelNames[channel + 1] or "Unknown"
+    print(string.format("Channel %d (%s) changed: %s", 
+        channel, name, enabled and "ENABLED" or "DISABLED"))
+end
+```
+
+**Example: Event Logging with Channel Details:**
+```lua
+local eventCount = 0
+
+function onaudiochannelchange(channel, enabled)
+    eventCount = eventCount + 1
+    local frame = getframecount() or 0
+    
+    print(string.format("[Event #%d] Frame %d: Channel %d %s", 
+        eventCount, frame, channel, enabled and "ENABLED" or "DISABLED"))
+    
+    -- Get detailed channel information
+    if getaudioenabled() then
+        local ch = getaudiochannel(channel)
+        if ch then
+            if channel < 2 then
+                -- Pulse channels
+                print(string.format("  Period: %d, Volume: %d, Length: %d", 
+                    ch.period or 0, ch.volume or 0, ch.lengthCounter or 0))
+            elseif channel == 4 then
+                -- DMC
+                print(string.format("  Active: %s, Remaining: %d bytes", 
+                    ch.active and "YES" or "NO", ch.remainingSize or 0))
+            end
+        end
+    end
+end
+```
+
+**Example: Audio Event History Tracking:**
+```lua
+local eventHistory = {}
+local maxHistory = 50
+
+function onaudiochannelchange(channel, enabled)
+    local frame = getframecount() or 0
+    
+    -- Store event in history
+    table.insert(eventHistory, 1, {
+        channel = channel,
+        enabled = enabled,
+        frame = frame
+    })
+    
+    -- Limit history size
+    if #eventHistory > maxHistory then
+        table.remove(eventHistory)
+    end
+end
+
+function script()
+    -- Display recent events
+    local y = 4
+    drawtext(4, y, "Recent Audio Events:", 0x29)
+    y = y + 12
+    
+    for i = 1, math.min(10, #eventHistory) do
+        local event = eventHistory[i]
+        local status = event.enabled and "ON" or "OFF"
+        drawtext(4, y, string.format("Ch%d %s (Frame %d)", 
+            event.channel, status, event.frame), 0x27)
+        y = y + 10
+    end
+end
+```
+
+**Example: Channel-Specific Actions:**
+```lua
+function onaudiochannelchange(channel, enabled)
+    if channel == 0 and enabled then
+        -- Pulse 1 started - could be a sound effect
+        print("Sound effect detected on Pulse 1")
+    elseif channel == 2 and enabled then
+        -- Triangle started - often used for music
+        print("Music note detected on Triangle")
+    elseif channel == 3 and enabled then
+        -- Noise started - often used for percussion/effects
+        print("Noise effect detected")
+    elseif channel == 4 and enabled then
+        -- DMC started - sample playback
+        print("DMC sample playback started")
+    end
+end
+```
+
+**Example: Audio Activity Monitor:**
+```lua
+local activeChannels = {false, false, false, false, false}
+local channelNames = {"Pulse1", "Pulse2", "Triangle", "Noise", "DMC"}
+
+function onaudiochannelchange(channel, enabled)
+    activeChannels[channel + 1] = enabled
+end
+
+function script()
+    if not getaudioenabled() then
+        return
+    end
+    
+    local y = 4
+    drawtext(4, y, "Active Channels:", 0x29)
+    y = y + 12
+    
+    for i = 0, 4 do
+        local active = activeChannels[i + 1]
+        local color = active and 0x27 or 0x10
+        drawtext(4, y, string.format("%s: %s", 
+            channelNames[i + 1], active and "ACTIVE" or "INACTIVE"), color)
+        y = y + 10
+    end
+end
+```
+
+**Example: Sound Effect Counter:**
+```lua
+local soundEffectCount = 0
+local lastEventFrame = 0
+
+function onaudiochannelchange(channel, enabled)
+    if enabled then
+        local frame = getframecount() or 0
+        -- Count as new sound effect if enough frames passed since last event
+        if frame - lastEventFrame > 5 then
+            soundEffectCount = soundEffectCount + 1
+        end
+        lastEventFrame = frame
+    end
+end
+
+function script()
+    drawtext(4, 4, string.format("Sound Effects: %d", soundEffectCount), 0x27)
+end
+```
+
+**Example: Combined with Channel Information:**
+```lua
+function onaudiochannelchange(channel, enabled)
+    if enabled then
+        -- Get detailed channel information when it starts
+        local ch = getaudiochannel(channel)
+        if ch then
+            print(string.format("Channel %d started:", channel))
+            print(string.format("  Name: %s", ch.name))
+            print(string.format("  Enabled: %s", ch.enabled and "YES" or "NO"))
+            
+            if channel < 2 then
+                -- Pulse channels
+                print(string.format("  Period: %d (freq: ~%.1f Hz)", 
+                    ch.period or 0, 
+                    ch.period and (1789773.0 / (16 * (ch.period + 1))) or 0))
+                print(string.format("  Volume: %d, Duty: %d", 
+                    ch.volume or 0, ch.dutyCycle or 0))
+            elseif channel == 2 then
+                -- Triangle
+                print(string.format("  Period: %d", ch.period or 0))
+            elseif channel == 3 then
+                -- Noise
+                print(string.format("  Period: %d, Volume: %d", 
+                    ch.period or 0, ch.volume or 0))
+            elseif channel == 4 then
+                -- DMC
+                print(string.format("  Sample Address: 0x%04X", ch.sampleAddress or 0))
+                print(string.format("  Sample Length: %d bytes", ch.sampleLength or 0))
+            end
+        end
+    end
+end
+```
+
+**Example: Real-time Channel Visualization:**
+```lua
+local channelStates = {false, false, false, false, false}
+local channelSamples = {0, 0, 0, 0, 0}
+local channelNames = {"Pulse1", "Pulse2", "Triangle", "Noise", "DMC"}
+local channelColors = {0x27, 0x37, 0x2F, 0x3F, 0x1F}
+
+function onaudiochannelchange(channel, enabled)
+    channelStates[channel + 1] = enabled
+end
+
+function script()
+    if not getaudioenabled() then
+        return
+    end
+    
+    -- Update channel samples
+    for i = 0, 4 do
+        if channelStates[i + 1] then
+            channelSamples[i + 1] = getaudiochannelsample(i)
+        else
+            channelSamples[i + 1] = 0
+        end
+    end
+    
+    -- Draw channel visualizations
+    local y = 4
+    drawtext(4, y, "Channel Activity:", 0x29)
+    y = y + 12
+    
+    for i = 0, 4 do
+        local active = channelStates[i + 1]
+        local sample = channelSamples[i + 1]
+        local color = active and channelColors[i + 1] or 0x10
+        
+        -- Channel name and status
+        drawtext(4, y, string.format("%s: %s", 
+            channelNames[i + 1], active and "ON" or "OFF"), color)
+        
+        -- Sample bar
+        if active then
+            local barWidth = math.min(math.abs(sample) / 100, 100)
+            for j = 0, barWidth do
+                drawpixel(100 + j, y, color)
+            end
+        end
+        
+        y = y + 10
+    end
+end
+```
+
+**Example: Game State Detection via Audio:**
+```lua
+local lastMusicState = {false, false, false}  -- Track music channels (Pulse1, Pulse2, Triangle)
+local gameState = "unknown"
+
+function onaudiochannelchange(channel, enabled)
+    -- Track music channels (typically Pulse1, Pulse2, Triangle)
+    if channel < 3 then
+        lastMusicState[channel + 1] = enabled
+    end
+    
+    -- Detect game state based on audio patterns
+    local musicActive = lastMusicState[1] or lastMusicState[2] or lastMusicState[3]
+    
+    if musicActive and gameState ~= "playing" then
+        gameState = "playing"
+        print("Game state: PLAYING (music detected)")
+    elseif not musicActive and gameState ~= "menu" then
+        gameState = "menu"
+        print("Game state: MENU (no music)")
+    end
+end
+
+function script()
+    drawtext(4, 4, string.format("Game State: %s", gameState), 0x27)
 end
 ```
 
