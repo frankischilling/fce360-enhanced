@@ -60,6 +60,16 @@ extern unsigned char *cdloggerdata;
 extern uint32 soundtsoffs;
 #define SOUNDTS (timestamp + soundtsoffs)
 
+// Channel state access for Lua API
+extern uint8 EnabledChannels;
+extern int32 lengthcount[4];
+extern int32 DMCSize;
+extern uint8 PSG[0x10];
+extern uint8 DMCFormat;
+extern uint8 DMCAddressLatch;
+extern uint8 DMCSizeLatch;
+extern uint8 RawDALatch;
+
 void SetNESSoundMap(void);
 void FrameSoundUpdate(void);
 

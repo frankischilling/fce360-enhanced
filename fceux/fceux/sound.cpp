@@ -50,8 +50,8 @@ static int32 tristep=0;
 static int32 wlcount[4]={0,0,0,0};	/* Wave length counters.	*/
 
 static uint8 IRQFrameMode=0;	/* $4017 / xx000000 */
-static uint8 PSG[0x10];
-static uint8 RawDALatch=0;	/* $4011 0xxxxxxx */
+uint8 PSG[0x10];  // Exposed for Lua API
+uint8 RawDALatch=0;  // Exposed for Lua API
 
 uint8 EnabledChannels=0;		/* Byte written to $4015 */
 
@@ -87,7 +87,7 @@ uint32 soundtsi=0;
 static int32 sqacc[2];
 /* LQ variables segment ends. */
 
-static int32 lengthcount[4]; 
+int32 lengthcount[4];  // Exposed for Lua API 
 static const uint8 lengthtable[0x20]=
 {
 	10,254, 20,  2, 40,  4, 80,  6, 160,  8, 60, 10, 14, 12, 26, 14,
@@ -136,11 +136,11 @@ static const uint32 PALDMCTable[0x10]=
 static int32 DMCPeriod=0;
 /*static*/ uint8 DMCBitCount=0;
 
-static uint8 DMCAddressLatch=0,DMCSizeLatch=0; /* writes to 4012 and 4013 */
-static uint8 DMCFormat=0;	/* Write to $4010 */
+uint8 DMCAddressLatch=0,DMCSizeLatch=0;  // Exposed for Lua API
+uint8 DMCFormat=0;  // Exposed for Lua API
 
 static uint32 DMCAddress=0;
-static int32 DMCSize=0;
+int32 DMCSize=0;  // Exposed for Lua API
 static uint8 DMCShift=0; 
 static uint8 SIRQStat=0;
 

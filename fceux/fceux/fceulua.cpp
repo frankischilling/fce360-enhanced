@@ -2017,10 +2017,15 @@ static void DrawLuaConsole(uint8* buf) {
  	 return 1;
  }
  
- // getaudiosample() -> integer
- // Gets current audio sample from the final mixed buffer.
+ // getaudiosample([index]) -> integer
+ // Gets audio sample from the final mixed buffer.
+ // Parameters: index (integer, optional, default: -1 for last/newest sample)
+ //   - 0 = oldest sample in buffer
+ //   - count-1 = newest sample in buffer
+ //   - -1 = last sample (default, same as count-1)
+ //   - Negative indices count from end (-1 = last, -2 = second-to-last, etc.)
  // Returns: Integer (sample value; 32-bit signed, typically within 16-bit range)
- // Use case: Audio visualization, audio analysis
+ // Use case: Audio visualization, audio analysis, waveform analysis
  static int lua_getaudiosample(lua_State* L)
  {
  	 // If audio is disabled, return 0 to indicate silence
@@ -2031,13 +2036,304 @@ static void DrawLuaConsole(uint8* buf) {
  
  	 int32* buffer = NULL;
  	 int count = GetSoundBuffer(&buffer);
- 	 if (count > 0 && buffer) {
- 		 // Return the most recent mixed sample
- 		 lua_pushinteger(L, buffer[count - 1]);
- 	 } else {
- 		 // No samples available yet this frame
+ 	 if (count <= 0 || !buffer) {
  		 lua_pushinteger(L, 0);
+ 		 return 1;
  	 }
+ 
+ 	 // Get index parameter (optional, default to -1 for last sample)
+ 	 int index = (int)luaL_optinteger(L, 1, -1);
+ 	 
+ 	 // Handle negative indices (count from end)
+ 	 if (index < 0) {
+ 		 index = count + index; // -1 becomes count-1 (last sample)
+ 	 }
+ 	 
+ 	 // Bounds check
+ 	 if (index < 0) index = 0;
+ 	 if (index >= count) index = count - 1;
+ 	 
+ 	 lua_pushinteger(L, buffer[index]);
+ 	 return 1;
+ }
+
+ // getaudiobuffer(count) -> table
+ // Gets multiple audio samples from the buffer as a Lua table.
+ // Parameters: count (integer, optional, default: all available samples, max 256)
+ // Returns: Table (1-indexed array of sample values)
+ // Use case: Waveform visualization, audio analysis, oscilloscope displays
+ static int lua_getaudiobuffer(lua_State* L)
+ {
+ 	 // If audio is disabled, return empty table
+ 	 if (FSettings.SndRate == 0) {
+ 		 lua_newtable(L);
+ 		 return 1;
+ 	 }
+ 
+ 	 int32* buffer = NULL;
+ 	 int count = GetSoundBuffer(&buffer);
+ 	 if (count <= 0 || !buffer) {
+ 		 lua_newtable(L);
+ 		 return 1;
+ 	 }
+ 
+ 	 // Get count parameter (optional, default to all available samples)
+ 	 int requestedCount = (int)luaL_optinteger(L, 1, count);
+ 	 
+ 	 // Limit to reasonable maximum (256 samples) and available count
+ 	 if (requestedCount > 256) requestedCount = 256;
+ 	 if (requestedCount > count) requestedCount = count;
+ 	 if (requestedCount < 0) requestedCount = 0;
+ 	 
+ 	 // Create table with requested samples (starting from oldest)
+ 	 lua_createtable(L, requestedCount, 0);
+ 	 for (int i = 0; i < requestedCount; i++) {
+ 		 lua_pushinteger(L, buffer[i]);
+ 		 lua_rawseti(L, -2, i + 1); // Lua tables are 1-indexed
+ 	 }
+ 	 
+ 	 return 1;
+ }
+
+ // getaudiosampleleft() -> integer
+ // Gets left channel audio sample (NES is mono, so same as getaudiosample()).
+ // Returns: Integer (sample value; 32-bit signed, typically within 16-bit range)
+ // Use case: Stereo API compatibility, future stereo support
+ static int lua_getaudiosampleleft(lua_State* L)
+ {
+ 	 // NES audio is mono, so left channel is same as mono sample
+ 	 return lua_getaudiosample(L);
+ }
+
+ // getaudiosampleright() -> integer
+ // Gets right channel audio sample (NES is mono, so same as getaudiosample()).
+ // Returns: Integer (sample value; 32-bit signed, typically within 16-bit range)
+ // Use case: Stereo API compatibility, future stereo support
+ static int lua_getaudiosampleright(lua_State* L)
+ {
+ 	 // NES audio is mono, so right channel is same as mono sample
+ 	 return lua_getaudiosample(L);
+ }
+
+ // getaudiochannel(channel) -> table
+ // Gets audio channel state information.
+ // Parameters: channel (integer, 0-4)
+ //   0 = Pulse 1 (Square 1)
+ //   1 = Pulse 2 (Square 2)
+ //   2 = Triangle
+ //   3 = Noise
+ //   4 = DMC (Delta Modulation Channel)
+ // Returns: Table with channel information
+ // Use case: Audio analysis, channel monitoring
+ static int lua_getaudiochannel(lua_State* L)
+ {
+ 	 int n = lua_gettop(L);
+ 	 if (n < 1) {
+ 		 return luaL_error(L, "getaudiochannel(channel) requires 1 argument");
+ 	 }
+ 	 
+ 	 int channel = (int)luaL_checkinteger(L, 1);
+ 	 
+ 	 // Validate channel number (0-4)
+ 	 if (channel < 0 || channel > 4) {
+ 		 return luaL_error(L, "getaudiochannel: channel must be 0-4 (0=Pulse1, 1=Pulse2, 2=Triangle, 3=Noise, 4=DMC)");
+ 	 }
+ 	 
+ 	 // If audio is disabled, return basic channel info
+ 	 if (FSettings.SndRate == 0) {
+ 		 lua_newtable(L);
+ 		 lua_pushstring(L, "enabled");
+ 		 lua_pushboolean(L, false);
+ 		 lua_settable(L, -3);
+ 		 lua_pushstring(L, "name");
+ 		 const char* channelNames[] = {"Pulse1", "Pulse2", "Triangle", "Noise", "DMC"};
+ 		 lua_pushstring(L, channelNames[channel]);
+ 		 lua_settable(L, -3);
+ 		 lua_pushstring(L, "channel");
+ 		 lua_pushinteger(L, channel);
+ 		 lua_settable(L, -3);
+ 		 return 1;
+ 	 }
+ 	 
+ 	 // Channel register base addresses
+ 	 const uint16 channelBases[] = {0x4000, 0x4004, 0x4008, 0x400C, 0x4010};
+ 	 uint16 baseAddr = channelBases[channel];
+ 	 
+ 	 // Check if channel is enabled (bit in EnabledChannels)
+ 	 bool channelEnabled = false;
+ 	 if (channel < 4) {
+ 		 channelEnabled = (EnabledChannels & (1 << channel)) != 0;
+ 	 } else {
+ 		 // DMC channel (bit 4)
+ 		 channelEnabled = (EnabledChannels & 0x10) != 0;
+ 	 }
+ 	 
+ 	 // Create result table
+ 	 lua_newtable(L);
+ 	 
+ 	 // Basic info
+ 	 const char* channelNames[] = {"Pulse1", "Pulse2", "Triangle", "Noise", "DMC"};
+ 	 lua_pushstring(L, "name");
+ 	 lua_pushstring(L, channelNames[channel]);
+ 	 lua_settable(L, -3);
+ 	 
+ 	 lua_pushstring(L, "enabled");
+ 	 lua_pushboolean(L, channelEnabled);
+ 	 lua_settable(L, -3);
+ 	 
+ 	 lua_pushstring(L, "channel");
+ 	 lua_pushinteger(L, channel);
+ 	 lua_settable(L, -3);
+ 	 
+	 // Read APU registers for this channel using PSG array
+	 // PSG array indices: 0x00-0x03=Pulse1, 0x04-0x07=Pulse2, 0x08-0x0B=Triangle, 0x0C-0x0F=Noise
+	 if (channel < 4) {
+		 // Pulse 1, Pulse 2, Triangle, Noise channels
+		 int psgBase = channel * 4;
+		 uint8 reg0 = PSG[psgBase];
+		 uint8 reg1 = PSG[psgBase + 1];
+		 uint8 reg2 = PSG[psgBase + 2];
+		 uint8 reg3 = PSG[psgBase + 3];
+ 		 
+ 		 // Length counter (for channels 0-3)
+ 		 lua_pushstring(L, "lengthCounter");
+ 		 lua_pushinteger(L, lengthcount[channel]);
+ 		 lua_settable(L, -3);
+ 		 
+ 		 if (channel < 2) {
+ 			 // Pulse channels (0, 1)
+ 			 lua_pushstring(L, "dutyCycle");
+ 			 lua_pushinteger(L, (reg0 >> 6) & 0x3);
+ 			 lua_settable(L, -3);
+ 			 
+ 			 lua_pushstring(L, "volume");
+ 			 lua_pushinteger(L, reg0 & 0xF);
+ 			 lua_settable(L, -3);
+ 			 
+ 			 lua_pushstring(L, "constantVolume");
+ 			 lua_pushboolean(L, (reg0 & 0x10) != 0);
+ 			 lua_settable(L, -3);
+ 			 
+ 			 lua_pushstring(L, "sweepEnabled");
+ 			 lua_pushboolean(L, (reg1 & 0x80) != 0);
+ 			 lua_settable(L, -3);
+ 			 
+ 			 lua_pushstring(L, "sweepPeriod");
+ 			 lua_pushinteger(L, (reg1 >> 4) & 0x7);
+ 			 lua_settable(L, -3);
+ 			 
+ 			 lua_pushstring(L, "sweepNegate");
+ 			 lua_pushboolean(L, (reg1 & 0x8) != 0);
+ 			 lua_settable(L, -3);
+ 			 
+ 			 lua_pushstring(L, "sweepShift");
+ 			 lua_pushinteger(L, reg1 & 0x7);
+ 			 lua_settable(L, -3);
+ 			 
+ 			 lua_pushstring(L, "periodLow");
+ 			 lua_pushinteger(L, reg2);
+ 			 lua_settable(L, -3);
+ 			 
+ 			 lua_pushstring(L, "periodHigh");
+ 			 lua_pushinteger(L, reg3 & 0x7);
+ 			 lua_settable(L, -3);
+ 			 
+ 			 uint16 period = reg2 | ((reg3 & 0x7) << 8);
+ 			 lua_pushstring(L, "period");
+ 			 lua_pushinteger(L, period);
+ 			 lua_settable(L, -3);
+ 			 
+ 			 lua_pushstring(L, "lengthCounterHalt");
+ 			 lua_pushboolean(L, (reg3 & 0x20) != 0);
+ 			 lua_settable(L, -3);
+ 			 
+ 		 } else if (channel == 2) {
+ 			 // Triangle channel
+ 			 lua_pushstring(L, "linearCounterReload");
+ 			 lua_pushinteger(L, reg0 & 0x7F);
+ 			 lua_settable(L, -3);
+ 			 
+ 			 lua_pushstring(L, "linearCounterControl");
+ 			 lua_pushboolean(L, (reg0 & 0x80) != 0);
+ 			 lua_settable(L, -3);
+ 			 
+ 			 lua_pushstring(L, "periodLow");
+ 			 lua_pushinteger(L, reg2);
+ 			 lua_settable(L, -3);
+ 			 
+ 			 lua_pushstring(L, "periodHigh");
+ 			 lua_pushinteger(L, reg3 & 0x7);
+ 			 lua_settable(L, -3);
+ 			 
+ 			 uint16 period = reg2 | ((reg3 & 0x7) << 8);
+ 			 lua_pushstring(L, "period");
+ 			 lua_pushinteger(L, period);
+ 			 lua_settable(L, -3);
+ 			 
+ 			 lua_pushstring(L, "lengthCounterHalt");
+ 			 lua_pushboolean(L, (reg3 & 0x20) != 0);
+ 			 lua_settable(L, -3);
+ 			 
+ 		 } else if (channel == 3) {
+ 			 // Noise channel
+ 			 lua_pushstring(L, "volume");
+ 			 lua_pushinteger(L, reg0 & 0xF);
+ 			 lua_settable(L, -3);
+ 			 
+ 			 lua_pushstring(L, "constantVolume");
+ 			 lua_pushboolean(L, (reg0 & 0x10) != 0);
+ 			 lua_settable(L, -3);
+ 			 
+ 			 lua_pushstring(L, "period");
+ 			 lua_pushinteger(L, reg2 & 0xF);
+ 			 lua_settable(L, -3);
+ 			 
+ 			 lua_pushstring(L, "loopNoise");
+ 			 lua_pushboolean(L, (reg2 & 0x80) != 0);
+ 			 lua_settable(L, -3);
+ 			 
+ 			 lua_pushstring(L, "lengthCounterHalt");
+ 			 lua_pushboolean(L, (reg3 & 0x20) != 0);
+ 			 lua_settable(L, -3);
+ 		 }
+ 		 
+	 } else {
+		 // DMC channel (4) - use exposed variables
+		 // DMCFormat = $4010, RawDALatch = $4011, DMCAddressLatch = $4012, DMCSizeLatch = $4013
+		 
+		 lua_pushstring(L, "irqEnabled");
+		 lua_pushboolean(L, (DMCFormat & 0x80) != 0);
+		 lua_settable(L, -3);
+		 
+		 lua_pushstring(L, "loop");
+		 lua_pushboolean(L, (DMCFormat & 0x40) != 0);
+		 lua_settable(L, -3);
+		 
+		 lua_pushstring(L, "period");
+		 lua_pushinteger(L, DMCFormat & 0xF);
+		 lua_settable(L, -3);
+		 
+		 lua_pushstring(L, "directLoad");
+		 lua_pushinteger(L, RawDALatch & 0x7F);
+		 lua_settable(L, -3);
+		 
+		 lua_pushstring(L, "sampleAddress");
+		 lua_pushinteger(L, 0xC000 + (DMCAddressLatch << 6));
+		 lua_settable(L, -3);
+		 
+		 lua_pushstring(L, "sampleLength");
+		 lua_pushinteger(L, ((DMCSizeLatch + 1) << 4));
+		 lua_settable(L, -3);
+		 
+		 lua_pushstring(L, "remainingSize");
+		 lua_pushinteger(L, DMCSize);
+		 lua_settable(L, -3);
+		 
+		 lua_pushstring(L, "active");
+		 lua_pushboolean(L, DMCSize > 0);
+		 lua_settable(L, -3);
+	 }
+ 	 
  	 return 1;
  }
 
@@ -6509,6 +6805,10 @@ int lua_ismemorywritable(lua_State *L) {
 	 lua_register(luaState, "getscreensize", lua_getscreensize);
 	 lua_register(luaState, "getaudioenabled", lua_getaudioenabled);
 	 lua_register(luaState, "getaudiosample", lua_getaudiosample);
+	 lua_register(luaState, "getaudiobuffer", lua_getaudiobuffer);
+	 lua_register(luaState, "getaudiosampleleft", lua_getaudiosampleleft);
+	 lua_register(luaState, "getaudiosampleright", lua_getaudiosampleright);
+	 lua_register(luaState, "getaudiochannel", lua_getaudiochannel);
 	 lua_register(luaState, "getcolorrgb", lua_getcolorrgb);
 	 lua_register(luaState, "getpalettecolor", lua_getpalettecolor);
 	 lua_register(luaState, "setpalettecolor", lua_setpalettecolor);
@@ -6656,6 +6956,10 @@ static void EnsureLuaInit() {
 	REG("getscreensize", lua_getscreensize);
 	REG("getaudioenabled", lua_getaudioenabled);
 	REG("getaudiosample", lua_getaudiosample);
+	REG("getaudiobuffer", lua_getaudiobuffer);
+	REG("getaudiosampleleft", lua_getaudiosampleleft);
+	REG("getaudiosampleright", lua_getaudiosampleright);
+	REG("getaudiochannel", lua_getaudiochannel);
 	REG("getcolorrgb", lua_getcolorrgb);
 	REG("getpalettecolor", lua_getpalettecolor);
 	REG("setpalettecolor", lua_setpalettecolor);
