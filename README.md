@@ -7,7 +7,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.7.5** — *New Lua API functions: sleepframes(), gettime(), gettimedelta(), getscreensize(), getcolorrgb(), getpalettecolor(), setpalettecolor(), getnescolor(), blendcolors() + all prior features from v0.7.4–v0.6.1*
+* Current release: **v0.7.6** — *New overlay functions: clearscreen(), fillscreen(), screenshot(); improved text rendering; screenshot fixes and optimizations + all prior features from v0.7.5–v0.6.1*
 
 ---
 
@@ -15,6 +15,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.7.6 - New Overlay Functions, Screenshot Improvements, and Text Rendering Updates](#whats-new-v076)
   - [v0.7.5 - Timing, Screen Info, and Color Manipulation Lua API Functions](#whats-new-v075)
   - [v0.7.4 - Game State, Game Genie, and Timing Lua API Functions](#whats-new-v074)
   - [v0.7.3 - ROM Information Lua API Functions](#whats-new-v073)
@@ -74,6 +75,94 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 📹 **[Watch Fast Scrolling Demo](https://github.com/frankischilling/fce360-enhanced/raw/main/img/fastScrolling.mp4)** (MP4 video)
 
 *Note: Click the link above to view the video demonstration. GitHub README files don't support embedded video playback.*
+
+---
+
+## What's new (v0.7.6)
+
+* **New Lua API Functions:** Added **3 powerful new overlay and screenshot functions** for full-screen operations and automated screenshots!
+
+  * **Overlay Screen Functions:**
+    * `clearscreen()` - Clears entire overlay screen
+      * Returns: Nothing
+      * Clears all pixels in the overlay buffer to transparent (0)
+      * Useful for full-screen clear operations before redrawing
+      * More efficient than clearing with `clearrect()` for entire screen
+      * Sets overlay dirty flag to trigger redraw
+    * `fillscreen(color)` - Fills entire screen with specified color
+      * Parameters: color (integer, 0x00-0x3F)
+      * Returns: Nothing
+      * Fills all pixels in the overlay buffer with the specified color
+      * Respects blending modes set by `setdrawmode()`
+      * Useful for screen overlays, fade effects, and full-screen color fills
+      * More efficient than filling with `fillrect()` for entire screen
+      * Sets overlay dirty flag to trigger redraw
+
+  * **Screenshot Function:**
+    * `screenshot(filename)` - Takes screenshot with optional custom filename
+      * Parameters: filename (optional string, auto-generated if nil)
+      * Returns: String (filename of saved screenshot)
+      * If filename provided, saves to that name (adds .png extension if missing)
+      * If filename is nil or not provided, uses auto-generated name (e.g., "Game - 1.png")
+      * Screenshots are saved to `game:\snaps` directory
+      * Returns the saved filename (without full path) for confirmation
+      * Useful for automated screenshots, recording, and script-controlled captures
+      * Screenshots include all overlays and Lua-drawn content
+
+* **Text Rendering Improvements:**
+  * **Changed text drawing behavior:** Text now renders over existing content instead of clearing background
+    * `drawtext()` and `drawtextwh()` no longer clear the area where text is drawn
+    * Text can now overlay colors, fills, and other content smoothly
+    * Makes text rendering smoother and allows for more creative overlay effects
+    * Text still respects blending modes set by `setdrawmode()`
+    * Improves visual quality when text is drawn over colored backgrounds
+
+* **Screenshot Functionality Fixes and Enhancements:**
+  * **Fixed screenshot saving issues:**
+    * Fixed 0-byte screenshot files (removed redundant file creation)
+    * Fixed missing data in custom-named screenshots
+    * Ensured XBuf points to correct frame buffer for screenshots
+  * **Changed screenshot keybind:** From left stick click to right stick click
+    * Right stick click now takes screenshots
+    * Prevents accidental screenshots during gameplay
+  * **Fixed screenshot directory:** Now uses `game:\snaps` directory
+    * Screenshots are saved to the correct location
+    * Directory is automatically created if it doesn't exist
+  * **Fixed screenshot filename format:** Now includes spaces (e.g., "Game - 1.png" instead of "Game-1.png")
+    * Matches standard screenshot naming convention
+    * More readable and consistent with other emulators
+  * **Optimized first screenshot lag:**
+    * Pre-initializes directory path in `FCEU_LuaGui()` to eliminate first-screenshot lag
+    * Caches directory path calculation and existence checks
+    * Screenshots now save instantly without frame drops
+  * **Fixed accidental screenshots when opening console:**
+    * Screenshot no longer triggers when using left stick + right stick combo (console toggle)
+    * Console toggle combo is detected and screenshot is suppressed
+    * Prevents unwanted screenshots when opening Lua console
+
+* **Technical Enhancements:**
+  * Pre-initialize screenshot directory in `FCEU_LuaGui()` to eliminate first-screenshot lag
+  * Cache directory path calculation and existence checks for performance
+  * Ensure XBuf points to correct frame buffer for screenshots (uses `s_frameXBuf`)
+  * Prevent screenshot trigger when console toggle combo is active
+  * All new functions registered in both `InitLua()` and `EnsureLuaInit()`
+
+* **Documentation:**
+  * All functions added to appropriate sections in table of contents
+  * Complete API documentation with parameters, returns, notes, and multiple examples
+  * Test scripts provided for all new functions:
+    * `test_clearscreen.lua` - Comprehensive clearscreen() tests
+    * `test_fillscreen.lua` - Comprehensive fillscreen() tests with fade effects
+    * `test_screenshot.lua` - Screenshot function tests with custom filenames
+
+* **Includes Previous Features:**
+  * All v0.7.5 features: sleepframes(), gettime(), gettimedelta(), getscreensize(), getcolorrgb(), getpalettecolor(), setpalettecolor(), getnescolor(), blendcolors()
+  * All v0.7.4 features: isframeadvancing(), isrewinding(), isfastforwarding(), getgamegeniecode(), decodegamegenie(), getframecount(), getelapsedtime(), getelapsedframes()
+  * All v0.7.3 features: getromsize(), getprgsize(), getchrsize(), getmapper(), getmapperstring(), hasbattery()
+  * All v0.7.2 features: getromname(), pressbutton(), releasebutton(), and input recording functions
+  * All v0.7.1 features: Text measurement and rotation API functions
+  * All v0.7.0 features: ROM counter display
+  * All prior features from v0.6.1–v0.6.9
 
 ---
 
@@ -756,7 +845,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 ## What's new (v0.4.0)
 
-* **Screenshot capture:** Press **LEFT_THUMB (left stick click) + LT trigger** simultaneously during gameplay to capture screenshots. Screenshots are saved to `game:\snaps\` as PNG files using the ROM filename (e.g., `SuperMario-0.png`). Latch mechanism prevents multiple screenshots per button press.
+* **Screenshot capture:** Press **RIGHT_THUMB (right stick click)** during gameplay to capture screenshots. Screenshots are saved to `game:\snaps\` as PNG files using the ROM filename (e.g., `Super Mario Bros. - 1.png`). Latch mechanism prevents multiple screenshots per button press. *Note: Updated in v0.7.6 - keybind changed from left stick + LT to right stick click, and filename format now includes spaces.*
 
 ---
 
@@ -897,6 +986,10 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
     - [`fillrect(x, y, w, h, color)`](#fillrectx-y-w-h-color)
       - Parameters, Returns, Notes, Examples
     - [`clearrect(x, y, w, h)`](#clearrectx-y-w-h)
+      - Parameters, Returns, Notes, Examples
+    - [`clearscreen()`](#clearscreen)
+      - Parameters, Returns, Notes, Examples
+    - [`fillscreen(color)`](#fillscreencolor)
       - Parameters, Returns, Notes, Examples
     - [`drawimage(x, y, imageData, width, height)`](#drawimagex-y-imagedata-width-height)
       - Parameters, Returns, Notes, Examples
@@ -1762,6 +1855,78 @@ drawtext(6, 170, string.format("FPS: %.1f", fps), 0x39)
 local barWidth = math.floor(progress * 100)
 clearrect(10, 100, 100, 8)  -- Clear entire bar area
 fillrect(10, 100, barWidth, 8, 0x39)  -- Redraw with new width
+```
+
+##### `clearscreen()`
+Clears the entire overlay screen, making it transparent (removes all overlay content).
+
+**Parameters:** None
+
+**Returns:** Nothing
+
+**Notes:**
+- Clears the entire overlay buffer (256×240 pixels) by setting all pixels to 0 (transparent).
+- Equivalent to calling `clearrect(0, 0, 256, 240)`, but more efficient.
+- Useful for full screen clears when you want to start fresh each frame.
+- Clearing sets pixels to transparent, which means they won't overwrite the NES frame during compositing.
+- Best practice: Call `clearscreen()` at the start of each frame if you're redrawing everything, or use `clearrect()` for partial clears.
+
+**Example:**
+```lua
+-- Clear entire screen at start of frame
+clearscreen()
+
+-- Then draw your overlay content
+drawtext(10, 10, "Score: " .. score, 0x39)
+fillrect(10, 20, 100, 8, 0x16)
+
+-- Alternative: Clear and redraw specific areas
+clearscreen()  -- Full clear
+fillrect(0, 0, 256, 30, 0x00)  -- Draw black bar at top
+drawtext(10, 10, "HUD", 0x20)
+
+-- Compare with clearrect for partial clears
+clearrect(0, 0, 256, 240)  -- Same as clearscreen(), but more verbose
+```
+
+##### `fillscreen(color)`
+Fills the entire overlay screen with a specified color.
+
+**Parameters:**
+- `color` (integer): Palette color index (0x00-0x3F). NES palette has 64 colors.
+
+**Returns:** Nothing
+
+**Notes:**
+- Fills the entire overlay buffer (256×240 pixels) with the specified color.
+- Equivalent to calling `fillrect(0, 0, 256, 240, color)`, but more efficient.
+- Respects the current drawing mode (normal, add, subtract, multiply, alpha) set by `setdrawmode()`.
+- Useful for screen overlays, fade effects, and full-screen color fills.
+- The color is automatically mapped to the overlay format (0x00-0x3F → 0x80-0xBF).
+- Unlike `clearscreen()`, this fills with a visible color rather than making pixels transparent.
+
+**Example:**
+```lua
+-- Fill screen with a solid color
+fillscreen(0x16)  -- Red/orange fill
+
+-- Fill screen with different colors for effects
+fillscreen(0x00)  -- Dark gray
+fillscreen(0x20)  -- Bright white
+fillscreen(0x39)  -- Yellow-green
+
+-- Create a fade effect using alpha blending
+setdrawmode("alpha")
+fillscreen(0x16)  -- Semi-transparent red overlay
+setdrawmode("normal")  -- Reset to normal
+
+-- Fill screen then draw content on top
+fillscreen(0x00)  -- Dark background
+drawtext(10, 10, "Score: 1000", 0x39)  -- Text over the fill
+fillrect(10, 20, 100, 8, 0x16)  -- Bar over the fill
+
+-- Compare with fillrect for full screen fill
+fillrect(0, 0, 256, 240, 0x16)  -- Same as fillscreen(0x16), but more verbose
 ```
 
 ##### `drawimage(x, y, imageData, width, height)`
