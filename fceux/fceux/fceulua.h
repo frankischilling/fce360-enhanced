@@ -162,6 +162,9 @@ void CallRegisteredLuaLoadFunctions(void* state, LuaSaveData& saveData);
  int lua_textstyle(lua_State *L);
  int lua_measuretextblock(lua_State *L);
  int lua_screenshotregion(lua_State *L);
+int lua_onbuttonpress(lua_State *L);
+int lua_onbuttonrelease(lua_State *L);
+int lua_getbuttonheldms(lua_State *L);
  // Lua memory functions
  int lua_getfps(lua_State *L);
  int lua_readbyte(lua_State *L);

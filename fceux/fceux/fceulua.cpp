@@ -41,12 +41,20 @@
 #include "movie.h"
 #include "x6502.h"
 #include "../xbox/Cemulator.h"
+#include "../xbox/input.h"
+#ifdef _XBOX
+#	include <xtl.h>
+#else
+#	include <windows.h>
+#	include <XInput.h>
+#endif
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
 #include <ctype.h>
 #include <vector>
 #include <map>
+#include <string>
 
 // Extern PPU data for tile rendering
 extern uint8 PALRAM[0x20];
@@ -64,6 +72,7 @@ extern uint8 joy[4];
 
 // Extern powerpadbuf from Cemulator.cpp (Xbox input buffer)
 extern uint32 powerpadbuf;
+static uint8 s_hardwareJoypad[4] = {0,0,0,0};
 
 // --- Overlay geometry and font metrics ---
 enum { OVL_W = 256, OVL_H = 240, GLYPH_H = 8 };
@@ -72,10 +81,7 @@ static int s_consoleLineGap = 2; // pixels of extra leading between lines
 static inline int CON_LINE_ADV(void) { return GLYPH_H + s_consoleLineGap; }
 
 // Forward declaration for gamepad input (defined in Cemulator.cpp)
-extern struct GAMEPAD {
-	WORD wButtons;
-	float fX1, fY1;
-} Gamepads[];
+extern GAMEPAD Gamepads[];
 #define XINPUT_GAMEPAD_DPAD_UP    0x0001
 #define XINPUT_GAMEPAD_DPAD_DOWN  0x0002
 #define XINPUT_GAMEPAD_DPAD_LEFT  0x0004
@@ -90,6 +96,222 @@ extern struct GAMEPAD {
 #define XINPUT_GAMEPAD_RIGHT_THUMB    0x0080
 #define XINPUT_GAMEPAD_START          0x0010
 #define XINPUT_GAMEPAD_BACK           0x0020
+
+struct ButtonCallbackInfo {
+	WORD mask;
+	std::string canonicalName;
+	int luaRef;
+
+	ButtonCallbackInfo() : mask(0), canonicalName(), luaRef(-1) {}
+};
+
+enum {
+	BUTTON_INDEX_A = 0,
+	BUTTON_INDEX_B,
+	BUTTON_INDEX_X,
+	BUTTON_INDEX_Y,
+	BUTTON_INDEX_START,
+	BUTTON_INDEX_BACK,
+	BUTTON_INDEX_LEFT_SHOULDER,
+	BUTTON_INDEX_RIGHT_SHOULDER,
+	BUTTON_INDEX_LEFT_THUMB,
+	BUTTON_INDEX_RIGHT_THUMB,
+	BUTTON_INDEX_DPAD_UP,
+	BUTTON_INDEX_DPAD_DOWN,
+	BUTTON_INDEX_DPAD_LEFT,
+	BUTTON_INDEX_DPAD_RIGHT,
+	BUTTON_INDEX_COUNT,
+
+	ANALOG_INDEX_LS_UP = BUTTON_INDEX_COUNT,
+	ANALOG_INDEX_LS_DOWN,
+	ANALOG_INDEX_LS_LEFT,
+	ANALOG_INDEX_LS_RIGHT,
+	ANALOG_INDEX_RS_UP,
+	ANALOG_INDEX_RS_DOWN,
+	ANALOG_INDEX_RS_LEFT,
+	ANALOG_INDEX_RS_RIGHT,
+	TRIGGER_INDEX_LT,
+	TRIGGER_INDEX_RT,
+	ANALOG_INDEX_COUNT,
+
+	TOTAL_HOLD_INDEX_COUNT = ANALOG_INDEX_COUNT
+};
+
+static std::map<WORD, ButtonCallbackInfo> s_buttonPressCallbacks;
+static std::map<WORD, ButtonCallbackInfo> s_buttonReleaseCallbacks;
+static WORD s_prevXboxButtonState[4] = {0};
+static DWORD s_buttonHoldStart[4][TOTAL_HOLD_INDEX_COUNT] = {0};
+static bool s_buttonWasHeld[4][TOTAL_HOLD_INDEX_COUNT] = {false};
+static const uint8 s_nesButtonMask[8] = {
+	0x01, // A
+	0x02, // B
+	0x04, // Select
+	0x08, // Start
+	0x10, // Up
+	0x20, // Down
+	0x40, // Left
+	0x80  // Right
+};
+static DWORD s_nesButtonHoldStart[4][8] = {0};
+static bool s_nesButtonWasHeld[4][8] = {false};
+static std::map<std::string, WORD> s_buttonNameToMask;
+
+// Rumble state tracking
+struct RumbleState {
+	DWORD startTime;      // When rumble started (GetTickCount())
+	DWORD duration;       // Duration in milliseconds
+	float intensity;      // Intensity (0.0-1.0)
+	bool active;          // Whether rumble is currently active
+};
+static RumbleState s_rumbleState[4] = {0};  // One per player (0-3)
+
+// Virtual input mapping - per-script input remapping
+// Maps virtual button names (like "JUMP", "ATTACK") to physical button specs (like "A", "B", "XINPUT_GAMEPAD_A")
+static std::map<lua_State*, std::map<std::string, std::string> > s_virtualInputMappings;
+static const WORD s_buttonIndexToMask[BUTTON_INDEX_COUNT] = {
+	XINPUT_GAMEPAD_A,
+	XINPUT_GAMEPAD_B,
+	XINPUT_GAMEPAD_X,
+	XINPUT_GAMEPAD_Y,
+	XINPUT_GAMEPAD_START,
+	XINPUT_GAMEPAD_BACK,
+	XINPUT_GAMEPAD_LEFT_SHOULDER,
+	XINPUT_GAMEPAD_RIGHT_SHOULDER,
+	XINPUT_GAMEPAD_LEFT_THUMB,
+	XINPUT_GAMEPAD_RIGHT_THUMB,
+	XINPUT_GAMEPAD_DPAD_UP,
+	XINPUT_GAMEPAD_DPAD_DOWN,
+	XINPUT_GAMEPAD_DPAD_LEFT,
+	XINPUT_GAMEPAD_DPAD_RIGHT
+};
+static const float ANALOG_HOLD_THRESHOLD = 0.4f;
+
+static int GetButtonIndexFromMask(WORD mask)
+{
+	for (int i = 0; i < BUTTON_INDEX_COUNT; ++i) {
+		if (s_buttonIndexToMask[i] == mask) {
+			return i;
+		}
+	}
+	return -1;
+}
+
+static void ToUpperButtonName(const char* src, char* dest, size_t destSize)
+{
+	size_t i = 0;
+	for (; src[i] && i < destSize - 1; ++i) {
+		char c = src[i];
+		if (c >= 'a' && c <= 'z') {
+			c = c - 'a' + 'A';
+		} else if (c == '-' || c == ' ') {
+			c = '_';
+		}
+		dest[i] = c;
+	}
+	dest[i] = '\0';
+}
+
+static int GetAnalogDirectionIndex(const char* upperName)
+{
+	if (strcmp(upperName, "LS_UP") == 0 || strcmp(upperName, "LEFT_STICK_UP") == 0) return ANALOG_INDEX_LS_UP;
+	if (strcmp(upperName, "LS_DOWN") == 0 || strcmp(upperName, "LEFT_STICK_DOWN") == 0) return ANALOG_INDEX_LS_DOWN;
+	if (strcmp(upperName, "LS_LEFT") == 0 || strcmp(upperName, "LEFT_STICK_LEFT") == 0) return ANALOG_INDEX_LS_LEFT;
+	if (strcmp(upperName, "LS_RIGHT") == 0 || strcmp(upperName, "LEFT_STICK_RIGHT") == 0) return ANALOG_INDEX_LS_RIGHT;
+	if (strcmp(upperName, "RS_UP") == 0 || strcmp(upperName, "RIGHT_STICK_UP") == 0) return ANALOG_INDEX_RS_UP;
+	if (strcmp(upperName, "RS_DOWN") == 0 || strcmp(upperName, "RIGHT_STICK_DOWN") == 0) return ANALOG_INDEX_RS_DOWN;
+	if (strcmp(upperName, "RS_LEFT") == 0 || strcmp(upperName, "RIGHT_STICK_LEFT") == 0) return ANALOG_INDEX_RS_LEFT;
+	if (strcmp(upperName, "RS_RIGHT") == 0 || strcmp(upperName, "RIGHT_STICK_RIGHT") == 0) return ANALOG_INDEX_RS_RIGHT;
+	if (strcmp(upperName, "LT") == 0 || strcmp(upperName, "LEFT_TRIGGER") == 0) return TRIGGER_INDEX_LT;
+	if (strcmp(upperName, "RT") == 0 || strcmp(upperName, "RIGHT_TRIGGER") == 0) return TRIGGER_INDEX_RT;
+	return -1;
+}
+
+static int GetNESButtonIndex(const char* upperName)
+{
+	if (strcmp(upperName, "NES_A") == 0 || strcmp(upperName, "NES-BUTTON_A") == 0) return 0;
+	if (strcmp(upperName, "NES_B") == 0 || strcmp(upperName, "NES-BUTTON_B") == 0) return 1;
+	if (strcmp(upperName, "NES_SELECT") == 0) return 2;
+	if (strcmp(upperName, "NES_START") == 0) return 3;
+	if (strcmp(upperName, "NES_UP") == 0) return 4;
+	if (strcmp(upperName, "NES_DOWN") == 0) return 5;
+	if (strcmp(upperName, "NES_LEFT") == 0) return 6;
+	if (strcmp(upperName, "NES_RIGHT") == 0) return 7;
+	return -1;
+}
+
+static bool IsAnalogDirectionActive(int player, int analogIndex)
+{
+	if (player < 0 || player >= 4) return false;
+	switch (analogIndex) {
+		case ANALOG_INDEX_LS_UP:    return Gamepads[player].fY1 >  ANALOG_HOLD_THRESHOLD;
+		case ANALOG_INDEX_LS_DOWN:  return Gamepads[player].fY1 < -ANALOG_HOLD_THRESHOLD;
+		case ANALOG_INDEX_LS_LEFT:  return Gamepads[player].fX1 < -ANALOG_HOLD_THRESHOLD;
+		case ANALOG_INDEX_LS_RIGHT: return Gamepads[player].fX1 >  ANALOG_HOLD_THRESHOLD;
+		case ANALOG_INDEX_RS_UP:    return Gamepads[player].fY2 >  ANALOG_HOLD_THRESHOLD;
+		case ANALOG_INDEX_RS_DOWN:  return Gamepads[player].fY2 < -ANALOG_HOLD_THRESHOLD;
+		case ANALOG_INDEX_RS_LEFT:  return Gamepads[player].fX2 < -ANALOG_HOLD_THRESHOLD;
+		case ANALOG_INDEX_RS_RIGHT: return Gamepads[player].fX2 >  ANALOG_HOLD_THRESHOLD;
+		case TRIGGER_INDEX_LT:      return Gamepads[player].bLeftTrigger  > XINPUT_GAMEPAD_TRIGGER_THRESHOLD;
+		case TRIGGER_INDEX_RT:      return Gamepads[player].bRightTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD;
+		default: return false;
+	}
+}
+
+static void ResetHoldStatesForPlayer(int player)
+{
+	for (int idx = 0; idx < TOTAL_HOLD_INDEX_COUNT; ++idx) {
+		s_buttonWasHeld[player][idx] = false;
+		s_buttonHoldStart[player][idx] = 0;
+	}
+	for (int idx = 0; idx < 8; ++idx) {
+		s_nesButtonWasHeld[player][idx] = false;
+		s_nesButtonHoldStart[player][idx] = 0;
+	}
+}
+
+static void UpdateHoldStatesForPlayer(int player, WORD currentButtons, DWORD now)
+{
+	for (int idx = 0; idx < BUTTON_INDEX_COUNT; ++idx) {
+		WORD mask = s_buttonIndexToMask[idx];
+		bool pressedNow = (currentButtons & mask) != 0;
+		if (pressedNow) {
+			if (!s_buttonWasHeld[player][idx]) {
+				s_buttonWasHeld[player][idx] = true;
+				s_buttonHoldStart[player][idx] = now;
+			}
+		} else {
+			s_buttonWasHeld[player][idx] = false;
+			s_buttonHoldStart[player][idx] = 0;
+		}
+	}
+
+	for (int idx = BUTTON_INDEX_COUNT; idx < TOTAL_HOLD_INDEX_COUNT; ++idx) {
+		bool active = IsAnalogDirectionActive(player, idx);
+		if (active) {
+			if (!s_buttonWasHeld[player][idx]) {
+				s_buttonWasHeld[player][idx] = true;
+				s_buttonHoldStart[player][idx] = now;
+			}
+		} else {
+			s_buttonWasHeld[player][idx] = false;
+			s_buttonHoldStart[player][idx] = 0;
+		}
+	}
+
+	uint8 nesHardware = s_hardwareJoypad[player];
+	for (int idx = 0; idx < 8; ++idx) {
+		bool pressed = (nesHardware & s_nesButtonMask[idx]) != 0;
+		if (pressed) {
+			if (!s_nesButtonWasHeld[player][idx]) {
+				s_nesButtonWasHeld[player][idx] = true;
+				s_nesButtonHoldStart[player][idx] = now;
+			}
+		} else {
+			s_nesButtonWasHeld[player][idx] = false;
+			s_nesButtonHoldStart[player][idx] = 0;
+		}
+	}
+}
 
 // Minimal Lua API forward declarations (avoid changing symbol mappings)
 extern "C" {
@@ -258,7 +480,6 @@ static int s_consoleScrollHoldFramesH = 0; // Frame counter for continuous horiz
 static uint8 s_luaJoypadValue[4]  = {0,0,0,0};   // full 8-bit NES mask
 static uint8 s_luaJoypadMask[4]   = {0,0,0,0};   // which bits to force (0xFF = all)
 static uint8 s_luaJoypadLatched[4]= {0,0,0,0};   // 1 if override active
-static uint8 s_hardwareJoypad[4]  = {0,0,0,0};   // hardware input before override (for reading real controller state)
 static uint8 s_oneFramePress[4]   = {0,0,0,0};   // one-frame button presses (cleared after each frame)
 static uint8 s_oneFrameRelease[4] = {0,0,0,0};   // one-frame button releases (cleared after each frame)
 
@@ -1358,6 +1579,77 @@ static void DrawLuaConsole(uint8* buf) {
 	 return 1;
  }
  
+static void EnsureButtonNameMap()
+{
+	if (!s_buttonNameToMask.empty()) return;
+	s_buttonNameToMask["A"] = XINPUT_GAMEPAD_A;
+	s_buttonNameToMask["B"] = XINPUT_GAMEPAD_B;
+	s_buttonNameToMask["X"] = XINPUT_GAMEPAD_X;
+	s_buttonNameToMask["Y"] = XINPUT_GAMEPAD_Y;
+	s_buttonNameToMask["START"] = XINPUT_GAMEPAD_START;
+	s_buttonNameToMask["BACK"] = XINPUT_GAMEPAD_BACK;
+	s_buttonNameToMask["LEFT_SHOULDER"] = XINPUT_GAMEPAD_LEFT_SHOULDER;
+	s_buttonNameToMask["LEFTSHOULDER"] = XINPUT_GAMEPAD_LEFT_SHOULDER;
+	s_buttonNameToMask["LB"] = XINPUT_GAMEPAD_LEFT_SHOULDER;
+	s_buttonNameToMask["RIGHT_SHOULDER"] = XINPUT_GAMEPAD_RIGHT_SHOULDER;
+	s_buttonNameToMask["RIGHTSHOULDER"] = XINPUT_GAMEPAD_RIGHT_SHOULDER;
+	s_buttonNameToMask["RB"] = XINPUT_GAMEPAD_RIGHT_SHOULDER;
+	s_buttonNameToMask["LEFT_THUMB"] = XINPUT_GAMEPAD_LEFT_THUMB;
+	s_buttonNameToMask["LEFTTHUMB"] = XINPUT_GAMEPAD_LEFT_THUMB;
+	s_buttonNameToMask["LS"] = XINPUT_GAMEPAD_LEFT_THUMB;
+	s_buttonNameToMask["RIGHT_THUMB"] = XINPUT_GAMEPAD_RIGHT_THUMB;
+	s_buttonNameToMask["RIGHTTHUMB"] = XINPUT_GAMEPAD_RIGHT_THUMB;
+	s_buttonNameToMask["RS"] = XINPUT_GAMEPAD_RIGHT_THUMB;
+	s_buttonNameToMask["DPAD_UP"] = XINPUT_GAMEPAD_DPAD_UP;
+	s_buttonNameToMask["UP"] = XINPUT_GAMEPAD_DPAD_UP;
+	s_buttonNameToMask["DPAD_DOWN"] = XINPUT_GAMEPAD_DPAD_DOWN;
+	s_buttonNameToMask["DOWN"] = XINPUT_GAMEPAD_DPAD_DOWN;
+	s_buttonNameToMask["DPAD_LEFT"] = XINPUT_GAMEPAD_DPAD_LEFT;
+	s_buttonNameToMask["LEFT"] = XINPUT_GAMEPAD_DPAD_LEFT;
+	s_buttonNameToMask["DPAD_RIGHT"] = XINPUT_GAMEPAD_DPAD_RIGHT;
+	s_buttonNameToMask["RIGHT"] = XINPUT_GAMEPAD_DPAD_RIGHT;
+}
+
+static bool MapXboxButtonName(const char* buttonName, WORD& buttonMask, const char*& canonicalName)
+{
+	if (!buttonName || !buttonName[0]) {
+		return false;
+	}
+
+	EnsureButtonNameMap();
+
+	char upperButton[32];
+	ToUpperButtonName(buttonName, upperButton, sizeof(upperButton));
+
+	std::map<std::string, WORD>::const_iterator it = s_buttonNameToMask.find(upperButton);
+	if (it == s_buttonNameToMask.end()) {
+		return false;
+	}
+
+	buttonMask = it->second;
+	switch (buttonMask) {
+		case XINPUT_GAMEPAD_A: canonicalName = "A"; break;
+		case XINPUT_GAMEPAD_B: canonicalName = "B"; break;
+		case XINPUT_GAMEPAD_X: canonicalName = "X"; break;
+		case XINPUT_GAMEPAD_Y: canonicalName = "Y"; break;
+		case XINPUT_GAMEPAD_START: canonicalName = "START"; break;
+		case XINPUT_GAMEPAD_BACK: canonicalName = "BACK"; break;
+		case XINPUT_GAMEPAD_LEFT_SHOULDER: canonicalName = "LEFT_SHOULDER"; break;
+		case XINPUT_GAMEPAD_RIGHT_SHOULDER: canonicalName = "RIGHT_SHOULDER"; break;
+		case XINPUT_GAMEPAD_LEFT_THUMB: canonicalName = "LEFT_THUMB"; break;
+		case XINPUT_GAMEPAD_RIGHT_THUMB: canonicalName = "RIGHT_THUMB"; break;
+		case XINPUT_GAMEPAD_DPAD_UP: canonicalName = "DPAD_UP"; break;
+		case XINPUT_GAMEPAD_DPAD_DOWN: canonicalName = "DPAD_DOWN"; break;
+		case XINPUT_GAMEPAD_DPAD_LEFT: canonicalName = "DPAD_LEFT"; break;
+		case XINPUT_GAMEPAD_DPAD_RIGHT: canonicalName = "DPAD_RIGHT"; break;
+		default:
+			canonicalName = upperButton;
+			break;
+	}
+
+	return true;
+}
+
  // isxboxbuttonpressed(player, button) -> boolean
  // Checks if a specific Xbox 360 controller button is pressed
  // Button names: "A", "B", "X", "Y", "START", "BACK", "LEFT_SHOULDER", "RIGHT_SHOULDER", "LEFT_THUMB", "RIGHT_THUMB", "DPAD_UP", "DPAD_DOWN", "DPAD_LEFT", "DPAD_RIGHT" (case-insensitive)
@@ -1378,52 +1670,9 @@ static void DrawLuaConsole(uint8* buf) {
 	 // Get current Xbox 360 controller button state
 	 WORD buttons = Gamepads[player].wButtons;
 	 
-	 // Map button name to XINPUT bitmask (case-insensitive)
-	 WORD buttonMask = 0;
-	 
-	 // Convert to uppercase for case-insensitive comparison
-	 char upperButton[32];
-	 int i = 0;
-	 for (; buttonName[i] && i < 31; ++i) {
-		 char c = buttonName[i];
-		 if (c >= 'a' && c <= 'z') {
-			 upperButton[i] = c - 'a' + 'A';
-		 } else {
-			 upperButton[i] = c;
-		 }
-	 }
-	 upperButton[i] = '\0';
-	 
-	 // Map button name to XINPUT bitmask
-	 if (strcmp(upperButton, "A") == 0) {
-		 buttonMask = XINPUT_GAMEPAD_A;
-	 } else if (strcmp(upperButton, "B") == 0) {
-		 buttonMask = XINPUT_GAMEPAD_B;
-	 } else if (strcmp(upperButton, "X") == 0) {
-		 buttonMask = XINPUT_GAMEPAD_X;
-	 } else if (strcmp(upperButton, "Y") == 0) {
-		 buttonMask = XINPUT_GAMEPAD_Y;
-	 } else if (strcmp(upperButton, "START") == 0) {
-		 buttonMask = XINPUT_GAMEPAD_START;
-	 } else if (strcmp(upperButton, "BACK") == 0) {
-		 buttonMask = XINPUT_GAMEPAD_BACK;
-	 } else if (strcmp(upperButton, "LEFT_SHOULDER") == 0 || strcmp(upperButton, "LB") == 0) {
-		 buttonMask = XINPUT_GAMEPAD_LEFT_SHOULDER;
-	 } else if (strcmp(upperButton, "RIGHT_SHOULDER") == 0 || strcmp(upperButton, "RB") == 0) {
-		 buttonMask = XINPUT_GAMEPAD_RIGHT_SHOULDER;
-	 } else if (strcmp(upperButton, "LEFT_THUMB") == 0 || strcmp(upperButton, "LS") == 0) {
-		 buttonMask = XINPUT_GAMEPAD_LEFT_THUMB;
-	 } else if (strcmp(upperButton, "RIGHT_THUMB") == 0 || strcmp(upperButton, "RS") == 0) {
-		 buttonMask = XINPUT_GAMEPAD_RIGHT_THUMB;
-	 } else if (strcmp(upperButton, "DPAD_UP") == 0 || strcmp(upperButton, "UP") == 0) {
-		 buttonMask = XINPUT_GAMEPAD_DPAD_UP;
-	 } else if (strcmp(upperButton, "DPAD_DOWN") == 0 || strcmp(upperButton, "DOWN") == 0) {
-		 buttonMask = XINPUT_GAMEPAD_DPAD_DOWN;
-	 } else if (strcmp(upperButton, "DPAD_LEFT") == 0 || strcmp(upperButton, "LEFT") == 0) {
-		 buttonMask = XINPUT_GAMEPAD_DPAD_LEFT;
-	 } else if (strcmp(upperButton, "DPAD_RIGHT") == 0 || strcmp(upperButton, "RIGHT") == 0) {
-		 buttonMask = XINPUT_GAMEPAD_DPAD_RIGHT;
-	 } else {
+	WORD buttonMask = 0;
+	const char* canonicalName = NULL;
+	if (!MapXboxButtonName(buttonName, buttonMask, canonicalName)) {
 		 return luaL_error(L, "isxboxbuttonpressed: invalid button name '%s'. Valid buttons: A, B, X, Y, START, BACK, LEFT_SHOULDER, RIGHT_SHOULDER, LEFT_THUMB, RIGHT_THUMB, DPAD_UP, DPAD_DOWN, DPAD_LEFT, DPAD_RIGHT", buttonName);
 	 }
 	 
@@ -1433,9 +1682,227 @@ static void DrawLuaConsole(uint8* buf) {
 	 return 1;
  }
  
+static void TriggerButtonCallback(const ButtonCallbackInfo& info, int player)
+{
+	if (info.luaRef < 0) {
+		return;
+	}
+
+	if (s_luaDisabled || !luaInitialized || luaState == NULL) {
+		return;
+	}
+
+	lua_rawgeti(luaState, LUA_REGISTRYINDEX, info.luaRef);
+	lua_pushinteger(luaState, player);
+	lua_pushstring(luaState, info.canonicalName.c_str());
+	if (lua_pcall(luaState, 2, 0, 0) != 0) {
+		const char* err = lua_tostring(luaState, -1);
+		printf("LUA ERROR (button callback): %s\n", err ? err : "unknown error");
+		if (err && err[0]) {
+			LuaConsolePushLine(err);
+		}
+		lua_pop(luaState, 1);
+	}
+}
+
+static int lua_onbuttonpress(lua_State* L)
+{
+	if (lua_gettop(L) < 2) {
+		return luaL_error(L, "onbuttonpress(btn, cb) requires 2 arguments");
+	}
+
+	const char* buttonName = luaL_checkstring(L, 1);
+	WORD buttonMask = 0;
+	const char* canonicalName = NULL;
+	if (!MapXboxButtonName(buttonName, buttonMask, canonicalName)) {
+		return luaL_error(L, "onbuttonpress: invalid button name '%s'. Valid buttons: A, B, X, Y, START, BACK, LEFT_SHOULDER, RIGHT_SHOULDER, LEFT_THUMB, RIGHT_THUMB, DPAD_UP, DPAD_DOWN, DPAD_LEFT, DPAD_RIGHT", buttonName);
+	}
+
+	if (lua_isnil(L, 2)) {
+	std::map<WORD, ButtonCallbackInfo>::iterator it = s_buttonPressCallbacks.find(buttonMask);
+		if (it != s_buttonPressCallbacks.end()) {
+			if (it->second.luaRef >= 0) {
+				luaL_unref(L, LUA_REGISTRYINDEX, it->second.luaRef);
+			}
+			s_buttonPressCallbacks.erase(it);
+		}
+		return 0;
+	}
+
+	if (!lua_isfunction(L, 2)) {
+		return luaL_error(L, "onbuttonpress: callback must be a function or nil");
+	}
+
+	ButtonCallbackInfo& info = s_buttonPressCallbacks[buttonMask];
+	if (info.luaRef >= 0) {
+		luaL_unref(L, LUA_REGISTRYINDEX, info.luaRef);
+	}
+
+	lua_pushvalue(L, 2);
+	int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+
+	info.mask = buttonMask;
+	info.canonicalName = canonicalName;
+	info.luaRef = ref;
+
+	// Initialize previous state to avoid false triggers from currently held buttons
+	for (int p = 0; p < 4; ++p) {
+		s_prevXboxButtonState[p] = Gamepads[p].wButtons;
+	}
+
+	return 0;
+}
+
+static int lua_onbuttonrelease(lua_State* L)
+{
+	if (lua_gettop(L) < 2) {
+		return luaL_error(L, "onbuttonrelease(btn, cb) requires 2 arguments");
+	}
+
+	const char* buttonName = luaL_checkstring(L, 1);
+	WORD buttonMask = 0;
+	const char* canonicalName = NULL;
+	if (!MapXboxButtonName(buttonName, buttonMask, canonicalName)) {
+		return luaL_error(L, "onbuttonrelease: invalid button name '%s'. Valid buttons: A, B, X, Y, START, BACK, LEFT_SHOULDER, RIGHT_SHOULDER, LEFT_THUMB, RIGHT_THUMB, DPAD_UP, DPAD_DOWN, DPAD_LEFT, DPAD_RIGHT", buttonName);
+	}
+
+	if (lua_isnil(L, 2)) {
+		std::map<WORD, ButtonCallbackInfo>::iterator it = s_buttonReleaseCallbacks.find(buttonMask);
+		if (it != s_buttonReleaseCallbacks.end()) {
+			if (it->second.luaRef >= 0) {
+				luaL_unref(L, LUA_REGISTRYINDEX, it->second.luaRef);
+			}
+			s_buttonReleaseCallbacks.erase(it);
+		}
+		return 0;
+	}
+
+	if (!lua_isfunction(L, 2)) {
+		return luaL_error(L, "onbuttonrelease: callback must be a function or nil");
+	}
+
+	ButtonCallbackInfo& info = s_buttonReleaseCallbacks[buttonMask];
+	if (info.luaRef >= 0) {
+		luaL_unref(L, LUA_REGISTRYINDEX, info.luaRef);
+	}
+
+	lua_pushvalue(L, 2);
+	int ref = luaL_ref(L, LUA_REGISTRYINDEX);
+
+	info.mask = buttonMask;
+	info.canonicalName = canonicalName;
+	info.luaRef = ref;
+
+	// Initialize previous state to avoid false triggers from currently held buttons
+	for (int p = 0; p < 4; ++p) {
+		s_prevXboxButtonState[p] = Gamepads[p].wButtons;
+	}
+
+	return 0;
+}
+
+static int lua_getbuttonheldms(lua_State* L)
+{
+	if (lua_gettop(L) < 1) {
+		return luaL_error(L, "getbuttonheldms(btn) requires 1 argument");
+	}
+
+	const char* buttonName = luaL_checkstring(L, 1);
+	WORD buttonMask = 0;
+	const char* canonicalName = NULL;
+	char upperButton[32];
+	ToUpperButtonName(buttonName, upperButton, sizeof(upperButton));
+
+	int analogIdx = GetAnalogDirectionIndex(upperButton);
+	int nesIdx = GetNESButtonIndex(upperButton);
+	int idx = -1;
+	DWORD currentTime = GetTickCount();
+	DWORD heldMs = 0;
+
+	if (nesIdx >= 0) {
+		for (int p = 0; p < 4; ++p) {
+			if (s_nesButtonWasHeld[p][nesIdx] && s_nesButtonHoldStart[p][nesIdx] != 0) {
+				DWORD start = s_nesButtonHoldStart[p][nesIdx];
+				DWORD duration = (start <= currentTime) ? (currentTime - start) : 0;
+				if (duration > heldMs) {
+					heldMs = duration;
+				}
+			}
+		}
+		lua_pushnumber(L, (lua_Number)heldMs);
+		return 1;
+	}
+
+	if (analogIdx >= 0) {
+		idx = analogIdx;
+	} else {
+		if (!MapXboxButtonName(buttonName, buttonMask, canonicalName)) {
+			return luaL_error(L, "getbuttonheldms: invalid button name '%s'. Valid buttons: A, B, X, Y, START, BACK, LEFT_SHOULDER, RIGHT_SHOULDER, LEFT_THUMB, RIGHT_THUMB, DPAD_UP, DPAD_DOWN, DPAD_LEFT, DPAD_RIGHT, LS/RS directions, LT/RT triggers, NES_A/B/SELECT/START/UP/DOWN/LEFT/RIGHT", buttonName);
+		}
+		idx = GetButtonIndexFromMask(buttonMask);
+		if (idx < 0) {
+			lua_pushnumber(L, 0);
+			return 1;
+		}
+	}
+
+	for (int p = 0; p < 4; ++p) {
+		if (s_buttonWasHeld[p][idx] && s_buttonHoldStart[p][idx] != 0) {
+			DWORD start = s_buttonHoldStart[p][idx];
+			if (start <= currentTime) {
+				DWORD duration = currentTime - start;
+				if (duration > heldMs) {
+					heldMs = duration;
+				}
+			}
+		}
+	}
+
+	lua_pushnumber(L, (lua_Number)heldMs);
+	return 1;
+}
+
+// Helper function to resolve virtual button name to physical spec
+// Returns the physical spec if found, or NULL if not mapped
+static const char* ResolveVirtualButton(lua_State* L, const char* virtualBtn)
+{
+	if (!L || !virtualBtn || !virtualBtn[0]) {
+		return NULL;
+	}
+	
+	// Check if this Lua state has virtual mappings
+	std::map<lua_State*, std::map<std::string, std::string> >::iterator stateIt = s_virtualInputMappings.find(L);
+	if (stateIt == s_virtualInputMappings.end()) {
+		return NULL;
+	}
+	
+	// Convert virtual button name to uppercase for case-insensitive lookup
+	char upperVirtual[64];
+	int i = 0;
+	for (; virtualBtn[i] && i < 63; ++i) {
+		char c = virtualBtn[i];
+		if (c >= 'a' && c <= 'z') {
+			upperVirtual[i] = c - 'a' + 'A';
+		} else {
+			upperVirtual[i] = c;
+		}
+	}
+	upperVirtual[i] = '\0';
+	
+	// Look up the mapping
+	std::map<std::string, std::string>& mappings = stateIt->second;
+	std::map<std::string, std::string>::const_iterator it = mappings.find(upperVirtual);
+	if (it != mappings.end()) {
+		return it->second.c_str();
+	}
+	
+	return NULL;
+}
+
  // isbuttonpressed(player, button) -> boolean
  // Checks if a specific button is pressed for a player
  // Button names: "A", "B", "SELECT", "START", "UP", "DOWN", "LEFT", "RIGHT" (case-insensitive)
+ // Also supports virtual button names if mapped via mapinput()
  static int lua_isbuttonpressed(lua_State* L)
  {
 	 int player = (int)luaL_checkinteger(L, 1);
@@ -1450,7 +1917,28 @@ static void DrawLuaConsole(uint8* buf) {
 		 return luaL_error(L, "isbuttonpressed: button name cannot be empty");
 	 }
 	 
-	 // Get current button state
+	 // Check if this is a virtual button name (mapped via mapinput)
+	 const char* physicalSpec = ResolveVirtualButton(L, buttonName);
+	 if (physicalSpec) {
+		 // Resolve virtual button to physical spec and check that instead
+		 buttonName = physicalSpec;
+	 }
+	 
+	 // Check if this is an Xbox button (check Xbox button mapping first)
+	 EnsureButtonNameMap();
+	 WORD xboxMask = 0;
+	 const char* dummyCanonical = NULL;
+	 bool isXboxButton = MapXboxButtonName(buttonName, xboxMask, dummyCanonical);
+	 
+	 if (isXboxButton) {
+		 // Check Xbox 360 controller button state
+		 WORD buttons = Gamepads[player].wButtons;
+		 bool isPressed = (buttons & xboxMask) != 0;
+		 lua_pushboolean(L, isPressed ? 1 : 0);
+		 return 1;
+	 }
+	 
+	 // Otherwise, check NES button state
 	 uint8 buttons = joy[player];
 	 
 	 // Map button name to bitmask (case-insensitive)
@@ -1488,7 +1976,7 @@ static void DrawLuaConsole(uint8* buf) {
 	 } else if (strcmp(upperButton, "RIGHT") == 0) {
 		 buttonMask = 0x80;
 	 } else {
-		 return luaL_error(L, "isbuttonpressed: invalid button name '%s'. Valid buttons: A, B, SELECT, START, UP, DOWN, LEFT, RIGHT", buttonName);
+		 return luaL_error(L, "isbuttonpressed: invalid button name '%s'. Valid NES buttons: A, B, SELECT, START, UP, DOWN, LEFT, RIGHT. Valid Xbox buttons: A, B, X, Y, START, BACK, LEFT_SHOULDER, RIGHT_SHOULDER, LEFT_THUMB, RIGHT_THUMB, DPAD_UP, DPAD_DOWN, DPAD_LEFT, DPAD_RIGHT", buttonName);
 	 }
 	 
 	 // Check if button is pressed (bit is set)
@@ -1733,6 +2221,124 @@ static void DrawLuaConsole(uint8* buf) {
 	 
 	 // Set the button bit for one-frame release
 	 s_oneFrameRelease[player] |= (uint8)buttonMask;
+	 
+	 return 0;
+ }
+
+ // setrumble(ms, intensity) -> nothing
+ // Sets controller feedback (rumble/vibration) for player 0 (first controller)
+ // Parameters: ms (duration in milliseconds), intensity (0.0-1.0)
+ // Returns: Nothing
+ // Use case: Haptic feedback
+ static int lua_setrumble(lua_State* L)
+ {
+	 if (lua_gettop(L) < 2) {
+		 return luaL_error(L, "setrumble(ms, intensity) requires 2 arguments");
+	 }
+	 
+	 int ms = (int)luaL_checkinteger(L, 1);
+	 double intensity = luaL_checknumber(L, 2);
+	 
+	 // Validate parameters
+	 if (ms < 0) {
+		 return luaL_error(L, "setrumble: duration (ms) must be >= 0");
+	 }
+	 if (intensity < 0.0) intensity = 0.0;
+	 if (intensity > 1.0) intensity = 1.0;
+	 
+	 // Default to player 0 (first controller) as per spec
+	 int player = 0;
+	 
+	 // Set rumble state
+	 DWORD currentTime = GetTickCount();
+	 s_rumbleState[player].startTime = currentTime;
+	 s_rumbleState[player].duration = (DWORD)ms;
+	 s_rumbleState[player].intensity = (float)intensity;
+	 s_rumbleState[player].active = true;
+	 
+	 // Apply rumble immediately
+	 if (Gamepads[player].bConnected) {
+		 XINPUT_VIBRATION vibration;
+		 // Convert intensity (0.0-1.0) to motor speed (0-65535)
+		 WORD motorSpeed = (WORD)(intensity * 65535.0);
+		 vibration.wLeftMotorSpeed = motorSpeed;
+		 vibration.wRightMotorSpeed = motorSpeed;
+		 XInputSetState(player, &vibration);
+	 }
+	 
+	 return 0;
+ }
+
+ // mapinput(virtualBtn, physicalSpec) -> nothing
+ // Per-script input remapping - maps virtual button names to physical input specifications
+ // Parameters: virtualBtn (virtual button name), physicalSpec (physical input spec)
+ // Returns: Nothing
+ // Use case: Custom control schemes
+ static int lua_mapinput(lua_State* L)
+ {
+	 if (lua_gettop(L) < 2) {
+		 return luaL_error(L, "mapinput(virtualBtn, physicalSpec) requires 2 arguments");
+	 }
+	 
+	 const char* virtualBtn = luaL_checkstring(L, 1);
+	 const char* physicalSpec = luaL_checkstring(L, 2);
+	 
+	 if (!virtualBtn || !virtualBtn[0]) {
+		 return luaL_error(L, "mapinput: virtual button name cannot be empty");
+	 }
+	 
+	 if (!physicalSpec || !physicalSpec[0]) {
+		 return luaL_error(L, "mapinput: physical spec cannot be empty");
+	 }
+	 
+	 // Convert virtual button name to uppercase for case-insensitive storage
+	 char upperVirtual[64];
+	 int i = 0;
+	 for (; virtualBtn[i] && i < 63; ++i) {
+		 char c = virtualBtn[i];
+		 if (c >= 'a' && c <= 'z') {
+			 upperVirtual[i] = c - 'a' + 'A';
+		 } else {
+			 upperVirtual[i] = c;
+		 }
+	 }
+	 upperVirtual[i] = '\0';
+	 
+	 // Validate that physicalSpec is a valid button name
+	 // Check if it's a valid NES button name
+	 char upperSpec[64];
+	 i = 0;
+	 for (; physicalSpec[i] && i < 63; ++i) {
+		 char c = physicalSpec[i];
+		 if (c >= 'a' && c <= 'z') {
+			 upperSpec[i] = c - 'a' + 'A';
+		 } else {
+			 upperSpec[i] = c;
+		 }
+	 }
+	 upperSpec[i] = '\0';
+	 
+	 bool isValidNES = (strcmp(upperSpec, "A") == 0 ||
+	                    strcmp(upperSpec, "B") == 0 ||
+	                    strcmp(upperSpec, "SELECT") == 0 ||
+	                    strcmp(upperSpec, "START") == 0 ||
+	                    strcmp(upperSpec, "UP") == 0 ||
+	                    strcmp(upperSpec, "DOWN") == 0 ||
+	                    strcmp(upperSpec, "LEFT") == 0 ||
+	                    strcmp(upperSpec, "RIGHT") == 0);
+	 
+	 // Check if it's a valid Xbox button name
+	 EnsureButtonNameMap();
+	 WORD xboxMask = 0;
+	 const char* dummyCanonical = NULL;
+	 bool isValidXbox = MapXboxButtonName(physicalSpec, xboxMask, dummyCanonical);
+	 
+	 if (!isValidNES && !isValidXbox) {
+		 return luaL_error(L, "mapinput: physical spec '%s' is not a valid button name. Valid NES buttons: A, B, SELECT, START, UP, DOWN, LEFT, RIGHT. Valid Xbox buttons: A, B, X, Y, START, BACK, LEFT_SHOULDER, RIGHT_SHOULDER, LEFT_THUMB, RIGHT_THUMB, DPAD_UP, DPAD_DOWN, DPAD_LEFT, DPAD_RIGHT", physicalSpec);
+	 }
+	 
+	 // Store the mapping for this Lua state
+	 s_virtualInputMappings[L][upperVirtual] = std::string(physicalSpec);
 	 
 	 return 0;
  }
@@ -10338,6 +10944,8 @@ int lua_ismemorywritable(lua_State *L) {
 	 lua_setglobal(luaState, "pressbutton");
 	 lua_pushcfunction(luaState, lua_releasebutton);
 	 lua_setglobal(luaState, "releasebutton");
+	 lua_register(luaState, "setrumble", lua_setrumble);
+	 lua_register(luaState, "mapinput", lua_mapinput);
 	 lua_register(luaState, "startinputrecording", lua_startinputrecording);
 	 lua_register(luaState, "stopinputrecording", lua_stopinputrecording);
 	 lua_pushcfunction(luaState, lua_playinputrecording);
@@ -10398,6 +11006,9 @@ int lua_ismemorywritable(lua_State *L) {
 	 lua_register(luaState, "getmapperstring", lua_getmapperstring);
 	 lua_register(luaState, "isbuttonpressed", lua_isbuttonpressed);
 	 lua_register(luaState, "isxboxbuttonpressed", lua_isxboxbuttonpressed);
+	 lua_register(luaState, "onbuttonpress", lua_onbuttonpress);
+	 lua_register(luaState, "onbuttonrelease", lua_onbuttonrelease);
+	lua_register(luaState, "getbuttonheldms", lua_getbuttonheldms);
 	 lua_register(luaState, "getbuttonname", lua_getbuttonname);
 	 lua_register(luaState, "getbuttonmask", lua_getbuttonmask);
 	 lua_register(luaState, "drawpixel", lua_drawpixel);
@@ -10528,6 +11139,8 @@ static void EnsureLuaInit() {
 	lua_setglobal(luaState, "pressbutton");
 	lua_pushcfunction(luaState, lua_releasebutton);
 	lua_setglobal(luaState, "releasebutton");
+	REG("setrumble", lua_setrumble);
+	REG("mapinput", lua_mapinput);
 	REG("startinputrecording", lua_startinputrecording);
 	REG("stopinputrecording", lua_stopinputrecording);
 	lua_pushcfunction(luaState, lua_playinputrecording);
@@ -10588,6 +11201,9 @@ static void EnsureLuaInit() {
 	REG("getmapperstring", lua_getmapperstring);
 	REG("isbuttonpressed", lua_isbuttonpressed);
 	REG("isxboxbuttonpressed", lua_isxboxbuttonpressed);
+REG("onbuttonpress", lua_onbuttonpress);
+REG("onbuttonrelease", lua_onbuttonrelease);
+REG("getbuttonheldms", lua_getbuttonheldms);
 	REG("getbuttonname",  lua_getbuttonname);
 	REG("getbuttonmask",  lua_getbuttonmask);
 	REG("drawpixel",      lua_drawpixel);
@@ -11745,6 +12361,23 @@ void FCEU_ReloadLuaCode(void) {
 		 CheckWatchedAddresses();
 	 }
 	 
+	 // Update rumble state - check if rumble duration has expired
+	 for (int player = 0; player < 4; ++player) {
+		 if (s_rumbleState[player].active) {
+			 DWORD elapsed = currentTime - s_rumbleState[player].startTime;
+			 if (elapsed >= s_rumbleState[player].duration) {
+				 // Rumble duration expired - stop rumble
+				 s_rumbleState[player].active = false;
+				 if (Gamepads[player].bConnected) {
+					 XINPUT_VIBRATION vibration;
+					 vibration.wLeftMotorSpeed = 0;
+					 vibration.wRightMotorSpeed = 0;
+					 XInputSetState(player, &vibration);
+				 }
+			 }
+		 }
+	 }
+	 
 	 // Call "beforeframe" function if it exists - this runs BEFORE input polling
 	 // This allows scripts to set joypad state before FCEU_UpdateInput() is called
 	 // Check if script is sleeping - if so, skip callback execution
@@ -12069,6 +12702,11 @@ void FCEU_ReloadLuaCode(void) {
  
  // Stop Lua
  void FCEU_LuaStop() {
+	 // Clean up virtual input mappings for this Lua state
+	 if (luaState != NULL) {
+		 s_virtualInputMappings.erase(luaState);
+	 }
+	 
 	 // Reset filter states
 	 for (int i = 0; i < 10; i++) {
 		 filterStates[i].initialized = false;
@@ -12078,6 +12716,30 @@ void FCEU_ReloadLuaCode(void) {
 		 filterStates[i].y2 = 0.0;
 	 }
 	 
+	if (luaState != NULL) {
+		for (std::map<WORD, ButtonCallbackInfo>::iterator it = s_buttonPressCallbacks.begin();
+			 it != s_buttonPressCallbacks.end(); ++it) {
+			if (it->second.luaRef >= 0) {
+				luaL_unref(luaState, LUA_REGISTRYINDEX, it->second.luaRef);
+			}
+		}
+		for (std::map<WORD, ButtonCallbackInfo>::iterator it = s_buttonReleaseCallbacks.begin();
+			 it != s_buttonReleaseCallbacks.end(); ++it) {
+			if (it->second.luaRef >= 0) {
+				luaL_unref(luaState, LUA_REGISTRYINDEX, it->second.luaRef);
+			}
+		}
+	}
+	s_buttonPressCallbacks.clear();
+	s_buttonReleaseCallbacks.clear();
+	for (int i = 0; i < 4; ++i) {
+		s_prevXboxButtonState[i] = 0;
+		for (int j = 0; j < TOTAL_HOLD_INDEX_COUNT; ++j) {
+			s_buttonHoldStart[i][j] = 0;
+			s_buttonWasHeld[i][j] = false;
+		}
+	}
+	
 	 if (luaState != NULL) {
 		 lua_close(luaState);
 		 luaState = NULL;
@@ -12198,6 +12860,70 @@ extern "C" void FCEU_LuaJoypadApply(void)
 	s_hardwareJoypad[1] = (uint8)((powerpadbuf >> 8) & 0xFF);
 	s_hardwareJoypad[2] = (uint8)((powerpadbuf >> 16) & 0xFF);
 	s_hardwareJoypad[3] = (uint8)((powerpadbuf >> 24) & 0xFF);
+	
+	bool havePressCallbacks = !s_buttonPressCallbacks.empty();
+	bool haveReleaseCallbacks = !s_buttonReleaseCallbacks.empty();
+	if (havePressCallbacks || haveReleaseCallbacks) {
+		if (!s_luaDisabled && luaInitialized && luaState != NULL) {
+			for (int p = 0; p < 4; ++p) {
+				WORD currentButtons = Gamepads[p].wButtons;
+				if (!Gamepads[p].bConnected) {
+					ResetHoldStatesForPlayer(p);
+					s_prevXboxButtonState[p] = 0;
+					continue;
+				}
+				DWORD now = GetTickCount();
+				WORD previousButtons = s_prevXboxButtonState[p];
+				WORD pressedThisFrame = (WORD)(currentButtons & (WORD)~previousButtons);
+				WORD releasedThisFrame = (WORD)((~currentButtons) & previousButtons);
+
+				UpdateHoldStatesForPlayer(p, currentButtons, now);
+
+				if (havePressCallbacks && pressedThisFrame) {
+					for (std::map<WORD, ButtonCallbackInfo>::const_iterator it = s_buttonPressCallbacks.begin();
+						 it != s_buttonPressCallbacks.end(); ++it) {
+						if ((pressedThisFrame & it->second.mask) != 0) {
+							TriggerButtonCallback(it->second, p);
+						}
+					}
+				}
+				if (haveReleaseCallbacks && releasedThisFrame) {
+					for (std::map<WORD, ButtonCallbackInfo>::const_iterator it = s_buttonReleaseCallbacks.begin();
+						 it != s_buttonReleaseCallbacks.end(); ++it) {
+						if ((releasedThisFrame & it->second.mask) != 0) {
+							TriggerButtonCallback(it->second, p);
+						}
+					}
+				}
+
+				s_prevXboxButtonState[p] = currentButtons;
+			}
+		} else {
+			for (int p = 0; p < 4; ++p) {
+				WORD currentButtons = Gamepads[p].wButtons;
+				if (!Gamepads[p].bConnected) {
+					ResetHoldStatesForPlayer(p);
+					s_prevXboxButtonState[p] = 0;
+					continue;
+				}
+				DWORD now = GetTickCount();
+				UpdateHoldStatesForPlayer(p, currentButtons, now);
+				s_prevXboxButtonState[p] = currentButtons;
+			}
+		}
+	} else {
+		for (int p = 0; p < 4; ++p) {
+			WORD currentButtons = Gamepads[p].wButtons;
+			if (!Gamepads[p].bConnected) {
+				ResetHoldStatesForPlayer(p);
+				s_prevXboxButtonState[p] = 0;
+				continue;
+			}
+			DWORD now = GetTickCount();
+			UpdateHoldStatesForPlayer(p, currentButtons, now);
+			s_prevXboxButtonState[p] = currentButtons;
+		}
+	}
 	
 	// Override powerpadbuf (Xbox input buffer) for players 0 and 1
 	// This is the source that UpdateGP() reads from, so we need to override it here
