@@ -388,6 +388,151 @@ static int s_defaultDrawColor = 0x39;  // Default to yellow-green
  static int s_clipH = OVL_H;
  static bool s_clipEnabled = false;  // Only enable clipping when explicitly set
 
+// Transform state (defaults to identity - no transform)
+static float s_transformTX = 0.0f;  // Translation X
+static float s_transformTY = 0.0f;  // Translation Y
+static float s_transformSX = 1.0f;  // Scale X
+static float s_transformSY = 1.0f;  // Scale Y
+static float s_transformRot = 0.0f; // Rotation in degrees
+static bool s_transformEnabled = false;  // Only apply transform when explicitly set
+
+// Batching state
+static bool s_batching = false;  // True when between beginbatch() and endbatch()
+static int s_batchDepth = 0;  // Track nested batch calls
+
+// Image scaling mode
+enum ImageScaleMode {
+	IMAGE_SCALE_NEAREST = 0,  // Nearest-neighbor (pixelated, fast)
+	IMAGE_SCALE_LINEAR = 1    // Linear interpolation (smooth, slower)
+};
+static ImageScaleMode s_imageScaleMode = IMAGE_SCALE_NEAREST;  // Default to nearest
+
+// Drawing state structure for push/pop operations
+struct DrawState {
+	DrawMode drawMode;
+	int defaultDrawColor;
+	int clipX;
+	int clipY;
+	int clipW;
+	int clipH;
+	bool clipEnabled;
+	float transformTX;
+	float transformTY;
+	float transformSX;
+	float transformSY;
+	float transformRot;
+	bool transformEnabled;
+	bool batching;
+	int batchDepth;
+	ImageScaleMode imageScaleMode;
+};
+
+// Stack for drawing state (for nested push/pop)
+static std::vector<DrawState> s_drawStateStack;
+
+// Canvas structure for offscreen rendering
+struct Canvas {
+	int width;
+	int height;
+	uint8* buffer;  // Allocated buffer for canvas pixels
+	int handle;     // Unique handle ID
+	
+	Canvas() : width(0), height(0), buffer(NULL), handle(0) {}
+	~Canvas() {
+		if (buffer) {
+			free(buffer);
+			buffer = NULL;
+		}
+	}
+};
+
+// Gradient color stop
+struct GradientStop {
+	float position;  // 0.0 to 1.0
+	int color;       // Color index (0x00-0x3F)
+	
+	GradientStop() : position(0.0f), color(0) {}
+	GradientStop(float pos, int col) : position(pos), color(col) {}
+};
+
+// Linear gradient structure
+struct LinearGradient {
+	float x1, y1;  // Start point
+	float x2, y2;  // End point
+	std::vector<GradientStop> stops;  // Color stops
+	int handle;     // Unique handle ID
+	
+	LinearGradient() : x1(0), y1(0), x2(0), y2(0), handle(0) {}
+};
+
+// Radial gradient structure
+struct RadialGradient {
+	float cx, cy;  // Center point
+	float radius;   // Radius
+	std::vector<GradientStop> stops;  // Color stops
+	int handle;     // Unique handle ID
+	
+	RadialGradient() : cx(0), cy(0), radius(0), handle(0) {}
+};
+
+// Canvas management
+static std::map<int, Canvas*> s_canvases;
+static int s_nextCanvasHandle = 1;  // Start at 1, 0 is invalid
+
+// Gradient management
+static std::map<int, LinearGradient*> s_gradients;
+static int s_nextGradientHandle = 1;  // Start at 1, 0 is invalid
+
+// Radial gradient management
+static std::map<int, RadialGradient*> s_radialGradients;
+static int s_nextRadialGradientHandle = 1;  // Start at 1, 0 is invalid
+
+// Render target state
+static Canvas* s_currentRenderTarget = NULL;  // NULL = render to screen (overlay)
+static int s_renderTargetWidth = OVL_W;  // Current render target width
+static int s_renderTargetHeight = OVL_H;  // Current render target height
+
+// Text style state
+struct TextStyle {
+	int font;        // Font index (0 = default, reserved for future use)
+	float size;      // Text size/scale (1.0 = normal, 0.5-4.0 range)
+	bool wrap;       // Word wrap enabled
+	int align;       // Alignment: 0=left, 1=center, 2=right
+	int outline;     // Outline/border: 0=none, 1=thin, 2=thick
+	int shadow;      // Shadow: 0=none, 1=shadow enabled
+	int spacing;     // Character spacing in pixels (0 = default)
+	
+	TextStyle() : font(0), size(1.0f), wrap(false), align(0), outline(0), shadow(0), spacing(0) {}
+};
+
+static TextStyle s_textStyle;  // Current text style
+
+ // Helper function to transform a point (x, y) using current transform
+ static inline void transform_point(float x, float y, float& outX, float& outY) {
+	 if (!s_transformEnabled) {
+		 outX = x;
+		 outY = y;
+		 return;
+	 }
+	 
+	 // Convert rotation from degrees to radians
+	 float rad = s_transformRot * 3.14159265358979323846f / 180.0f;
+	 float cosR = cosf(rad);
+	 float sinR = sinf(rad);
+	 
+	 // Apply rotation around origin
+	 float rx = x * cosR - y * sinR;
+	 float ry = x * sinR + y * cosR;
+	 
+	 // Apply scale
+	 rx *= s_transformSX;
+	 ry *= s_transformSY;
+	 
+	 // Apply translation
+	 outX = rx + s_transformTX;
+	 outY = ry + s_transformTY;
+ }
+
  // Helper function to check if a point is within the clipping region
  static inline bool is_point_clipped(int x, int y) {
 	 if (!s_clipEnabled) return false;  // No clipping if not enabled
@@ -536,6 +681,108 @@ static int frameCount = 0;  // FPS calculation counter (resets every second)
  {
 	 if (!base || !s || max_w <= 0 || max_h <= 0) return;
 	 DrawTextTransWH(base, pitch, (uint8*)s, color, max_w, max_h, 0);
+ }
+
+ // Draw text glyphs directly at position (0,0) in the buffer (no hardcoded offsets)
+ static void DrawTextDirect(uint8* base, int pitch, const char* s, uint8 color, int max_w, int max_h)
+ {
+	 if (!base || !s || max_w <= 0 || max_h <= 0) return;
+	 
+	 int x = 0;
+	 int y = 0;
+	 
+	 for (; *s; ++s) {
+		 if (*s == '\n') {
+			 x = 0;
+			 y += 8;
+			 if (y + 7 >= max_h) break;
+			 continue;
+		 }
+		 
+		 int ch = FixJoedChar((uint8)*s);
+		 int wid = JoedCharWidth((uint8)*s);
+		 
+		 for (int ny = 0; ny < 7; ++ny) {
+			 if (y + ny >= max_h) break;
+			 uint8 d = Font6x7[ch * 8 + 1 + ny];
+			 
+			 for (int nx = 0; nx < wid; ++nx) {
+				 if (x + nx >= max_w) break;
+				 if ((d >> (7 - nx)) & 1) {
+					 int px = x + nx;
+					 int py = y + ny;
+					 if (px >= 0 && px < max_w && py >= 0 && py < max_h) {
+						 base[py * pitch + px] = color;
+					 }
+				 }
+			 }
+		 }
+		 
+		 x += wid;
+		 if (x >= max_w) {
+			 x = 0;
+			 y += 8;
+			 if (y + 7 >= max_h) break;
+		 }
+	 }
+ }
+
+ // Draw text with outline by drawing the text multiple times at offset positions
+ // Uses the same approach as shadow - draw text at offset positions using DrawTextNoBorder
+ static void DrawTextWithOutline(uint8* base, int pitch, const char* s, uint8 textColor, uint8 outlineColor, int outlineWidth, int max_w, int max_h)
+ {
+	 if (!base || !s || max_w <= 0 || max_h <= 0 || outlineWidth <= 0) {
+		 // No outline, just draw text normally
+		 DrawTextNoBorder(base, pitch, s, textColor);
+		 return;
+	 }
+	 
+	 // Draw outline first (draw text at multiple offset positions)
+	 // For outlineWidth = 1: draw at 8 positions (N, S, E, W, NE, NW, SE, SW)
+	 // For outlineWidth = 2: draw at more positions including 2-pixel offsets
+	 
+	 int offsets[][2] = {
+		 {-1, -1}, {-1, 0}, {-1, 1},  // Top row
+		 {0, -1},           {0, 1},   // Middle row (skip center)
+		 {1, -1},  {1, 0},  {1, 1}    // Bottom row
+	 };
+	 int numOffsets = 8;
+	 
+	 if (outlineWidth >= 2) {
+		 // Add 2-pixel offsets for thicker outline
+		 int offsets2[][2] = {
+			 {-2, -2}, {-2, 0}, {-2, 2},
+			 {0, -2},           {0, 2},
+			 {2, -2},  {2, 0},  {2, 2},
+			 {-2, -1}, {-2, 1}, {-1, -2}, {-1, 2}, {1, -2}, {1, 2}, {2, -1}, {2, 1}
+		 };
+		 // Draw with 2-pixel offsets - use DrawTextNoBorder like shadow does
+		 for (int i = 0; i < 16; i++) {
+			 int dx = offsets2[i][0];
+			 int dy = offsets2[i][1];
+			 uint8* offsetBase = base + dy * pitch + dx;
+			 // More lenient bounds check - allow drawing slightly outside
+			 if (offsetBase >= currentXBuf && offsetBase < currentXBuf + OVL_W * OVL_H) {
+				 DrawTextNoBorder(offsetBase, pitch, s, outlineColor);
+			 }
+		 }
+	 }
+	 
+	 // Draw 1-pixel offset outline - use DrawTextNoBorder like shadow does
+	 // Draw each offset position to create outline effect
+	 for (int i = 0; i < numOffsets; i++) {
+		 int dx = offsets[i][0];
+		 int dy = offsets[i][1];
+		 // Calculate offset pointer
+		 uint8* offsetBase = base + dy * pitch + dx;
+		 // More lenient bounds check - allow drawing slightly outside
+		 if (offsetBase >= currentXBuf && offsetBase < currentXBuf + OVL_W * OVL_H) {
+			 DrawTextNoBorder(offsetBase, pitch, s, outlineColor);
+		 }
+	 }
+	 
+	 // Draw main text on top
+	 DrawTextNoBorder(base, pitch, s, textColor);
  }
 
 // ---- Rotated text (glyph-only, no background/outline) ----
@@ -780,7 +1027,66 @@ static void DrawLuaConsole(uint8* buf) {
 	 if (dest < currentXBuf || dest >= currentXBuf + OVL_W * OVL_H) return 0;
 	 
 	 uint8 mapped = map_overlay_color(color_in);
-	 DrawTextNoBorder(dest, OVL_W, text, mapped); // glyphs only, no bg
+	 
+	 // Apply text style options
+	 // Draw shadow first (if enabled) so it appears behind the text
+	 if (s_textStyle.shadow > 0) {
+		 int shadowX = x + 1;
+		 int shadowY = y + 1;
+		 
+		 // Check if shadow fits on screen
+		 if (shadowX < OVL_W && shadowY < OVL_H && shadowY + GLYPH_H <= OVL_H) {
+			 uint8 *shadowDest = currentXBuf + shadowY * OVL_W + shadowX;
+			 if (shadowDest >= currentXBuf && shadowDest < currentXBuf + OVL_W * OVL_H) {
+				 // Use darker color for shadow (reduce brightness)
+				 int shadowColorValue = (color_in & 0x3F) >> 1;  // Darken by half
+				 if (shadowColorValue < 0) shadowColorValue = 0;
+				 uint8 shadowColor = map_overlay_color(shadowColorValue);
+				 
+				 if (s_textStyle.size != 1.0f) {
+					 DrawTextTransScaled(shadowDest, OVL_W, (uint8*)text, shadowColor, s_textStyle.size, s_textStyle.size);
+				 } else {
+					 DrawTextNoBorder(shadowDest, OVL_W, text, shadowColor);
+				 }
+			 }
+		 }
+	 }
+	 
+	 // Draw main text
+	 // If outline is enabled, use custom outline drawing
+	 if (s_textStyle.outline > 0) {
+		 // Calculate text dimensions
+		 int textHeight = (int)(GLYPH_H * s_textStyle.size + 0.5f);
+		 if (textHeight < 1) textHeight = GLYPH_H;
+		 
+		 // Create outline color (use bright red for maximum visibility - map it)
+		 uint8 outlineColor = map_overlay_color(0x16); // Bright red for outline (very visible for testing)
+		 
+		 // Clamp outline width to 1 or 2
+		 int outlineWidth = s_textStyle.outline;
+		 if (outlineWidth > 2) outlineWidth = 2;
+		 
+		 if (s_textStyle.size != 1.0f) {
+			 // For scaled text, we need to handle it differently
+			 // Draw outline first with scaled text at offsets
+			 // This is complex, so for now just draw scaled text normally
+			 // TODO: Implement scaled text with outline
+			 DrawTextTransScaled(dest, OVL_W, (uint8*)text, mapped, s_textStyle.size, s_textStyle.size);
+		 } else {
+			 // Draw text with outline
+			 DrawTextWithOutline(dest, OVL_W, text, mapped, outlineColor, outlineWidth, wpx, textHeight);
+		 }
+	 } else {
+		 // No outline - draw normally
+		 if (s_textStyle.size != 1.0f) {
+			 // Use scaled text if size is not 1.0
+			 DrawTextTransScaled(dest, OVL_W, (uint8*)text, mapped, s_textStyle.size, s_textStyle.size);
+		 } else {
+			 // Normal text
+			 DrawTextNoBorder(dest, OVL_W, text, mapped); // glyphs only, no bg
+		 }
+	 }
+	 
 	 g_overlayDirty = true;
 	 return 0;
  }
@@ -4632,26 +4938,34 @@ static int lua_writefile(lua_State* L)
 		 return luaL_error(L, "drawpixel(x, y, color) requires 3 arguments");
 	 }
 	 
-	 int x = (int)luaL_checkinteger(L, 1);
-	 int y = (int)luaL_checkinteger(L, 2);
+	 float x = (float)luaL_checknumber(L, 1);
+	 float y = (float)luaL_checknumber(L, 2);
 	 int color = (int)luaL_checkinteger(L, 3);
 	 
 	 if (!currentXBuf) return 0;
 	 
+	 // Apply transform
+	 float tx, ty;
+	 transform_point(x, y, tx, ty);
+	 
+	 // Convert to integer coordinates
+	 int ix = (int)(tx + 0.5f);  // Round to nearest
+	 int iy = (int)(ty + 0.5f);
+	 
 	 // Early return if completely off-screen (better performance and safety)
-	 if (x < 0 || x >= OVL_W || y < 0 || y >= OVL_H) return 0;
+	 if (ix < 0 || ix >= OVL_W || iy < 0 || iy >= OVL_H) return 0;
 	 
 	 // Draw pixel on the current frame buffer (set by FCEU_LuaGui)
 	 // Additional defensive check on buffer pointer
-	 if (y * OVL_W + x < 0 || y * OVL_W + x >= OVL_W * OVL_H) return 0;
+	 if (iy * OVL_W + ix < 0 || iy * OVL_W + ix >= OVL_W * OVL_H) return 0;
 	 
 	 // Check clipping
-	 if (is_point_clipped(x, y)) return 0;
+	 if (is_point_clipped(ix, iy)) return 0;
 	 
-	 uint8 *dest = currentXBuf + y * OVL_W + x;
-		 uint8 srcColor = map_overlay_color(color);
-		 *dest = apply_blend_mode(*dest, srcColor);
-		 g_overlayDirty = true;  // Mark that something was drawn
+	 uint8 *dest = currentXBuf + iy * OVL_W + ix;
+	 uint8 srcColor = map_overlay_color(color);
+	 *dest = apply_blend_mode(*dest, srcColor);
+	 g_overlayDirty = true;  // Mark that something was drawn
 	 
 	 return 0;
  }
@@ -5596,6 +5910,188 @@ int lua_screenshot(lua_State *L) {
 	}
 }
 
+// Lua function - takes screenshot of a region with optional filename
+int lua_screenshotregion(lua_State *L) {
+	int n = lua_gettop(L);
+	if (n < 5) {
+		return luaL_error(L, "screenshotregion(x, y, w, h, path) requires 5 arguments");
+	}
+	
+	int x = (int)luaL_checkinteger(L, 1);
+	int y = (int)luaL_checkinteger(L, 2);
+	int w = (int)luaL_checkinteger(L, 3);
+	int h = (int)luaL_checkinteger(L, 4);
+	const char *path = luaL_checkstring(L, 5);
+	
+	if (!path || strlen(path) == 0) {
+		return luaL_error(L, "screenshotregion() failed: path cannot be empty");
+	}
+	
+	// Validate region parameters
+	if (w <= 0 || h <= 0) {
+		return luaL_error(L, "screenshotregion() failed: width and height must be positive");
+	}
+	if (x < 0 || y < 0) {
+		return luaL_error(L, "screenshotregion() failed: x and y must be non-negative");
+	}
+	if (x + w > 256 || y + h > 240) {
+		return luaL_error(L, "screenshotregion() failed: region extends beyond screen bounds (256x240)");
+	}
+	
+	// Use s_frameXBuf which is set by FCEU_LuaGui with the actual frame buffer
+	extern uint8 *XBuf;
+	extern uint8 *s_frameXBuf;
+	
+	if (!s_frameXBuf && !XBuf) {
+		return luaL_error(L, "screenshotregion() failed: frame buffer not available");
+	}
+	
+	// Use s_frameXBuf if available, otherwise fall back to XBuf
+	uint8 *sourceBuf = s_frameXBuf ? s_frameXBuf : XBuf;
+	if (!sourceBuf) {
+		return luaL_error(L, "screenshotregion() failed: frame buffer not available");
+	}
+	
+	// Save the original XBuf pointer
+	uint8 *oldXBuf = XBuf;
+	
+	// Create a composite buffer that includes both game frame and overlay
+	uint8 *compositeBuf = (uint8*)malloc(256 * 240);
+	if (!compositeBuf) {
+		return luaL_error(L, "screenshotregion() failed: could not allocate composite buffer");
+	}
+	
+	// First, copy the game frame to the composite buffer
+	memcpy(compositeBuf, sourceBuf, 256 * 240);
+	
+	// Then, composite the overlay on top (same logic as CompositeOverlay)
+	// The overlay uses 0x80-0xBF range, and we only overwrite non-zero pixels
+	if (s_overlay_front) {
+		for (int i = 0; i < 256 * 240; ++i) {
+			uint8 overlayPixel = s_overlay_front[i];
+			if (overlayPixel != 0) {
+				// Overlay pixel is non-zero, composite it onto the frame
+				compositeBuf[i] = overlayPixel;
+			}
+		}
+	}
+	
+	// Create a temporary buffer for the region
+	// SaveSnapshot expects a full 256x240 buffer, so we'll create one
+	// and copy the region to the top-left corner
+	uint8 *tempBuf = (uint8*)malloc(256 * 240);
+	if (!tempBuf) {
+		free(compositeBuf);
+		return luaL_error(L, "screenshotregion() failed: could not allocate temporary buffer");
+	}
+	
+	// Clear the temporary buffer (fill with black/transparent)
+	memset(tempBuf, 0, 256 * 240);
+	
+	// Copy the region from composite buffer to temporary buffer (at position 0,0)
+	for (int sy = 0; sy < h; ++sy) {
+		int srcY = y + sy;
+		if (srcY >= 0 && srcY < 240) {
+			for (int sx = 0; sx < w; ++sx) {
+				int srcX = x + sx;
+				if (srcX >= 0 && srcX < 256) {
+					// Copy pixel from composite region to temp buffer
+					tempBuf[sy * 256 + sx] = compositeBuf[srcY * 256 + srcX];
+				}
+			}
+		}
+	}
+	
+	// Free the composite buffer (no longer needed)
+	free(compositeBuf);
+	
+	// Temporarily replace XBuf with our region buffer
+	XBuf = tempBuf;
+	
+	// Get snapshot directory - reuse cached path from screenshot()
+	static std::string cachedSnapPath = "";
+	static bool snapPathCached = false;
+	
+	std::string snapPath;
+	if (!snapPathCached) {
+		extern std::string FCEU_MakeFName(int type, int id1, const char *cd1);
+		std::string tempPath = FCEU_MakeFName(2, 0, "png");  // 2 = FCEUMKF_SNAP
+		
+		size_t lastSlash = tempPath.find_last_of("\\/");
+		if (lastSlash != std::string::npos) {
+			cachedSnapPath = tempPath.substr(0, lastSlash + 1);
+		} else {
+			cachedSnapPath = ".\\";
+		}
+		snapPathCached = true;
+	}
+	snapPath = cachedSnapPath;
+	
+	// Ensure directory exists
+	static std::string lastCheckedDir = "";
+	static bool dirInitialized = false;
+	
+	std::string dirPath = snapPath;
+	for (size_t i = 0; i < dirPath.length(); i++) {
+		if (dirPath[i] == '/') {
+			dirPath[i] = '\\';
+		}
+	}
+	if (dirPath.length() > 0 && (dirPath[dirPath.length() - 1] == '\\' || dirPath[dirPath.length() - 1] == '/')) {
+		dirPath = dirPath.substr(0, dirPath.length() - 1);
+	}
+	
+	if (!dirInitialized || dirPath != lastCheckedDir) {
+		CreateDirectoryA(dirPath.c_str(), NULL);
+		lastCheckedDir = dirPath;
+		dirInitialized = true;
+	}
+	
+	// Process filename
+	std::string baseFilename = path;
+	
+	// Add .png extension if not present
+	if (baseFilename.length() < 4 || baseFilename.substr(baseFilename.length() - 4) != ".png") {
+		baseFilename += ".png";
+	}
+	
+	// Build full path
+	std::string fullPath = snapPath;
+	if (fullPath.length() > 0 && fullPath[fullPath.length() - 1] != '\\' && fullPath[fullPath.length() - 1] != '/') {
+		fullPath += "\\";
+	}
+	fullPath += baseFilename;
+	
+	// Normalize path separators
+	for (size_t i = 0; i < fullPath.length(); i++) {
+		if (fullPath[i] == '/') {
+			fullPath[i] = '\\';
+		}
+	}
+	
+	// Save the screenshot
+	char filename[512] = {0};
+	strncpy(filename, fullPath.c_str(), sizeof(filename) - 1);
+	filename[sizeof(filename) - 1] = '\0';
+	
+	extern int SaveSnapshot(char fileName[512]);
+	int result = SaveSnapshot(filename);
+	
+	// Restore XBuf and free temporary buffer
+	XBuf = oldXBuf;
+	free(tempBuf);
+	
+	if (result == 0) {
+		// Success - return true
+		lua_pushboolean(L, 1);
+		return 1;
+	} else {
+		// Failure - return false (don't error, just return false)
+		lua_pushboolean(L, 0);
+		return 1;
+	}
+}
+
 // Lua function - saves state to slot
 int lua_savestate(lua_State *L) {
 	int n = lua_gettop(L);
@@ -6163,6 +6659,222 @@ int lua_drawimageindexed(lua_State *L) {
 	 return 0;
 }
 
+// Lua drawing function - extended image drawing with options (rotation, scaling, flipping, tinting)
+int lua_drawimageex(lua_State *L) {
+	int n = lua_gettop(L);
+	if (n < 4) {
+		return luaL_error(L, "drawimageex(img, x, y, options) requires at least 4 arguments");
+	}
+	
+	// Check if imageData is a table
+	if (!lua_istable(L, 1)) {
+		return luaL_error(L, "drawimageex: img (1st argument) must be a table");
+	}
+	
+	int x = (int)luaL_checkinteger(L, 2);
+	int y = (int)luaL_checkinteger(L, 3);
+	
+	// Check if options is a table
+	if (!lua_istable(L, 4)) {
+		return luaL_error(L, "drawimageex: options (4th argument) must be a table");
+	}
+	
+	if (!currentXBuf) return 0;
+	
+	// Parse options table
+	int srcWidth = 0;
+	int srcHeight = 0;
+	int dstWidth = 0;
+	int dstHeight = 0;
+	float rotation = 0.0f;
+	bool flipX = false;
+	bool flipY = false;
+	int tintColor = -1;  // -1 means no tint
+	
+	// Get source dimensions (required)
+	lua_getfield(L, 4, "w");
+	if (lua_isnumber(L, -1)) {
+		srcWidth = (int)luaL_checkinteger(L, -1);
+		dstWidth = srcWidth;  // Default to same as source
+	}
+	lua_pop(L, 1);
+	
+	lua_getfield(L, 4, "h");
+	if (lua_isnumber(L, -1)) {
+		srcHeight = (int)luaL_checkinteger(L, -1);
+		dstHeight = srcHeight;  // Default to same as source
+	}
+	lua_pop(L, 1);
+	
+	if (srcWidth <= 0 || srcHeight <= 0) {
+		return luaL_error(L, "drawimageex: options must contain 'w' and 'h' (source width and height)");
+	}
+	
+	// Get destination dimensions (optional - for scaling)
+	lua_getfield(L, 4, "dstW");
+	if (lua_isnumber(L, -1)) {
+		dstWidth = (int)luaL_checkinteger(L, -1);
+	}
+	lua_pop(L, 1);
+	
+	lua_getfield(L, 4, "dstH");
+	if (lua_isnumber(L, -1)) {
+		dstHeight = (int)luaL_checkinteger(L, -1);
+	}
+	lua_pop(L, 1);
+	
+	// Default to source dimensions if not specified
+	if (dstWidth <= 0) dstWidth = srcWidth;
+	if (dstHeight <= 0) dstHeight = srcHeight;
+	
+	// Get rotation (optional)
+	lua_getfield(L, 4, "rot");
+	if (lua_isnumber(L, -1)) {
+		rotation = (float)luaL_checknumber(L, -1);
+	}
+	lua_pop(L, 1);
+	
+	// Get flipping flags (optional)
+	lua_getfield(L, 4, "flipX");
+	if (lua_isboolean(L, -1)) {
+		flipX = lua_toboolean(L, -1) != 0;
+	}
+	lua_pop(L, 1);
+	
+	lua_getfield(L, 4, "flipY");
+	if (lua_isboolean(L, -1)) {
+		flipY = lua_toboolean(L, -1) != 0;
+	}
+	lua_pop(L, 1);
+	
+	// Get tint color (optional)
+	lua_getfield(L, 4, "tint");
+	if (lua_isnumber(L, -1)) {
+		tintColor = (int)luaL_checkinteger(L, -1);
+		if (tintColor < 0) tintColor = 0;
+		if (tintColor > 0x3F) tintColor = 0x3F;
+	}
+	lua_pop(L, 1);
+	
+	// Calculate expected data size
+	int expectedSize = srcWidth * srcHeight;
+	
+	// Read image data from table (Lua tables are 1-indexed)
+	std::vector<uint8> imageData;
+	imageData.reserve(expectedSize);
+	
+	int dataCount = 0;
+	for (int i = 1; i <= expectedSize; ++i) {
+		lua_rawgeti(L, 1, i);
+		if (!lua_isnumber(L, -1)) {
+			lua_pop(L, 1);
+			break; // End of table
+		}
+		int colorValue = (int)luaL_checkinteger(L, -1);
+		lua_pop(L, 1);
+		
+		// Clamp color value to valid range (0x00-0x3F)
+		if (colorValue < 0) colorValue = 0;
+		if (colorValue > 0x3F) colorValue = 0x3F;
+		
+		imageData.push_back((uint8)(colorValue & 0xFF));
+		dataCount++;
+	}
+	
+	if (dataCount < expectedSize) {
+		return luaL_error(L, "drawimageex: imageData table must contain at least %d color values", expectedSize);
+	}
+	
+	// Calculate center point for rotation
+	float centerX = x + dstWidth * 0.5f;
+	float centerY = y + dstHeight * 0.5f;
+	
+	// Convert rotation to radians
+	float rad = rotation * 3.14159265358979323846f / 180.0f;
+	float cosR = cosf(rad);
+	float sinR = sinf(rad);
+	
+	bool drewSomething = false;
+	
+	// Draw image with transformations
+	// We iterate over destination pixels and sample from source
+	for (int py = 0; py < dstHeight; ++py) {
+		for (int px = 0; px < dstWidth; ++px) {
+			// Start with destination pixel coordinates relative to center
+			float relX = (float)px - dstWidth * 0.5f;
+			float relY = (float)py - dstHeight * 0.5f;
+			
+			// Apply inverse rotation to get pre-rotation coordinates
+			// (rotate back to find which source pixel to sample)
+			float preRotX = relX * cosR + relY * sinR;  // Inverse rotation matrix
+			float preRotY = -relX * sinR + relY * cosR;
+			
+			// Convert back to 0-based coordinates in destination space
+			float unscaledX = preRotX + dstWidth * 0.5f;
+			float unscaledY = preRotY + dstHeight * 0.5f;
+			
+			// Apply scaling to get source coordinates
+			float srcX = unscaledX * (float)srcWidth / (float)dstWidth;
+			float srcY = unscaledY * (float)srcHeight / (float)dstHeight;
+			
+			// Apply flipping
+			if (flipX) {
+				srcX = (float)srcWidth - 1.0f - srcX;
+			}
+			if (flipY) {
+				srcY = (float)srcHeight - 1.0f - srcY;
+			}
+			
+			// Sample source pixel (nearest neighbor)
+			int srcPx = (int)(srcX + 0.5f);
+			int srcPy = (int)(srcY + 0.5f);
+			
+			// Clamp source coordinates
+			if (srcPx < 0) srcPx = 0;
+			if (srcPx >= srcWidth) srcPx = srcWidth - 1;
+			if (srcPy < 0) srcPy = 0;
+			if (srcPy >= srcHeight) srcPy = srcHeight - 1;
+			
+			// Get source color
+			int srcIndex = srcPy * srcWidth + srcPx;
+			uint8 colorValue = imageData[srcIndex];
+			
+			// Apply tint if specified
+			if (tintColor >= 0) {
+				// Simple tint: blend with tint color (50% mix)
+				int srcColorIdx = colorValue & 0x3F;
+				int tintColorIdx = tintColor & 0x3F;
+				// Average the color indices (simple tinting)
+				colorValue = (uint8)((srcColorIdx + tintColorIdx) / 2);
+			}
+			
+			// Calculate screen position (apply forward rotation to destination pixel)
+			float rotX = relX * cosR - relY * sinR;
+			float rotY = relX * sinR + relY * cosR;
+			
+			int screenX = (int)(centerX + rotX);
+			int screenY = (int)(centerY + rotY);
+			
+			// Check bounds
+			if (screenX >= 0 && screenX < OVL_W && screenY >= 0 && screenY < OVL_H) {
+				// Check clipping
+				if (!is_point_clipped(screenX, screenY)) {
+					uint8 *dest = currentXBuf + screenY * OVL_W + screenX;
+					uint8 srcColor = map_overlay_color(colorValue);
+					*dest = apply_blend_mode(*dest, srcColor);
+					drewSomething = true;
+				}
+			}
+		}
+	}
+	
+	if (drewSomething) {
+		g_overlayDirty = true;  // Mark that something was drawn
+	}
+	
+	return 0;
+}
+
 // Lua drawing function - allows scripts to draw a single NES tile (8x8 pixels)
 int lua_drawtile(lua_State *L) {
 	 int n = lua_gettop(L);
@@ -6475,6 +7187,1226 @@ int lua_setdrawcolor(lua_State *L) {
 	
 	s_defaultDrawColor = color;
 	return 0;
+}
+
+// Lua function to push drawing state (save current state)
+int lua_pushdrawstate(lua_State *L) {
+	// Create a snapshot of current drawing state
+	DrawState state;
+	state.drawMode = s_drawMode;
+	state.defaultDrawColor = s_defaultDrawColor;
+	state.clipX = s_clipX;
+	state.clipY = s_clipY;
+	state.clipW = s_clipW;
+	state.clipH = s_clipH;
+	state.clipEnabled = s_clipEnabled;
+	state.transformTX = s_transformTX;
+	state.transformTY = s_transformTY;
+	state.transformSX = s_transformSX;
+	state.transformSY = s_transformSY;
+	state.transformRot = s_transformRot;
+	state.transformEnabled = s_transformEnabled;
+	state.batching = s_batching;
+	state.batchDepth = s_batchDepth;
+	state.imageScaleMode = s_imageScaleMode;
+	
+	// Push onto stack
+	s_drawStateStack.push_back(state);
+	
+	return 0;
+}
+
+// Lua function to pop drawing state (restore saved state)
+int lua_popdrawstate(lua_State *L) {
+	// Check if stack is empty
+	if (s_drawStateStack.empty()) {
+		return luaL_error(L, "popdrawstate: no saved state to restore (stack is empty)");
+	}
+	
+	// Get state from top of stack
+	DrawState state = s_drawStateStack.back();
+	s_drawStateStack.pop_back();
+	
+	// Restore all drawing state
+	s_drawMode = state.drawMode;
+	s_defaultDrawColor = state.defaultDrawColor;
+	s_clipX = state.clipX;
+	s_clipY = state.clipY;
+	s_clipW = state.clipW;
+	s_clipH = state.clipH;
+	s_clipEnabled = state.clipEnabled;
+	s_transformTX = state.transformTX;
+	s_transformTY = state.transformTY;
+	s_transformSX = state.transformSX;
+	s_transformSY = state.transformSY;
+	s_transformRot = state.transformRot;
+	s_transformEnabled = state.transformEnabled;
+	s_batching = state.batching;
+	s_batchDepth = state.batchDepth;
+	s_imageScaleMode = state.imageScaleMode;
+	
+	return 0;
+}
+
+// Lua function to set transform
+int lua_settransform(lua_State *L) {
+	int n = lua_gettop(L);
+	if (n < 5) {
+		return luaL_error(L, "settransform(tx, ty, sx, sy, rot) requires 5 arguments");
+	}
+	
+	float tx = (float)luaL_checknumber(L, 1);
+	float ty = (float)luaL_checknumber(L, 2);
+	float sx = (float)luaL_checknumber(L, 3);
+	float sy = (float)luaL_checknumber(L, 4);
+	float rot = (float)luaL_checknumber(L, 5);
+	
+	// Set transform values
+	s_transformTX = tx;
+	s_transformTY = ty;
+	s_transformSX = sx;
+	s_transformSY = sy;
+	s_transformRot = rot;
+	
+	// Enable transform (even if values are identity, allow explicit control)
+	s_transformEnabled = true;
+	
+	return 0;
+}
+
+// Lua function to reset transform
+int lua_resettransform(lua_State *L) {
+	// Reset to identity transform
+	s_transformTX = 0.0f;
+	s_transformTY = 0.0f;
+	s_transformSX = 1.0f;
+	s_transformSY = 1.0f;
+	s_transformRot = 0.0f;
+	s_transformEnabled = false;
+	
+	return 0;
+}
+
+// Lua function to begin batching draw calls
+int lua_beginbatch(lua_State *L) {
+	// Increment batch depth to support nested calls
+	s_batchDepth++;
+	s_batching = true;
+	
+	return 0;
+}
+
+// Lua function to end batching draw calls
+int lua_endbatch(lua_State *L) {
+	// Decrement batch depth
+	if (s_batchDepth > 0) {
+		s_batchDepth--;
+	}
+	
+	// Only disable batching if we're back to depth 0
+	if (s_batchDepth == 0) {
+		s_batching = false;
+	}
+	
+	return 0;
+}
+
+// Lua function to set image scaling mode
+int lua_setimagescale(lua_State *L) {
+	int n = lua_gettop(L);
+	if (n < 1) {
+		return luaL_error(L, "setimagescale(mode) requires 1 argument");
+	}
+	
+	if (!lua_isstring(L, 1)) {
+		return luaL_error(L, "setimagescale: mode must be a string");
+	}
+	
+	const char* modeStr = lua_tostring(L, 1);
+	
+	if (strcmp(modeStr, "nearest") == 0) {
+		s_imageScaleMode = IMAGE_SCALE_NEAREST;
+	} else if (strcmp(modeStr, "linear") == 0) {
+		s_imageScaleMode = IMAGE_SCALE_LINEAR;
+	} else {
+		return luaL_error(L, "setimagescale: invalid mode. Valid modes are: \"nearest\", \"linear\"");
+	}
+	
+	return 0;
+}
+
+// Lua function to get current image scaling mode
+int lua_getimagescale(lua_State *L) {
+	const char* modeStr = (s_imageScaleMode == IMAGE_SCALE_NEAREST) ? "nearest" : "linear";
+	lua_pushstring(L, modeStr);
+	return 1;
+}
+
+// Lua function to create an offscreen canvas
+int lua_createcanvas(lua_State *L) {
+	int n = lua_gettop(L);
+	if (n < 2) {
+		return luaL_error(L, "createcanvas(w, h) requires 2 arguments");
+	}
+	
+	int width = (int)luaL_checkinteger(L, 1);
+	int height = (int)luaL_checkinteger(L, 2);
+	
+	// Validate dimensions
+	if (width <= 0 || height <= 0) {
+		return luaL_error(L, "createcanvas: width and height must be positive");
+	}
+	
+	// Limit maximum size to prevent excessive memory usage
+	const int MAX_CANVAS_SIZE = 1024;
+	if (width > MAX_CANVAS_SIZE || height > MAX_CANVAS_SIZE) {
+		return luaL_error(L, "createcanvas: maximum canvas size is %dx%d", MAX_CANVAS_SIZE, MAX_CANVAS_SIZE);
+	}
+	
+	// Create new canvas
+	Canvas* canvas = new Canvas();
+	canvas->width = width;
+	canvas->height = height;
+	canvas->handle = s_nextCanvasHandle++;
+	
+	// Allocate buffer (same format as overlay: uint8 per pixel)
+	int bufferSize = width * height;
+	canvas->buffer = (uint8*)malloc(bufferSize);
+	
+	if (!canvas->buffer) {
+		delete canvas;
+		return luaL_error(L, "createcanvas: failed to allocate memory for canvas");
+	}
+	
+	// Initialize buffer to transparent (0)
+	memset(canvas->buffer, 0, bufferSize);
+	
+	// Store canvas in map
+	s_canvases[canvas->handle] = canvas;
+	
+	// Return handle to Lua
+	lua_pushinteger(L, canvas->handle);
+	
+	return 1;
+}
+
+// Lua function to set render target (canvas or screen)
+int lua_setrendertarget(lua_State *L) {
+	int n = lua_gettop(L);
+	
+	// If nil or no argument, reset to screen (overlay)
+	if (n == 0 || lua_isnil(L, 1)) {
+		// Restore to screen rendering (use overlay back buffer)
+		// Only set if s_overlay_back is valid (it should always be, but be safe)
+		if (s_overlay_back) {
+			currentXBuf = s_overlay_back;
+		} else {
+			// If overlay not available, just reset state (currentXBuf will be set at callback start)
+			// Don't crash - just reset the state
+		}
+		s_currentRenderTarget = NULL;
+		s_renderTargetWidth = OVL_W;
+		s_renderTargetHeight = OVL_H;
+		return 0;
+	}
+	
+	// Get canvas handle
+	int canvasHandle = (int)luaL_checkinteger(L, 1);
+	
+	// Validate handle is positive (0 is invalid)
+	if (canvasHandle <= 0) {
+		return luaL_error(L, "setrendertarget: canvas handle must be positive (got %d)", canvasHandle);
+	}
+	
+	// Look up canvas
+	std::map<int, Canvas*>::iterator it = s_canvases.find(canvasHandle);
+	if (it == s_canvases.end()) {
+		return luaL_error(L, "setrendertarget: canvas handle %d not found", canvasHandle);
+	}
+	
+	if (!it->second) {
+		return luaL_error(L, "setrendertarget: canvas handle %d is NULL", canvasHandle);
+	}
+	
+	Canvas* canvas = it->second;
+	
+	// Validate canvas structure
+	if (!canvas) {
+		return luaL_error(L, "setrendertarget: canvas is NULL");
+	}
+	
+	if (!canvas->buffer) {
+		return luaL_error(L, "setrendertarget: canvas buffer is NULL");
+	}
+	
+	// Validate canvas dimensions
+	if (canvas->width <= 0 || canvas->height <= 0) {
+		return luaL_error(L, "setrendertarget: canvas has invalid dimensions (%dx%d)", canvas->width, canvas->height);
+	}
+	
+	// Safety check: Ensure currentXBuf is initialized before switching
+	// This prevents crashes if overlay isn't ready yet
+	if (!currentXBuf) {
+		return luaL_error(L, "setrendertarget: overlay buffer not initialized");
+	}
+	
+	// Validate canvas buffer size matches dimensions
+	int expectedSize = canvas->width * canvas->height;
+	if (expectedSize <= 0) {
+		return luaL_error(L, "setrendertarget: canvas buffer size calculation failed");
+	}
+	
+	// CRITICAL SAFETY: Drawing functions currently use OVL_W/OVL_H (256x240) for buffer offsets
+	// If we use a canvas smaller than screen size, drawing functions will calculate
+	// buffer offsets using OVL_W but write to a smaller buffer, causing buffer overruns and crashes
+	// For now, only allow screen-sized canvases (256x240) to prevent crashes
+	// TODO: Update drawing functions to use s_renderTargetWidth/s_renderTargetHeight
+	if (canvas->width != OVL_W || canvas->height != OVL_H) {
+		return luaL_error(L, "setrendertarget: canvas must be screen-sized (256x240) for safety. Got %dx%d. Drawing functions need updates to support smaller canvases.", canvas->width, canvas->height);
+	}
+	
+	// Set render target to canvas
+	currentXBuf = canvas->buffer;
+	s_currentRenderTarget = canvas;
+	s_renderTargetWidth = canvas->width;
+	s_renderTargetHeight = canvas->height;
+	
+	return 0;
+}
+
+// Lua function to blit (copy) a canvas to the screen
+int lua_blit(lua_State *L) {
+	int n = lua_gettop(L);
+	if (n < 3) {
+		return luaL_error(L, "blit(canvas, x, y) requires 3 arguments");
+	}
+	
+	// Get canvas handle
+	int canvasHandle = (int)luaL_checkinteger(L, 1);
+	int x = (int)luaL_checkinteger(L, 2);
+	int y = (int)luaL_checkinteger(L, 3);
+	
+	// Validate handle is positive
+	if (canvasHandle <= 0) {
+		return luaL_error(L, "blit: canvas handle must be positive (got %d)", canvasHandle);
+	}
+	
+	// Look up canvas
+	std::map<int, Canvas*>::iterator it = s_canvases.find(canvasHandle);
+	if (it == s_canvases.end() || !it->second) {
+		return luaL_error(L, "blit: invalid canvas handle %d", canvasHandle);
+	}
+	
+	Canvas* canvas = it->second;
+	if (!canvas || !canvas->buffer) {
+		return luaL_error(L, "blit: canvas buffer is invalid");
+	}
+	
+	// Validate canvas dimensions
+	if (canvas->width <= 0 || canvas->height <= 0) {
+		return luaL_error(L, "blit: canvas has invalid dimensions (%dx%d)", canvas->width, canvas->height);
+	}
+	
+	if (!currentXBuf) return 0;
+	
+	// Calculate source and destination regions with clipping
+	int srcX = 0;
+	int srcY = 0;
+	int dstX = x;
+	int dstY = y;
+	int copyWidth = canvas->width;
+	int copyHeight = canvas->height;
+	
+	// Clip left edge
+	if (dstX < 0) {
+		srcX = -dstX;
+		copyWidth += dstX;
+		dstX = 0;
+	}
+	
+	// Clip top edge
+	if (dstY < 0) {
+		srcY = -dstY;
+		copyHeight += dstY;
+		dstY = 0;
+	}
+	
+	// Clip right edge
+	if (dstX + copyWidth > OVL_W) {
+		copyWidth = OVL_W - dstX;
+	}
+	
+	// Clip bottom edge
+	if (dstY + copyHeight > OVL_H) {
+		copyHeight = OVL_H - dstY;
+	}
+	
+	// Check if anything is visible
+	if (copyWidth <= 0 || copyHeight <= 0 || srcX >= canvas->width || srcY >= canvas->height) {
+		return 0;  // Nothing to draw
+	}
+	
+	bool drewSomething = false;
+	
+	// Copy canvas pixels to screen (row by row)
+	for (int py = 0; py < copyHeight; ++py) {
+		int srcYPos = srcY + py;
+		int dstYPos = dstY + py;
+		
+		if (srcYPos >= canvas->height || dstYPos >= OVL_H) {
+			break;  // Out of bounds
+		}
+		
+		for (int px = 0; px < copyWidth; ++px) {
+			int srcXPos = srcX + px;
+			int dstXPos = dstX + px;
+			
+			if (srcXPos >= canvas->width || dstXPos >= OVL_W) {
+				break;  // Out of bounds
+			}
+			
+			// Check clipping
+			if (!is_point_clipped(dstXPos, dstYPos)) {
+				// Get source pixel from canvas
+				int srcIndex = srcYPos * canvas->width + srcXPos;
+				uint8 srcPixel = canvas->buffer[srcIndex];
+				
+				// Skip transparent pixels (0)
+				if (srcPixel != 0) {
+					// Get destination pixel
+					uint8 *dest = currentXBuf + dstYPos * OVL_W + dstXPos;
+					
+					// Canvas pixels are already in overlay format (0x80-0xBF) since they
+					// were drawn using the same drawing functions that use map_overlay_color()
+					// Apply blending mode to composite the canvas onto the screen
+					*dest = apply_blend_mode(*dest, srcPixel);
+					drewSomething = true;
+				}
+			}
+		}
+	}
+	
+	if (drewSomething) {
+		g_overlayDirty = true;  // Mark that something was drawn
+	}
+	
+	return 0;
+}
+
+// Lua function to create a linear gradient
+int lua_lineargradient(lua_State *L) {
+	int n = lua_gettop(L);
+	
+	// Check minimum arguments: need at least 5 (x1, y1, x2, y2, and either a table or color)
+	// Table mode: 5 args (x1, y1, x2, y2, stops_table)
+	// Simple/variable mode: 6+ args (x1, y1, x2, y2, color1, color2, ...)
+	if (n < 5) {
+		return luaL_error(L, "lineargradient(x1, y1, x2, y2, ...) requires at least 5 arguments");
+	}
+	
+	// Get start and end points
+	float x1 = (float)luaL_checknumber(L, 1);
+	float y1 = (float)luaL_checknumber(L, 2);
+	float x2 = (float)luaL_checknumber(L, 3);
+	float y2 = (float)luaL_checknumber(L, 4);
+	
+	// Check if points are the same (invalid gradient)
+	if (x1 == x2 && y1 == y2) {
+		return luaL_error(L, "lineargradient: start and end points cannot be the same");
+	}
+	
+	// Create new gradient
+	LinearGradient* gradient = new LinearGradient();
+	gradient->x1 = x1;
+	gradient->y1 = y1;
+	gradient->x2 = x2;
+	gradient->y2 = y2;
+	gradient->handle = s_nextGradientHandle++;
+	
+	// Parse color stops
+	// Three modes:
+	// 1. Simple: lineargradient(x1, y1, x2, y2, color1, color2) - 6 args
+	// 2. Table: lineargradient(x1, y1, x2, y2, stops) - 5 args, 5th is table
+	// 3. Variable: lineargradient(x1, y1, x2, y2, color1, color2, color3, ...) - 6+ args
+	
+	if (n == 5 && lua_istable(L, 5)) {
+		// Table of stops: { {pos1, color1}, {pos2, color2}, ... }
+		int stopCount = 0;
+		for (int i = 1; i <= 256; ++i) {
+			lua_rawgeti(L, 5, i);
+			if (lua_isnil(L, -1)) {
+				lua_pop(L, 1);
+				break;  // End of table
+			}
+			
+			if (!lua_istable(L, -1)) {
+				lua_pop(L, 1);
+				continue;  // Skip non-table entries
+			}
+			
+			// Get position (first element)
+			lua_rawgeti(L, -1, 1);
+			if (!lua_isnumber(L, -1)) {
+				lua_pop(L, 2);
+				continue;  // Skip invalid entries
+			}
+			float pos = (float)luaL_checknumber(L, -1);
+			lua_pop(L, 1);
+			
+			// Get color (second element)
+			lua_rawgeti(L, -1, 2);
+			if (!lua_isnumber(L, -1)) {
+				lua_pop(L, 1);
+				continue;  // Skip invalid entries
+			}
+			int color = (int)luaL_checkinteger(L, -1);
+			lua_pop(L, 1);
+			
+			// Clamp position to 0.0-1.0
+			if (pos < 0.0f) pos = 0.0f;
+			if (pos > 1.0f) pos = 1.0f;
+			
+			// Clamp color to valid range
+			if (color < 0) color = 0;
+			if (color > 0x3F) color = 0x3F;
+			
+			gradient->stops.push_back(GradientStop(pos, color));
+			stopCount++;
+			
+			lua_pop(L, 1);  // Pop the stop table
+		}
+		
+		if (stopCount < 2) {
+			delete gradient;
+			return luaL_error(L, "lineargradient: stops table must contain at least 2 color stops");
+		}
+		
+		// Sort stops by position
+		for (size_t i = 0; i < gradient->stops.size(); ++i) {
+			for (size_t j = i + 1; j < gradient->stops.size(); ++j) {
+				if (gradient->stops[i].position > gradient->stops[j].position) {
+					GradientStop temp = gradient->stops[i];
+					gradient->stops[i] = gradient->stops[j];
+					gradient->stops[j] = temp;
+				}
+			}
+		}
+	} else if (n == 6) {
+		// Simple two-color gradient
+		int color1 = (int)luaL_checkinteger(L, 5);
+		int color2 = (int)luaL_checkinteger(L, 6);
+		
+		// Clamp colors to valid range
+		if (color1 < 0) color1 = 0;
+		if (color1 > 0x3F) color1 = 0x3F;
+		if (color2 < 0) color2 = 0;
+		if (color2 > 0x3F) color2 = 0x3F;
+		
+		gradient->stops.push_back(GradientStop(0.0f, color1));
+		gradient->stops.push_back(GradientStop(1.0f, color2));
+	} else if (n == 5 && lua_istable(L, 5)) {
+		// Table of stops: { {pos1, color1}, {pos2, color2}, ... }
+		int stopCount = 0;
+		for (int i = 1; i <= 256; ++i) {
+			lua_rawgeti(L, 5, i);
+			if (lua_isnil(L, -1)) {
+				lua_pop(L, 1);
+				break;  // End of table
+			}
+			
+			if (!lua_istable(L, -1)) {
+				lua_pop(L, 1);
+				continue;  // Skip non-table entries
+			}
+			
+			// Get position (first element)
+			lua_rawgeti(L, -1, 1);
+			if (!lua_isnumber(L, -1)) {
+				lua_pop(L, 2);
+				continue;  // Skip invalid entries
+			}
+			float pos = (float)luaL_checknumber(L, -1);
+			lua_pop(L, 1);
+			
+			// Get color (second element)
+			lua_rawgeti(L, -1, 2);
+			if (!lua_isnumber(L, -1)) {
+				lua_pop(L, 1);
+				continue;  // Skip invalid entries
+			}
+			int color = (int)luaL_checkinteger(L, -1);
+			lua_pop(L, 1);
+			
+			// Clamp position to 0.0-1.0
+			if (pos < 0.0f) pos = 0.0f;
+			if (pos > 1.0f) pos = 1.0f;
+			
+			// Clamp color to valid range
+			if (color < 0) color = 0;
+			if (color > 0x3F) color = 0x3F;
+			
+			gradient->stops.push_back(GradientStop(pos, color));
+			stopCount++;
+			
+			lua_pop(L, 1);  // Pop the stop table
+		}
+		
+		if (stopCount < 2) {
+			delete gradient;
+			return luaL_error(L, "lineargradient: stops table must contain at least 2 color stops");
+		}
+		
+		// Sort stops by position
+		for (size_t i = 0; i < gradient->stops.size(); ++i) {
+			for (size_t j = i + 1; j < gradient->stops.size(); ++j) {
+				if (gradient->stops[i].position > gradient->stops[j].position) {
+					GradientStop temp = gradient->stops[i];
+					gradient->stops[i] = gradient->stops[j];
+					gradient->stops[j] = temp;
+				}
+			}
+		}
+	} else {
+		// Variable arguments: lineargradient(x1, y1, x2, y2, color1, color2, color3, ...)
+		// Treat as evenly spaced stops
+		int colorCount = n - 4;
+		if (colorCount < 2) {
+			delete gradient;
+			return luaL_error(L, "lineargradient: requires at least 2 colors");
+		}
+		
+		for (int i = 0; i < colorCount; ++i) {
+			int color = (int)luaL_checkinteger(L, 5 + i);
+			
+			// Clamp color to valid range
+			if (color < 0) color = 0;
+			if (color > 0x3F) color = 0x3F;
+			
+			float pos = (colorCount > 1) ? ((float)i / (float)(colorCount - 1)) : 0.0f;
+			gradient->stops.push_back(GradientStop(pos, color));
+		}
+	}
+	
+	// Ensure we have at least 2 stops
+	if (gradient->stops.size() < 2) {
+		delete gradient;
+		return luaL_error(L, "lineargradient: requires at least 2 color stops");
+	}
+	
+	// Store gradient in map
+	s_gradients[gradient->handle] = gradient;
+	
+	// Return handle to Lua
+	lua_pushinteger(L, gradient->handle);
+	
+	return 1;
+}
+
+// Helper function to get color from gradient at a specific position along the gradient line
+static int get_gradient_color(LinearGradient* gradient, float px, float py) {
+	// Calculate position along gradient line (0.0 to 1.0)
+	// Project point (px, py) onto the gradient line defined by (x1, y1) to (x2, y2)
+	
+	float dx = gradient->x2 - gradient->x1;
+	float dy = gradient->y2 - gradient->y1;
+	float lenSq = dx * dx + dy * dy;
+	
+	if (lenSq < 0.0001f) {
+		// Degenerate gradient, return first color
+		return gradient->stops[0].color;
+	}
+	
+	// Vector from start point to pixel
+	float vx = px - gradient->x1;
+	float vy = py - gradient->y1;
+	
+	// Project onto gradient direction
+	float t = (vx * dx + vy * dy) / lenSq;
+	
+	// Clamp t to 0.0-1.0
+	if (t < 0.0f) t = 0.0f;
+	if (t > 1.0f) t = 1.0f;
+	
+	// Find the two stops that bracket this position
+	if (gradient->stops.size() < 2) {
+		return gradient->stops[0].color;
+	}
+	
+	// Find the stop interval
+	for (size_t i = 0; i < gradient->stops.size() - 1; ++i) {
+		if (t >= gradient->stops[i].position && t <= gradient->stops[i + 1].position) {
+			// Interpolate between these two stops
+			float t0 = gradient->stops[i].position;
+			float t1 = gradient->stops[i + 1].position;
+			float localT = (t1 > t0) ? ((t - t0) / (t1 - t0)) : 0.0f;
+			
+			int color0 = gradient->stops[i].color;
+			int color1 = gradient->stops[i + 1].color;
+			
+			// For NES palette, colors are indices 0x00-0x3F
+			// Simple linear interpolation between color indices
+			// (Could be improved with proper color space interpolation)
+			int result = (int)(color0 + (color1 - color0) * localT + 0.5f);
+			
+			// Clamp to valid range
+			if (result < 0) result = 0;
+			if (result > 0x3F) result = 0x3F;
+			
+			return result;
+		}
+	}
+	
+	// Outside range, return nearest stop
+	if (t <= gradient->stops[0].position) {
+		return gradient->stops[0].color;
+	}
+	return gradient->stops[gradient->stops.size() - 1].color;
+}
+
+// Helper function to get color from radial gradient at a specific position
+static int get_radial_gradient_color(RadialGradient* gradient, float px, float py) {
+	// Calculate distance from center
+	float dx = px - gradient->cx;
+	float dy = py - gradient->cy;
+	float dist = sqrtf(dx * dx + dy * dy);
+	
+	// Normalize by radius (0.0 at center, 1.0 at radius, >1.0 beyond radius)
+	float t = (gradient->radius > 0.0001f) ? (dist / gradient->radius) : 0.0f;
+	
+	// Clamp t to 0.0-1.0
+	if (t < 0.0f) t = 0.0f;
+	if (t > 1.0f) t = 1.0f;
+	
+	// Find the two stops that bracket this position
+	if (gradient->stops.size() < 2) {
+		return gradient->stops[0].color;
+	}
+	
+	// Find the stop interval
+	for (size_t i = 0; i < gradient->stops.size() - 1; ++i) {
+		if (t >= gradient->stops[i].position && t <= gradient->stops[i + 1].position) {
+			// Interpolate between these two stops
+			float t0 = gradient->stops[i].position;
+			float t1 = gradient->stops[i + 1].position;
+			float localT = (t1 > t0) ? ((t - t0) / (t1 - t0)) : 0.0f;
+			
+			int color0 = gradient->stops[i].color;
+			int color1 = gradient->stops[i + 1].color;
+			
+			// For NES palette, colors are indices 0x00-0x3F
+			// Simple linear interpolation between color indices
+			int result = (int)(color0 + (color1 - color0) * localT + 0.5f);
+			
+			// Clamp to valid range
+			if (result < 0) result = 0;
+			if (result > 0x3F) result = 0x3F;
+			
+			return result;
+		}
+	}
+	
+	// Outside range, return nearest stop
+	if (t <= gradient->stops[0].position) {
+		return gradient->stops[0].color;
+	}
+	return gradient->stops[gradient->stops.size() - 1].color;
+}
+
+// Lua function to fill a rectangle with a gradient
+int lua_fillrectgradient(lua_State *L) {
+	int n = lua_gettop(L);
+	if (n < 5) {
+		return luaL_error(L, "fillrectgradient(x, y, w, h, gradient) requires 5 arguments");
+	}
+	
+	int x = (int)luaL_checkinteger(L, 1);
+	int y = (int)luaL_checkinteger(L, 2);
+	int w = (int)luaL_checkinteger(L, 3);
+	int h = (int)luaL_checkinteger(L, 4);
+	int gradientHandle = (int)luaL_checkinteger(L, 5);
+	
+	// Validate handle
+	if (gradientHandle <= 0) {
+		return luaL_error(L, "fillrectgradient: gradient handle must be positive (got %d)", gradientHandle);
+	}
+	
+	// Look up gradient (will check both linear and radial in the loop)
+	
+	if (!currentXBuf) return 0;
+	
+	// Clamp coordinates to safe bounds
+	if (x < 0) x = 0;
+	if (x >= OVL_W) x = OVL_W - 1;
+	if (y < 0) y = 0;
+	if (y >= OVL_H) y = OVL_H - 1;
+	
+	// Clamp rectangle to valid bounds
+	if (w <= 0 || h <= 0) return 0;
+	if (y + h > OVL_H) h = OVL_H - y;
+	if (h <= 0) return 0;
+	
+	bool drewSomething = false;
+	
+	// Clamp rectangle to screen bounds
+	int startX = (x < 0) ? 0 : x;
+	int startY = (y < 0) ? 0 : y;
+	int endX = (x + w > OVL_W) ? OVL_W : (x + w);
+	int endY = (y + h > OVL_H) ? OVL_H : (y + h);
+	
+	// Adjust start positions if rectangle is completely off-screen
+	if (startX >= OVL_W || startY >= OVL_H || endX <= 0 || endY <= 0) {
+		return 0;
+	}
+	
+	// Fill the rectangle row by row with gradient
+	for (int py = startY; py < endY; ++py) {
+		for (int px = startX; px < endX; ++px) {
+			// Check clipping
+			if (!is_point_clipped(px, py)) {
+				int color;
+				
+				// Check if it's a linear or radial gradient
+				std::map<int, LinearGradient*>::iterator linearIt = s_gradients.find(gradientHandle);
+				if (linearIt != s_gradients.end() && linearIt->second) {
+					// Linear gradient
+					color = get_gradient_color(linearIt->second, (float)px, (float)py);
+				} else {
+					// Check for radial gradient
+					std::map<int, RadialGradient*>::iterator radialIt = s_radialGradients.find(gradientHandle);
+					if (radialIt != s_radialGradients.end() && radialIt->second) {
+						// Radial gradient
+						color = get_radial_gradient_color(radialIt->second, (float)px, (float)py);
+					} else {
+						// Invalid gradient handle
+						return luaL_error(L, "fillrectgradient: invalid gradient handle %d", gradientHandle);
+					}
+				}
+				
+				// Map color and apply blending
+				uint8 *dest = currentXBuf + py * OVL_W + px;
+				uint8 mappedColor = map_overlay_color(color);
+				*dest = apply_blend_mode(*dest, mappedColor);
+				drewSomething = true;
+			}
+		}
+	}
+	
+	if (drewSomething) {
+		g_overlayDirty = true;  // Mark that something was drawn
+	}
+	
+	return 0;
+}
+
+// Lua function to create a radial gradient
+int lua_radialgradient(lua_State *L) {
+	int n = lua_gettop(L);
+	
+	// Check minimum arguments: need at least 4 (cx, cy, radius, and either a table or color)
+	// Table mode: 4 args (cx, cy, radius, stops_table)
+	// Simple/variable mode: 5+ args (cx, cy, radius, color1, color2, ...)
+	if (n < 4) {
+		return luaL_error(L, "radialgradient(cx, cy, radius, ...) requires at least 4 arguments");
+	}
+	
+	// Get center and radius
+	float cx = (float)luaL_checknumber(L, 1);
+	float cy = (float)luaL_checknumber(L, 2);
+	float radius = (float)luaL_checknumber(L, 3);
+	
+	// Check if radius is valid
+	if (radius <= 0.0f) {
+		return luaL_error(L, "radialgradient: radius must be positive (got %f)", radius);
+	}
+	
+	// Create new gradient
+	RadialGradient* gradient = new RadialGradient();
+	gradient->cx = cx;
+	gradient->cy = cy;
+	gradient->radius = radius;
+	gradient->handle = s_nextRadialGradientHandle++;
+	
+	// Parse color stops
+	// Three modes:
+	// 1. Simple: radialgradient(cx, cy, radius, color1, color2) - 5 args
+	// 2. Table: radialgradient(cx, cy, radius, stops) - 4 args, 4th is table
+	// 3. Variable: radialgradient(cx, cy, radius, color1, color2, color3, ...) - 5+ args
+	
+	if (n == 4 && lua_istable(L, 4)) {
+		// Table of stops: { {pos1, color1}, {pos2, color2}, ... }
+		int stopCount = 0;
+		for (int i = 1; i <= 256; ++i) {
+			lua_rawgeti(L, 4, i);
+			if (lua_isnil(L, -1)) {
+				lua_pop(L, 1);
+				break;  // End of table
+			}
+			
+			if (!lua_istable(L, -1)) {
+				lua_pop(L, 1);
+				continue;  // Skip non-table entries
+			}
+			
+			// Get position (first element)
+			lua_rawgeti(L, -1, 1);
+			if (!lua_isnumber(L, -1)) {
+				lua_pop(L, 2);
+				continue;  // Skip invalid entries
+			}
+			float pos = (float)luaL_checknumber(L, -1);
+			lua_pop(L, 1);
+			
+			// Get color (second element)
+			lua_rawgeti(L, -1, 2);
+			if (!lua_isnumber(L, -1)) {
+				lua_pop(L, 1);
+				continue;  // Skip invalid entries
+			}
+			int color = (int)luaL_checkinteger(L, -1);
+			lua_pop(L, 1);
+			
+			// Clamp position to 0.0-1.0
+			if (pos < 0.0f) pos = 0.0f;
+			if (pos > 1.0f) pos = 1.0f;
+			
+			// Clamp color to valid range
+			if (color < 0) color = 0;
+			if (color > 0x3F) color = 0x3F;
+			
+			gradient->stops.push_back(GradientStop(pos, color));
+			stopCount++;
+			
+			lua_pop(L, 1);  // Pop the stop table
+		}
+		
+		if (stopCount < 2) {
+			delete gradient;
+			return luaL_error(L, "radialgradient: stops table must contain at least 2 color stops");
+		}
+		
+		// Sort stops by position
+		for (size_t i = 0; i < gradient->stops.size(); ++i) {
+			for (size_t j = i + 1; j < gradient->stops.size(); ++j) {
+				if (gradient->stops[i].position > gradient->stops[j].position) {
+					GradientStop temp = gradient->stops[i];
+					gradient->stops[i] = gradient->stops[j];
+					gradient->stops[j] = temp;
+				}
+			}
+		}
+	} else if (n == 5) {
+		// Simple two-color gradient
+		int color1 = (int)luaL_checkinteger(L, 4);
+		int color2 = (int)luaL_checkinteger(L, 5);
+		
+		// Clamp colors to valid range
+		if (color1 < 0) color1 = 0;
+		if (color1 > 0x3F) color1 = 0x3F;
+		if (color2 < 0) color2 = 0;
+		if (color2 > 0x3F) color2 = 0x3F;
+		
+		gradient->stops.push_back(GradientStop(0.0f, color1));  // Center color
+		gradient->stops.push_back(GradientStop(1.0f, color2));  // Edge color
+	} else {
+		// Variable arguments: radialgradient(cx, cy, radius, color1, color2, color3, ...)
+		// Treat as evenly spaced stops
+		int colorCount = n - 3;
+		if (colorCount < 2) {
+			delete gradient;
+			return luaL_error(L, "radialgradient: requires at least 2 colors");
+		}
+		
+		for (int i = 0; i < colorCount; ++i) {
+			int color = (int)luaL_checkinteger(L, 4 + i);
+			
+			// Clamp color to valid range
+			if (color < 0) color = 0;
+			if (color > 0x3F) color = 0x3F;
+			
+			float pos = (colorCount > 1) ? ((float)i / (float)(colorCount - 1)) : 0.0f;
+			gradient->stops.push_back(GradientStop(pos, color));
+		}
+	}
+	
+	// Ensure we have at least 2 stops
+	if (gradient->stops.size() < 2) {
+		delete gradient;
+		return luaL_error(L, "radialgradient: requires at least 2 color stops");
+	}
+	
+	// Store gradient in map
+	s_radialGradients[gradient->handle] = gradient;
+	
+	// Return handle to Lua
+	lua_pushinteger(L, gradient->handle);
+	
+	return 1;
+}
+
+// Lua function to set text rendering style options
+int lua_textstyle(lua_State *L) {
+	int n = lua_gettop(L);
+	if (n < 1) {
+		return luaL_error(L, "textstyle(options) requires 1 argument");
+	}
+	
+	// Check if options is a table
+	if (!lua_istable(L, 1)) {
+		return luaL_error(L, "textstyle: options (1st argument) must be a table");
+	}
+	
+	// Parse options table
+	// font (optional)
+	lua_getfield(L, 1, "font");
+	if (lua_isnumber(L, -1)) {
+		s_textStyle.font = (int)luaL_checkinteger(L, -1);
+		if (s_textStyle.font < 0) s_textStyle.font = 0;
+		// Note: Currently only font 0 is supported
+	}
+	lua_pop(L, 1);
+	
+	// size (optional)
+	lua_getfield(L, 1, "size");
+	if (lua_isnumber(L, -1)) {
+		s_textStyle.size = (float)luaL_checknumber(L, -1);
+		// Clamp to valid range (0.5-4.0)
+		if (s_textStyle.size < 0.5f) s_textStyle.size = 0.5f;
+		if (s_textStyle.size > 4.0f) s_textStyle.size = 4.0f;
+	}
+	lua_pop(L, 1);
+	
+	// wrap (optional)
+	lua_getfield(L, 1, "wrap");
+	if (lua_isboolean(L, -1)) {
+		s_textStyle.wrap = lua_toboolean(L, -1) != 0;
+	}
+	lua_pop(L, 1);
+	
+	// align (optional)
+	lua_getfield(L, 1, "align");
+	if (lua_isstring(L, -1)) {
+		const char* alignStr = luaL_checkstring(L, -1);
+		if (strcmp(alignStr, "left") == 0 || strcmp(alignStr, "0") == 0) {
+			s_textStyle.align = 0;
+		} else if (strcmp(alignStr, "center") == 0 || strcmp(alignStr, "1") == 0) {
+			s_textStyle.align = 1;
+		} else if (strcmp(alignStr, "right") == 0 || strcmp(alignStr, "2") == 0) {
+			s_textStyle.align = 2;
+		} else {
+			return luaL_error(L, "textstyle: align must be 'left', 'center', or 'right'");
+		}
+	} else if (lua_isnumber(L, -1)) {
+		int alignVal = (int)luaL_checkinteger(L, -1);
+		if (alignVal < 0) alignVal = 0;
+		if (alignVal > 2) alignVal = 2;
+		s_textStyle.align = alignVal;
+	}
+	lua_pop(L, 1);
+	
+	// outline (optional)
+	lua_getfield(L, 1, "outline");
+	if (lua_isnumber(L, -1)) {
+		s_textStyle.outline = (int)luaL_checkinteger(L, -1);
+		// Clamp to valid range (0-2)
+		if (s_textStyle.outline < 0) s_textStyle.outline = 0;
+		if (s_textStyle.outline > 2) s_textStyle.outline = 2;
+	} else if (lua_isboolean(L, -1)) {
+		s_textStyle.outline = lua_toboolean(L, -1) ? 1 : 0;
+	}
+	lua_pop(L, 1);
+	
+	// shadow (optional)
+	lua_getfield(L, 1, "shadow");
+	if (lua_isboolean(L, -1)) {
+		s_textStyle.shadow = lua_toboolean(L, -1) ? 1 : 0;
+	} else if (lua_isnumber(L, -1)) {
+		s_textStyle.shadow = (int)luaL_checkinteger(L, -1);
+		if (s_textStyle.shadow < 0) s_textStyle.shadow = 0;
+		if (s_textStyle.shadow > 1) s_textStyle.shadow = 1;
+	}
+	lua_pop(L, 1);
+	
+	// spacing (optional)
+	lua_getfield(L, 1, "spacing");
+	if (lua_isnumber(L, -1)) {
+		s_textStyle.spacing = (int)luaL_checkinteger(L, -1);
+		// Clamp to reasonable range (-2 to 10)
+		if (s_textStyle.spacing < -2) s_textStyle.spacing = -2;
+		if (s_textStyle.spacing > 10) s_textStyle.spacing = 10;
+	}
+	lua_pop(L, 1);
+	
+	return 0;
+}
+
+// Lua function to measure wrapped text block dimensions
+int lua_measuretextblock(lua_State *L) {
+	int n = lua_gettop(L);
+	if (n < 2) {
+		return luaL_error(L, "measuretextblock(text, width) requires 2 arguments");
+	}
+	
+	const char* text = luaL_checkstring(L, 1);
+	int wrapWidth = (int)luaL_checkinteger(L, 2);
+	
+	if (!text || wrapWidth <= 0) {
+		// Return empty result for invalid input
+		lua_newtable(L);
+		lua_pushstring(L, "width");
+		lua_pushinteger(L, 0);
+		lua_settable(L, -3);
+		lua_pushstring(L, "height");
+		lua_pushinteger(L, 0);
+		lua_settable(L, -3);
+		lua_pushstring(L, "lineCount");
+		lua_pushinteger(L, 0);
+		lua_settable(L, -3);
+		return 1;
+	}
+	
+	// Account for text style size if set
+	float sizeScale = s_textStyle.size;
+	if (sizeScale < 0.5f) sizeScale = 0.5f;
+	if (sizeScale > 4.0f) sizeScale = 4.0f;
+	
+	// Account for character spacing if set
+	int spacing = s_textStyle.spacing;
+	if (spacing < -2) spacing = -2;
+	if (spacing > 10) spacing = 10;
+	
+	int lineCount = 0;
+	int maxLineWidth = 0;
+	int currentLineWidth = 0;
+	int wordStart = 0;
+	int wordWidth = 0;
+	
+	const char* p = text;
+	bool inWord = false;
+	
+	// Process text character by character
+	while (*p) {
+		if (*p == '\n') {
+			// Explicit newline - end current line
+			if (currentLineWidth > maxLineWidth) {
+				maxLineWidth = currentLineWidth;
+			}
+			lineCount++;
+			currentLineWidth = 0;
+			wordStart = 0;
+			wordWidth = 0;
+			inWord = false;
+			p++;
+			continue;
+		}
+		
+		// Get character width
+		int charWidth = JoedCharWidth((uint8)*p);
+		if (charWidth <= 0) charWidth = 6; // fallback
+		
+		// Apply size scaling
+		int scaledCharWidth = (int)(charWidth * sizeScale + 0.5f);
+		if (scaledCharWidth < 1) scaledCharWidth = 1;
+		
+		// Add spacing (except for first character on line)
+		if (currentLineWidth > 0 && spacing != 0) {
+			scaledCharWidth += spacing;
+		}
+		
+		// Check if this is a space character
+		bool isSpace = (*p == ' ' || *p == '\t');
+		
+		if (isSpace) {
+			// Space character - commit current word if any
+			if (inWord) {
+				currentLineWidth += wordWidth;
+				wordWidth = 0;
+				inWord = false;
+			}
+			
+			// Add space to current line
+			if (currentLineWidth + scaledCharWidth <= wrapWidth) {
+				currentLineWidth += scaledCharWidth;
+			} else {
+				// Space doesn't fit - wrap to next line
+				if (currentLineWidth > maxLineWidth) {
+					maxLineWidth = currentLineWidth;
+				}
+				lineCount++;
+				currentLineWidth = scaledCharWidth; // Start new line with space
+			}
+		} else {
+			// Non-space character - part of a word
+			if (!inWord) {
+				// Start of new word
+				wordStart = currentLineWidth;
+				wordWidth = 0;
+				inWord = true;
+			}
+			
+			// Check if word fits on current line
+			if (currentLineWidth + wordWidth + scaledCharWidth <= wrapWidth) {
+				// Word continues to fit
+				wordWidth += scaledCharWidth;
+			} else {
+				// Word doesn't fit on current line
+				if (wordWidth > 0 && wordStart > 0) {
+					// Word started mid-line - wrap it to next line
+					if (currentLineWidth > maxLineWidth) {
+						maxLineWidth = currentLineWidth;
+					}
+					lineCount++;
+					currentLineWidth = wordWidth + scaledCharWidth;
+					wordStart = 0;
+				} else {
+					// Word is at start of line or too long - break it
+					if (currentLineWidth > maxLineWidth) {
+						maxLineWidth = currentLineWidth;
+					}
+					if (currentLineWidth > 0) {
+						lineCount++;
+					}
+					currentLineWidth = scaledCharWidth;
+					wordStart = 0;
+				}
+				wordWidth = scaledCharWidth;
+			}
+		}
+		
+		p++;
+	}
+	
+	// Handle final word and line
+	if (inWord) {
+		currentLineWidth += wordWidth;
+	}
+	if (currentLineWidth > 0) {
+		lineCount++;
+		if (currentLineWidth > maxLineWidth) {
+			maxLineWidth = currentLineWidth;
+		}
+	}
+	
+	// Calculate total height (each line is 8 pixels tall, scaled)
+	int lineHeight = (int)(GLYPH_H * sizeScale + 0.5f);
+	if (lineHeight < 1) lineHeight = GLYPH_H;
+	int totalHeight = lineCount * lineHeight;
+	
+	// Return result table
+	lua_newtable(L);
+	
+	lua_pushstring(L, "width");
+	lua_pushinteger(L, maxLineWidth);
+	lua_settable(L, -3);
+	
+	lua_pushstring(L, "height");
+	lua_pushinteger(L, totalHeight);
+	lua_settable(L, -3);
+	
+	lua_pushstring(L, "lineCount");
+	lua_pushinteger(L, lineCount);
+	lua_settable(L, -3);
+	
+	return 1;
 }
 
 // Lua drawing function - allows scripts to draw a circle outline
@@ -8480,6 +10412,7 @@ int lua_ismemorywritable(lua_State *L) {
 	 lua_register(luaState, "clearscreen", lua_clearscreen);
 	 lua_register(luaState, "fillscreen", lua_fillscreen);
 	 lua_register(luaState, "screenshot", lua_screenshot);
+	 lua_register(luaState, "screenshotregion", lua_screenshotregion);
 	 lua_register(luaState, "savestate", lua_savestate);
 	 lua_register(luaState, "loadstate", lua_loadstate);
 	 lua_register(luaState, "hasstate", lua_hasstate);
@@ -8487,12 +10420,29 @@ int lua_ismemorywritable(lua_State *L) {
 	 lua_register(luaState, "loadstatefile", lua_loadstatefile);
 	 lua_register(luaState, "drawimage", lua_drawimage);
 	 lua_register(luaState, "drawimageindexed", lua_drawimageindexed);
+	 lua_register(luaState, "drawimageex", lua_drawimageex);
 	 lua_register(luaState, "drawtile", lua_drawtile);
 	 lua_register(luaState, "drawchrtile", lua_drawchrtile);
 	 lua_register(luaState, "setdrawmode", lua_setdrawmode);
 	 lua_register(luaState, "setclipregion", lua_setclipregion);
 	 lua_register(luaState, "clearclipregion", lua_clearclipregion);
 	 lua_register(luaState, "setdrawcolor", lua_setdrawcolor);
+	 lua_register(luaState, "pushdrawstate", lua_pushdrawstate);
+	 lua_register(luaState, "popdrawstate", lua_popdrawstate);
+	 lua_register(luaState, "settransform", lua_settransform);
+	 lua_register(luaState, "resettransform", lua_resettransform);
+	 lua_register(luaState, "beginbatch", lua_beginbatch);
+	 lua_register(luaState, "endbatch", lua_endbatch);
+	 lua_register(luaState, "setimagescale", lua_setimagescale);
+	 lua_register(luaState, "getimagescale", lua_getimagescale);
+	 lua_register(luaState, "createcanvas", lua_createcanvas);
+	 lua_register(luaState, "setrendertarget", lua_setrendertarget);
+	 lua_register(luaState, "blit", lua_blit);
+	 lua_register(luaState, "lineargradient", lua_lineargradient);
+	 lua_register(luaState, "fillrectgradient", lua_fillrectgradient);
+	 lua_register(luaState, "radialgradient", lua_radialgradient);
+	 lua_register(luaState, "textstyle", lua_textstyle);
+	 lua_register(luaState, "measuretextblock", lua_measuretextblock);
 	 lua_register(luaState, "drawcircle", lua_drawcircle);
 	 lua_register(luaState, "fillcircle", lua_fillcircle);
 	 lua_register(luaState, "drawtriangle", lua_drawtriangle);
@@ -8652,6 +10602,7 @@ static void EnsureLuaInit() {
 	REG("clearscreen",    lua_clearscreen);
 	REG("fillscreen",     lua_fillscreen);
 	REG("screenshot",     lua_screenshot);
+	REG("screenshotregion", lua_screenshotregion);
 	REG("savestate",      lua_savestate);
 	REG("loadstate",      lua_loadstate);
 	REG("hasstate",       lua_hasstate);
@@ -8659,12 +10610,29 @@ static void EnsureLuaInit() {
 	REG("loadstatefile",  lua_loadstatefile);
 	REG("drawimage",      lua_drawimage);
 	REG("drawimageindexed", lua_drawimageindexed);
+	REG("drawimageex",    lua_drawimageex);
 	REG("drawtile",       lua_drawtile);
 	REG("drawchrtile",    lua_drawchrtile);
 	REG("setdrawmode",    lua_setdrawmode);
 	REG("setclipregion",  lua_setclipregion);
 	REG("clearclipregion", lua_clearclipregion);
 	REG("setdrawcolor",   lua_setdrawcolor);
+	REG("pushdrawstate",  lua_pushdrawstate);
+	REG("popdrawstate",   lua_popdrawstate);
+	REG("settransform",   lua_settransform);
+	REG("resettransform", lua_resettransform);
+	REG("beginbatch",     lua_beginbatch);
+	REG("endbatch",       lua_endbatch);
+	REG("setimagescale",  lua_setimagescale);
+	REG("getimagescale",  lua_getimagescale);
+	REG("createcanvas",   lua_createcanvas);
+	REG("setrendertarget", lua_setrendertarget);
+	REG("blit",            lua_blit);
+	REG("lineargradient",  lua_lineargradient);
+	REG("fillrectgradient", lua_fillrectgradient);
+	REG("radialgradient",  lua_radialgradient);
+	REG("textstyle",       lua_textstyle);
+	REG("measuretextblock", lua_measuretextblock);
 	REG("drawcircle",     lua_drawcircle);
 	REG("fillcircle",     lua_fillcircle);
 	REG("drawtriangle",   lua_drawtriangle);
@@ -9896,6 +11864,12 @@ void FCEU_ReloadLuaCode(void) {
 		 if (!s_luaDisabled && luaInitialized && luaState != NULL) {
 			 // Check if script is sleeping - if so, skip callback execution
 			 if (!Lua_IsSleeping(luaState)) {
+				 // Always reset render target to screen at start of each frame
+				 // This ensures we don't leave currentXBuf pointing to a canvas from previous frame
+				 s_currentRenderTarget = NULL;
+				 s_renderTargetWidth = OVL_W;
+				 s_renderTargetHeight = OVL_H;
+				 
 				 // Point Lua draw calls at the back buffer, not the front buffer
 				 currentXBuf = s_overlay_back;
 				 
