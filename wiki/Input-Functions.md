@@ -19,7 +19,7 @@ Gets the current controller state for a specified player as a raw button bitmask
 **Returns:**
 - `integer` - Button state as a bitmask (0x00-0xFF)
 
-**Button Bitmask:**
+**Button Bitmask:**onbuttonpress
 The returned value is a bitmask where each bit represents a button:
 - Bit 0 (0x01): A
 - Bit 1 (0x02): B
@@ -334,6 +334,206 @@ function gui()
         print("Error: " .. tostring(result))
     end
 end
+```
+
+### `getbuttonheldms`
+
+**Signature:** `getbuttonheldms(btn)`
+Returns how long a specified Xbox 360 button, trigger, stick direction, or NES button has been held down (in milliseconds).
+
+**Parameters:**
+- `btn` (string): Button name. Supports the same names and aliases as `isxboxbuttonpressed()` plus analog directions:
+  - Triggers: `"LT"`, `"LEFT_TRIGGER"`, `"RT"`, `"RIGHT_TRIGGER"`
+  - Stick directions: `"LS_UP"`, `"LS_DOWN"`, `"LS_LEFT"`, `"LS_RIGHT"`, `"RS_UP"`, `"RS_DOWN"`, `"RS_LEFT"`, `"RS_RIGHT"`
+  - NES buttons (hardware D-pad mapped to Virtual Console): `"NES_A"`, `"NES_B"`, `"NES_SELECT"`, `"NES_START"`, `"NES_UP"`, `"NES_DOWN"`, `"NES_LEFT"`, `"NES_RIGHT"`
+
+**Returns:**
+- `number` - Hold duration in milliseconds (longest active hold across connected controllers). Returns `0` if not currently held.
+
+**Notes:**
+- Duration resets to `0` as soon as the button/stick returns to neutral.
+- Uses hardware state before Lua overrides, so it reflects real controller input.
+- `LT` (Left Trigger) doubles as the rewind button in this build. If you need uninterrupted LT timing, you’ll have to modify the source to change the rewind mapping (or open a pull request if it’s a broader issue).
+- Works even when Lua is injecting input via `setjoypad()` or `pressbutton()`—only actual hardware holds are reported.
+- **NES buttons** (`NES_A`, `NES_B`, `NES_SELECT`, `NES_START`, `NES_UP`, `NES_DOWN`, `NES_LEFT`, `NES_RIGHT`) track the actual NES controller state, not the Xbox button mappings. This allows you to measure hold times for the NES buttons specifically, independent of which Xbox buttons are mapped to them.
+
+**Example: Quick Hold Display**
+```lua
+function gui()
+    drawtext(4, 4, string.format("A held: %d ms", getbuttonheldms("A")), 0x20)
+    drawtext(4, 14, string.format("Left stick up: %d ms", getbuttonheldms("LS_UP")), 0x20)
+    drawtext(4, 24, string.format("Left trigger: %d ms", getbuttonheldms("LT")), 0x20)
+end
+```
+
+**Example: NES Button Hold Detection**
+```lua
+function gui()
+    -- Display hold times for all NES buttons
+    local y = 4
+    local nesButtons = {"NES_A", "NES_B", "NES_SELECT", "NES_START", 
+                        "NES_UP", "NES_DOWN", "NES_LEFT", "NES_RIGHT"}
+    
+    for i, btn in ipairs(nesButtons) do
+        local ms = getbuttonheldms(btn)
+        if ms > 0 then
+            drawtext(4, y, string.format("%s: %d ms", btn, ms), 0x20)
+            y = y + 10
+        end
+    end
+    
+    -- Example: Long-press detection for NES_A
+    if getbuttonheldms("NES_A") > 1000 then
+        drawtext(4, 200, "NES_A long-pressed!", 0x28)
+    end
+end
+```
+
+### `onbuttonpress`
+
+**Signature:** `onbuttonpress(btn, cb)`
+Registers or removes a callback that fires when a specific Xbox 360 controller button is pressed (transition from released to pressed).
+
+**Parameters:**
+- `btn` (string): Button name (case-insensitive). Supports the same names and aliases as `isxboxbuttonpressed()`:
+  - `"A"`, `"B"`, `"X"`, `"Y"`, `"START"`, `"BACK"`
+  - `"LEFT_SHOULDER"` / `"LB"`, `"RIGHT_SHOULDER"` / `"RB"`
+  - `"LEFT_THUMB"` / `"LS"`, `"RIGHT_THUMB"` / `"RS"`
+  - `"DPAD_UP"` / `"UP"`, `"DPAD_DOWN"` / `"DOWN"`, `"DPAD_LEFT"` / `"LEFT"`, `"DPAD_RIGHT"` / `"RIGHT"`
+- `cb` (function or `nil`): Callback to run when the button is pressed. Pass `nil` to unregister the existing callback.
+
+**Returns:**
+- Nothing
+
+**Callback Signature:**
+The callback receives two arguments:
+1. `player` (integer): Player index (0-3). `0` = Player 1, `1` = Player 2, etc.
+2. `button` (string): Canonical button name (e.g., `"A"`, `"DPAD_UP"`)
+
+**Notes:**
+- Fires once per press (rising edge). Holding the button does not retrigger until released.
+- The callback runs for whichever player pressed the button.
+- Registering a new callback for the same button replaces the previous one.
+- Pass `nil` as the callback to remove the handler.
+- Uses hardware Xbox button state (not NES-mapped buttons).
+- Callbacks run during input processing, so keep work inside them lightweight.
+
+**Example: Simple Button Trigger:**
+```lua
+local function onAPressed(player, button)
+    print(string.format("Player %d pressed %s", player + 1, button))
+end
+
+function beforeframe()
+    -- Register once
+    onbuttonpress("A", onAPressed)
+end
+```
+
+**Example: Toggle UI with D-pad:**
+```lua
+local menuVisible = false
+
+local function toggleMenu(player, button)
+    menuVisible = not menuVisible
+    print(string.format("Player %d toggled menu (%s). Visible=%s",
+        player + 1, button, tostring(menuVisible)))
+end
+
+onbuttonpress("DPAD_UP", toggleMenu)
+
+function gui()
+    if menuVisible then
+        drawtext(10, 10, "Menu is OPEN", 0x39)
+    else
+        drawtext(10, 10, "Menu is CLOSED", 0x39)
+    end
+end
+
+-- To unregister:
+-- onbuttonpress("DPAD_UP", nil)
+```
+
+**Example: Per-Player Callbacks:**
+```lua
+local function handleStart(player, button)
+    print(string.format("Player %d paused the game!", player + 1))
+end
+
+local function handleBack(player, button)
+    print(string.format("Player %d opened the menu!", player + 1))
+end
+
+onbuttonpress("START", handleStart)
+onbuttonpress("BACK", handleBack)
+```
+
+### `onbuttonrelease`
+
+**Signature:** `onbuttonrelease(btn, cb)`
+Registers or removes a callback that fires when a specific Xbox 360 controller button is released (transition from pressed to released).
+
+**Parameters:**
+- `btn` (string): Button name (case-insensitive). Supports the same names and aliases as `onbuttonpress()` / `isxboxbuttonpressed()`.
+- `cb` (function or `nil`): Callback to run when the button is released. Pass `nil` to unregister the existing callback.
+
+**Returns:**
+- Nothing
+
+**Callback Signature:**
+The callback receives two arguments:
+1. `player` (integer): Player index (0-3). `0` = Player 1, etc.
+2. `button` (string): Canonical button name (e.g., `"A"`, `"DPAD_DOWN"`)
+
+**Notes:**
+- Fires once per release (falling edge). Holding the button down does not trigger the callback.
+- Works per-player, even when multiple controllers are connected.
+- Registering another callback for the same button replaces the previous one.
+- Pass `nil` to remove the callback.
+- Runs using the raw Xbox controller state; independent of NES button mapping.
+- Ideal for handling “button-up” events (e.g., confirming actions when the button is released).
+
+**Example: Confirm Action on Release:**
+```lua
+local function confirmAction(player, button)
+    print(string.format("Player %d confirmed action on %s release", player + 1, button))
+end
+
+onbuttonrelease("A", confirmAction)
+```
+
+**Example: Press-to-Hold, Release-to-Commit:**
+```lua
+local charging = {}
+
+local function startCharge(player, button)
+    charging[player] = getframecount()
+    print(string.format("Player %d started charging...", player + 1))
+end
+
+local function releaseCharge(player, button)
+    local startFrame = charging[player]
+    charging[player] = nil
+    if startFrame then
+        local chargeFrames = getframecount() - startFrame
+        print(string.format("Player %d released after %d frames", player + 1, chargeFrames))
+    end
+end
+
+onbuttonpress("X", startCharge)
+onbuttonrelease("X", releaseCharge)
+```
+
+**Example: Toggle State on Release Only:**
+```lua
+local menuVisible = false
+
+local function toggleMenuOnRelease(player, button)
+    menuVisible = not menuVisible
+    print(string.format("Menu visibility for player %d: %s", player + 1, tostring(menuVisible)))
+end
+
+onbuttonrelease("BACK", toggleMenuOnRelease)
 ```
 
 ## Button Conversion Functions
@@ -979,6 +1179,289 @@ function beforeframe()
         if frameCount % 30 == 0 then
             releasebutton(0, "RIGHT")
         end
+    end
+end
+```
+
+### `setrumble`
+
+**Signature:** `setrumble(ms, intensity)`
+Sets controller haptic feedback (rumble/vibration) for player 0 (first controller). The rumble will automatically stop after the specified duration.
+
+**Parameters:**
+- `ms` (integer): Duration in milliseconds (must be >= 0)
+- `intensity` (number): Rumble intensity from 0.0 to 1.0
+  - `0.0` = No rumble (off)
+  - `0.5` = Medium rumble
+  - `1.0` = Maximum rumble
+
+**Returns:**
+- Nothing
+
+**Notes:**
+- Rumble is applied to player 0 (first controller) by default
+- Intensity values outside the 0.0-1.0 range are automatically clamped
+- The rumble automatically stops after the specified duration
+- If the controller is not connected, the function will silently fail (no error)
+- Multiple calls to `setrumble()` will override the previous rumble state
+- Useful for providing haptic feedback in response to game events
+
+**Example: Basic Rumble on Button Press:**
+```lua
+local lastA = false
+
+function gui()
+    local buttons = getjoypad(0)
+    local aPressed = (math.floor(buttons / 0x01) % 2 == 1)
+    
+    -- Trigger rumble when A button is pressed
+    if aPressed and not lastA then
+        setrumble(200, 0.5)  -- 200ms rumble at 50% intensity
+    end
+    
+    lastA = aPressed
+end
+```
+
+**Example: Different Rumble Intensities:**
+```lua
+local lastB = false
+local lastStart = false
+
+function gui()
+    local buttons = getjoypad(0)
+    local bPressed = (math.floor(buttons / 0x02) % 2 == 1)
+    local startPressed = (math.floor(buttons / 0x08) % 2 == 1)
+    
+    -- Light rumble for B button
+    if bPressed and not lastB then
+        setrumble(100, 0.2)  -- Short, light rumble
+    end
+    
+    -- Strong rumble for START button
+    if startPressed and not lastStart then
+        setrumble(500, 1.0)  -- Longer, maximum intensity
+    end
+    
+    lastB = bPressed
+    lastStart = startPressed
+end
+```
+
+**Example: Game Event Feedback:**
+```lua
+local lastHealth = 0
+
+function gui()
+    -- Read health from memory (example address)
+    local health = readbyte(0x0756)  -- Example: Super Mario Bros health address
+    
+    -- Rumble when health decreases (damage taken)
+    if health < lastHealth then
+        local damage = lastHealth - health
+        if damage > 0 then
+            -- Stronger rumble for more damage
+            local intensity = math.min(1.0, damage * 0.3)
+            setrumble(300, intensity)
+        end
+    end
+    
+    lastHealth = health
+    
+    -- Display health
+    drawtext(4, 4, string.format("Health: %d", health), 0x20)
+end
+```
+
+**Example: Rumble Patterns:**
+```lua
+local frameCount = 0
+local rumblePattern = {
+    {ms = 100, intensity = 0.5},
+    {ms = 50, intensity = 0.0},  -- Pause
+    {ms = 100, intensity = 0.5},
+    {ms = 50, intensity = 0.0},  -- Pause
+    {ms = 200, intensity = 1.0}  -- Strong finish
+}
+local patternIndex = 0
+local patternStartTime = 0
+
+function gui()
+    frameCount = frameCount + 1
+    local currentTime = gettime()
+    
+    -- Trigger pattern on A button press
+    local buttons = getjoypad(0)
+    local aPressed = (math.floor(buttons / 0x01) % 2 == 1)
+    
+    if aPressed and patternIndex == 0 then
+        patternIndex = 1
+        patternStartTime = currentTime
+        setrumble(rumblePattern[1].ms, rumblePattern[1].intensity)
+    end
+    
+    -- Continue pattern
+    if patternIndex > 0 then
+        local elapsed = 0
+        for i = 1, patternIndex do
+            elapsed = elapsed + rumblePattern[i].ms
+        end
+        
+        if currentTime - patternStartTime >= elapsed then
+            patternIndex = patternIndex + 1
+            if patternIndex <= #rumblePattern then
+                setrumble(rumblePattern[patternIndex].ms, rumblePattern[patternIndex].intensity)
+            else
+                patternIndex = 0  -- Pattern complete
+            end
+        end
+    end
+end
+```
+
+### `mapinput`
+
+**Signature:** `mapinput(virtualBtn, physicalSpec)`
+Per-script input remapping - maps virtual button names to physical input specifications. This allows scripts to create custom control schemes by using meaningful button names (like "JUMP", "ATTACK") instead of physical button names.
+
+**Parameters:**
+- `virtualBtn` (string): Virtual button name to create (case-insensitive)
+  - Examples: `"JUMP"`, `"ATTACK"`, `"FIRE"`, `"PAUSE"`, `"MENU"`
+- `physicalSpec` (string): Physical input specification (case-insensitive)
+  - **NES buttons:** `"A"`, `"B"`, `"SELECT"`, `"START"`, `"UP"`, `"DOWN"`, `"LEFT"`, `"RIGHT"`
+  - **Xbox buttons:** `"A"`, `"B"`, `"X"`, `"Y"`, `"START"`, `"BACK"`, `"LEFT_SHOULDER"`, `"RIGHT_SHOULDER"`, `"LEFT_THUMB"`, `"RIGHT_THUMB"`, `"DPAD_UP"`, `"DPAD_DOWN"`, `"DPAD_LEFT"`, `"DPAD_RIGHT"`
+
+**Returns:**
+- Nothing
+
+**Notes:**
+- Mappings are per-script - each script can have its own virtual button mappings
+- Virtual button names are case-insensitive (e.g., `"JUMP"`, `"jump"`, `"Jump"` all work)
+- Physical button specs are case-insensitive
+- Mappings can be overwritten by calling `mapinput()` again with the same virtual button name
+- Virtual buttons can be used with `isbuttonpressed()` - the function will automatically resolve virtual names to physical specs
+- Mappings are automatically cleaned up when the script is unloaded
+- Useful for creating custom control schemes, game-specific button names, or remapping controls per script
+
+**Example: Basic Custom Control Scheme:**
+```lua
+-- Set up custom mappings at script start
+mapinput("JUMP", "A")
+mapinput("ATTACK", "B")
+mapinput("PAUSE", "START")
+mapinput("MENU", "SELECT")
+
+function gui()
+    -- Use virtual button names instead of physical ones
+    if isbuttonpressed(0, "JUMP") then
+        drawtext(4, 4, "JUMP pressed!", 0x29)
+    end
+    
+    if isbuttonpressed(0, "ATTACK") then
+        drawtext(4, 12, "ATTACK pressed!", 0x29)
+    end
+end
+```
+
+**Example: Game-Specific Button Names:**
+```lua
+-- Map game-specific actions to buttons
+mapinput("FIRE", "A")
+mapinput("JUMP", "B")
+mapinput("CROUCH", "DOWN")
+mapinput("RUN", "RIGHT")
+
+function gui()
+    local fire = isbuttonpressed(0, "FIRE")
+    local jump = isbuttonpressed(0, "JUMP")
+    local crouch = isbuttonpressed(0, "CROUCH")
+    local run = isbuttonpressed(0, "RUN")
+    
+    -- Use meaningful names in your script logic
+    if fire and jump then
+        drawtext(4, 4, "Fire + Jump combo!", 0x37)
+    end
+end
+```
+
+**Example: Xbox Button Mappings:**
+```lua
+-- Map virtual buttons to Xbox controller buttons
+mapinput("PRIMARY", "A")
+mapinput("SECONDARY", "B")
+mapinput("TERTIARY", "X")
+mapinput("QUATERNARY", "Y")
+mapinput("SHOULDER_L", "LEFT_SHOULDER")
+mapinput("SHOULDER_R", "RIGHT_SHOULDER")
+
+function gui()
+    -- Virtual buttons work with both NES and Xbox physical buttons
+    if isbuttonpressed(0, "PRIMARY") then
+        drawtext(4, 4, "Primary action", 0x29)
+    end
+    
+    if isbuttonpressed(0, "SHOULDER_L") then
+        drawtext(4, 12, "Left shoulder", 0x29)
+    end
+end
+```
+
+**Example: Remapping Controls:**
+```lua
+-- Remap controls for left-handed players or custom schemes
+mapinput("ACTION", "B")  -- Swap A and B
+mapinput("CANCEL", "A")
+mapinput("MOVE_UP", "UP")
+mapinput("MOVE_DOWN", "DOWN")
+mapinput("MOVE_LEFT", "LEFT")
+mapinput("MOVE_RIGHT", "RIGHT")
+
+function gui()
+    -- Script uses virtual names, physical mapping can be changed easily
+    local action = isbuttonpressed(0, "ACTION")
+    local cancel = isbuttonpressed(0, "CANCEL")
+    
+    if action then
+        -- Perform action
+    end
+    
+    if cancel then
+        -- Perform cancel
+    end
+end
+```
+
+**Example: Dynamic Remapping:**
+```lua
+local useAlternateControls = false
+
+function gui()
+    -- Toggle control scheme (example: press START+SELECT to switch)
+    local buttons = getjoypad(0)
+    local startPressed = (math.floor(buttons / 0x08) % 2 == 1)
+    local selectPressed = (math.floor(buttons / 0x04) % 2 == 1)
+    
+    if startPressed and selectPressed then
+        if not useAlternateControls then
+            -- Switch to alternate controls
+            mapinput("JUMP", "B")
+            mapinput("ATTACK", "A")
+            useAlternateControls = true
+            print("Switched to alternate controls")
+        end
+    else
+        if useAlternateControls then
+            -- Switch back to default controls
+            mapinput("JUMP", "A")
+            mapinput("ATTACK", "B")
+            useAlternateControls = false
+            print("Switched to default controls")
+        end
+    end
+    
+    -- Use virtual names - works regardless of current mapping
+    if isbuttonpressed(0, "JUMP") then
+        drawtext(4, 4, "JUMP!", 0x29)
     end
 end
 ```

@@ -62,8 +62,11 @@ See [Setup](Setup) for detailed instructions.
 
 #### Input Functions
 - **[Input Functions](Input-Functions)** - Controller input and manipulation
-  - **Reading:** [`getjoypad()`](Input-Functions#getjoypad), [`isbuttonpressed()`](Input-Functions#isbuttonpressed), [`isxboxbuttonpressed()`](Input-Functions#isxboxbuttonpressed), [`gethardwarejoypad()`](Input-Functions#gethardwarejoypad)
+  - **Reading:** [`getjoypad()`](Input-Functions#getjoypad), [`isbuttonpressed()`](Input-Functions#isbuttonpressed), [`isxboxbuttonpressed()`](Input-Functions#isxboxbuttonpressed), [`gethardwarejoypad()`](Input-Functions#gethardwarejoypad), [`getbuttonheldms()`](Input-Functions#getbuttonheldms)
   - **Writing:** [`setjoypad()`](Input-Functions#setjoypad), [`clearjoypad()`](Input-Functions#clearjoypad), [`pressbutton()`](Input-Functions#pressbutton), [`releasebutton()`](Input-Functions#releasebutton)
+  - **Remapping:** [`mapinput()`](Input-Functions#mapinput) - Per-script input remapping for custom control schemes
+  - **Feedback:** [`setrumble()`](Input-Functions#setrumble) - Controller haptic feedback
+  - **Callbacks:** [`onbuttonpress()`](Input-Functions#onbuttonpress), [`onbuttonrelease()`](Input-Functions#onbuttonrelease)
   - **Utilities:** [`getbuttonname()`](Input-Functions#getbuttonname), [`getbuttonmask()`](Input-Functions#getbuttonmask)
 - **[Input Recording Functions](Input-Recording-Functions)** - Capture and replay controller input
   - [`startinputrecording()`](Input-Recording-Functions#startinputrecording), [`stopinputrecording()`](Input-Recording-Functions#stopinputrecording), [`playinputrecording()`](Input-Recording-Functions#playinputrecording)
