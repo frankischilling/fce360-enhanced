@@ -32,6 +32,56 @@ drawtext(100, 120, "Score: 1000", 0x39)     -- Yellow-green text centered (no bo
 drawtext(4, 232, "Bottom text", 0x20)       -- Near bottom of screen (no border)
 ```
 
+### `textstyle`
+
+**Signature:** `textstyle(options)`
+
+Sets advanced text rendering options that affect how `drawtext()` and related text functions render text. This function allows you to configure text appearance including size, alignment, word wrapping, shadow effects, and character spacing.
+
+**Parameters:**
+- `options` (table): A table containing one or more of the following optional keys:
+  - `font` (integer, optional): Font index. Currently reserved for future use (default: 0).
+  - `size` (number, optional): Text size/scale factor. Valid range is 0.5 to 4.0. Default is 1.0 (normal size). Values less than 1.0 make text smaller, values greater than 1.0 make text larger.
+  - `wrap` (boolean, optional): Enable word wrapping. When `true`, text will wrap to the next line if it exceeds the available width. Default is `false`.
+  - `align` (string, optional): Text alignment. Valid values are `"left"`, `"center"`, or `"right"`. Default is `"left"`.
+  - `shadow` (boolean or integer, optional): Enable text shadow effect. When `true` or `1`, text will be drawn with a shadow offset by 1 pixel down and right. Default is `false`.
+  - `spacing` (integer, optional): Character spacing in pixels. Valid range is -2 to 10. Positive values increase spacing between characters, negative values decrease spacing. Default is 0.
+
+**Returns:** Nothing
+
+**Notes:**
+- Text style settings persist until changed by another call to `textstyle()`.
+- All options are optional - you can set only the options you want to change.
+- Invalid values are automatically clamped to valid ranges.
+- The `size` option affects text scaling - larger values make text bigger but may reduce clarity.
+- The `shadow` option draws a darker shadow behind the text for better visibility on complex backgrounds.
+- The `align` option affects how text is positioned relative to the x coordinate when drawing.
+- The `wrap` option enables automatic word wrapping for long text strings.
+- The `spacing` option adjusts the horizontal spacing between characters.
+
+**Example:**
+```lua
+-- Set text size to 1.5x normal
+textstyle({size = 1.5})
+drawtext(10, 10, "Large Text", 0x20)
+
+-- Enable shadow for better visibility
+textstyle({shadow = true})
+drawtext(10, 30, "Text with shadow", 0x20)
+
+-- Set multiple options at once
+textstyle({
+    size = 2.0,
+    align = "center",
+    shadow = true,
+    spacing = 1
+})
+drawtext(128, 100, "Styled Text", 0x39)
+
+-- Reset to defaults
+textstyle({size = 1.0, shadow = false, align = "left", spacing = 0})
+```
+
 ### `drawtextwh`
 
 **Signature:** `drawtextwh(x, y, text, color, max_w, max_h, border)`
@@ -264,6 +314,75 @@ local text = "Centered\nText"
 local textHeight = gettextheight(text)
 local centerY = 120 - math.floor(textHeight / 2)  -- Screen center is 120
 drawtext(4, centerY, text, 0x20)
+```
+
+### `measuretextblock`
+
+**Signature:** `measuretextblock(text, width)`
+
+Calculates the dimensions of text when wrapped to a specified width. Returns a table with width, height, and line count. This function is useful for text layout calculations, determining how much space wrapped text will occupy, and planning UI layouts before drawing.
+
+**Parameters:**
+- `text` (string): Text string to measure. Supports newline characters (`\n`) for explicit line breaks and word wrapping when text exceeds the specified width.
+- `width` (integer): Wrap width in pixels. Text will wrap to new lines when it exceeds this width. Must be positive.
+
+**Returns:**
+- `table`: A table containing:
+  - `width` (integer): Maximum line width in pixels (the widest line after wrapping)
+  - `height` (integer): Total height in pixels (lineCount × lineHeight, accounting for text style size)
+  - `lineCount` (integer): Number of lines (including wrapped lines and explicit newlines)
+
+**Notes:**
+- **Word wrapping:** Text wraps intelligently at word boundaries (spaces) when possible. If a word is too long to fit on a line, it will be broken mid-word.
+- **Text style support:** Respects `textstyle()` settings:
+  - `size` - Text size scaling affects both character widths and line height
+  - `spacing` - Character spacing is included in width calculations
+- **Explicit newlines:** Newline characters (`\n`) in the text create explicit line breaks, which are counted in `lineCount`.
+- **Empty strings:** Returns `{width=0, height=0, lineCount=0}` for empty strings or invalid width.
+- **Invalid width:** Returns zeros for width ≤ 0.
+- **Variable-width font:** Uses the same font metrics (`JoedCharWidth`) as other text functions for accurate measurements.
+- **Line height:** Each line is 8 pixels tall (scaled by text style size), matching the font used by text drawing functions.
+
+**Example:**
+```lua
+-- Measure simple text
+local metrics = measuretextblock("Hello World", 200)
+print(string.format("Width: %d, Height: %d, Lines: %d", 
+    metrics.width, metrics.height, metrics.lineCount))
+
+-- Measure wrapped text
+local longText = "This is a very long text that will wrap to multiple lines"
+local wrapped = measuretextblock(longText, 100)
+print(string.format("Wrapped to %d lines, max width: %d", 
+    wrapped.lineCount, wrapped.width))
+
+-- Calculate layout before drawing
+local text = "Status: OK\nHealth: 100\nScore: 5000"
+local metrics = measuretextblock(text, 150)
+local boxX = 10
+local boxY = 10
+local boxW = metrics.width + 8  -- Add padding
+local boxH = metrics.height + 8
+
+-- Draw background box
+fillrect(boxX, boxY, boxW, boxH, 0x10)
+drawrect(boxX, boxY, boxW, boxH, 0x20)
+
+-- Draw text centered in box
+drawtextwh(boxX + 4, boxY + 4, text, 0x20, boxW - 8, boxH - 8, 0)
+
+-- Measure with text style
+textstyle({size = 2.0})
+local largeMetrics = measuretextblock("Large Text", 200)
+print(string.format("Large text: width=%d, height=%d", 
+    largeMetrics.width, largeMetrics.height))
+textstyle({size = 1.0})  -- Reset
+
+-- Measure with character spacing
+textstyle({spacing = 2})
+local spacedMetrics = measuretextblock("Spaced Text", 200)
+print(string.format("Spaced text width: %d", spacedMetrics.width))
+textstyle({spacing = 0})  -- Reset
 ```
 
 ### `drawtextbox`
@@ -668,6 +787,81 @@ function script()
 end
 ```
 
+### `screenshotregion`
+
+**Signature:** `screenshotregion(x, y, w, h, path)`
+Captures a partial screen region and saves it as a PNG file. The captured region includes both the NES frame and all Lua-drawn overlays, matching what is displayed on screen.
+
+**Parameters:**
+- `x` (integer): X coordinate of the top-left corner of the region to capture (0-255)
+- `y` (integer): Y coordinate of the top-left corner of the region to capture (0-239)
+- `w` (integer): Width of the region to capture (must be positive)
+- `h` (integer): Height of the region to capture (must be positive)
+- `path` (string): Filename for the screenshot (required)
+
+**Returns:**
+- `boolean` - `true` if the screenshot was saved successfully, `false` on failure
+
+**Notes:**
+- Screenshots are saved to `game:\snaps` directory
+- The directory is automatically created if it doesn't exist
+- The captured region includes the NES frame, all overlays, and all Lua-drawn content
+- The `.png` extension is automatically added to the filename if not present
+- The region must fit within the screen bounds (256x240)
+- The saved image is 256x240 pixels with the captured region positioned at the top-left corner
+- Useful for capturing specific areas of the screen, UI elements, or game regions
+- Screenshots are saved synchronously - the function returns after the file is written
+- Returns `false` (instead of throwing an error) if the screenshot fails to save
+
+**Example: Basic Usage:**
+```lua
+function gui()
+    -- Capture a 100x50 region starting at (10, 30)
+    local success = screenshotregion(10, 30, 100, 50, "region1")
+    if success then
+        drawtext(4, 4, "Region captured!", 0x29)
+    end
+end
+```
+
+**Example: Capture Multiple Regions:**
+```lua
+local frameCount = 0
+local lastScreenshotFrame = 0
+
+function gui()
+    local frame = getframecount()
+    
+    -- Capture different regions with delay between screenshots
+    if frame - lastScreenshotFrame >= 60 then
+        if frameCount == 0 then
+            screenshotregion(0, 0, 64, 32, "top_left")
+        elseif frameCount == 1 then
+            screenshotregion(192, 208, 64, 32, "bottom_right")
+        elseif frameCount == 2 then
+            screenshotregion(10, 30, 100, 50, "center_region")
+        end
+        frameCount = frameCount + 1
+        lastScreenshotFrame = frame
+    end
+end
+```
+
+**Example: Capture UI Element:**
+```lua
+function gui()
+    -- Draw some UI
+    fillrect(10, 10, 100, 30, 0x16)
+    drawtext(15, 15, "Score: 1000", 0x20)
+    
+    -- Capture just the UI element
+    local success = screenshotregion(10, 10, 100, 30, "ui_element")
+    if success then
+        print("UI element captured")
+    end
+end
+```
+
 ## Image Functions
 
 ### `drawimage`
@@ -748,6 +942,73 @@ drawimageindexed(10, 10, spriteData, palette1, 8, 8)
 -- Reuse the same sprite data with a different palette
 local palette2 = {0x20, 0x16, 0x26, 0x37}  -- Different color scheme
 drawimageindexed(100, 10, spriteData, palette2, 8, 8)
+```
+
+### `drawimageex`
+
+**Signature:** `drawimageex(img, x, y, options)`
+Extended image drawing function with support for transformations including rotation, scaling, flipping, and tinting. This is a flexible single-call function for advanced image rendering.
+
+**Parameters:**
+- `img` (table): Image data table containing color values in row-major order. Each value must be a palette color index (0x00-0x3F). The table must contain at least `w * h` elements.
+- `x` (integer): X coordinate of top-left corner (0-255). NES horizontal resolution is 256 pixels.
+- `y` (integer): Y coordinate of top-left corner (0-239). NES vertical resolution is 240 pixels.
+- `options` (table): Table containing drawing options:
+  - `w` (integer, required): Source width of the image in pixels. Must be positive.
+  - `h` (integer, required): Source height of the image in pixels. Must be positive.
+  - `dstW` (integer, optional): Destination width for scaling. If not specified, defaults to `w` (no scaling).
+  - `dstH` (integer, optional): Destination height for scaling. If not specified, defaults to `h` (no scaling).
+  - `rot` (number, optional): Rotation angle in degrees. Positive values rotate clockwise. Default is 0 (no rotation).
+  - `flipX` (boolean, optional): If `true`, flips the image horizontally. Default is `false`.
+  - `flipY` (boolean, optional): If `true`, flips the image vertically. Default is `false`.
+  - `tint` (integer, optional): Color index (0x00-0x3F) to tint the image. Applies a 50% blend with the tint color. If not specified, no tinting is applied.
+
+**Returns:** Nothing
+
+**Notes:**
+- Coordinates (0, 0) represent the top-left corner of the screen.
+- The image data table is read in row-major order: pixels are arranged left-to-right, top-to-bottom.
+- Rotation is applied around the center of the destination image.
+- Scaling uses nearest-neighbor sampling for performance.
+- Flipping is applied before rotation (flip, then rotate).
+- Tinting blends the source colors with the tint color using a 50% mix.
+- Color values are automatically clamped to the valid range (0x00-0x3F) and mapped to the NES palette.
+- Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
+- The overlay is composited on top of the NES frame, so Lua-drawn images appear above game graphics.
+- All transformations are applied in the order: scaling → flipping → rotation → tinting.
+- Useful for sprite animations, UI elements, and game graphics that need transformations.
+
+**Example:**
+```lua
+-- Create an 8x8 checkerboard image
+local imgData = {}
+for y = 0, 7 do
+    for x = 0, 7 do
+        if ((x + y) % 2 == 0) then
+            table.insert(imgData, 0x20)  -- White
+        else
+            table.insert(imgData, 0x16)  -- Red
+        end
+    end
+end
+
+-- Basic drawing (no transformations)
+drawimageex(imgData, 10, 10, {w = 8, h = 8})
+
+-- Scale to 2x size
+drawimageex(imgData, 10, 30, {w = 8, h = 8, dstW = 16, dstH = 16})
+
+-- Rotate 45 degrees
+drawimageex(imgData, 10, 50, {w = 8, h = 8, rot = 45})
+
+-- Flip horizontally
+drawimageex(imgData, 10, 70, {w = 8, h = 8, flipX = true})
+
+-- Apply blue tint
+drawimageex(imgData, 10, 90, {w = 8, h = 8, tint = 0x01})
+
+-- Combined: scale, rotate, and flip
+drawimageex(imgData, 10, 110, {w = 8, h = 8, dstW = 12, dstH = 12, rot = 30, flipX = true, tint = 0x28})
 ```
 
 ### `drawtile`
@@ -962,6 +1223,566 @@ setdrawcolor(0x39)
 
 -- Set default drawing color to bright white
 setdrawcolor(0x20)
+```
+
+### `pushdrawstate`
+
+**Signature:** `pushdrawstate()`
+Saves the current drawing state (drawing mode, default color, clipping region) to a stack. This allows you to temporarily modify drawing settings and restore them later with `popdrawstate()`.
+
+**Parameters:** None
+
+**Returns:** Nothing
+
+**Notes:**
+- Saves the current state of:
+  - Drawing mode (normal, add, sub, multiply, alpha)
+  - Default drawing color (set by `setdrawcolor()`)
+  - Clipping region (set by `setclipregion()`)
+  - Clipping enabled flag
+  - Transform state (set by `settransform()`)
+- The state is saved to a stack, allowing nested push/pop operations.
+- Use `popdrawstate()` to restore the saved state.
+- Useful for batch drawing operations where you need to temporarily change drawing settings and restore them afterward.
+- Supports nested operations - you can push multiple states and pop them in reverse order.
+
+**Example:**
+```lua
+-- Save current state
+pushdrawstate()
+
+-- Change drawing settings
+setdrawmode("add")
+setdrawcolor(0x16)
+setclipregion(10, 10, 100, 80)
+
+-- Draw with modified settings
+fillrect(20, 20, 60, 40, 0x20)
+
+-- Restore original state
+popdrawstate()
+
+-- Now drawing uses original settings again
+fillrect(120, 20, 60, 40, 0x20)
+```
+
+### `popdrawstate`
+
+**Signature:** `popdrawstate()`
+Restores the most recently saved drawing state from the stack. This restores the drawing mode, default color, and clipping region that were saved with `pushdrawstate()`.
+
+**Parameters:** None
+
+**Returns:** Nothing
+
+**Notes:**
+- Restores the drawing state that was saved with the most recent `pushdrawstate()` call.
+- Restores:
+  - Drawing mode (normal, add, sub, multiply, alpha)
+  - Default drawing color
+  - Clipping region and enabled flag
+  - Transform state (translation, scale, rotation)
+- The state stack uses LIFO (Last In, First Out) order - the most recently pushed state is restored first.
+- Throws an error if called when the stack is empty (no saved states to restore).
+- Must be called in reverse order of `pushdrawstate()` calls for nested operations.
+
+**Example:**
+```lua
+-- Nested push/pop example
+pushdrawstate()  -- Save state 1
+setdrawmode("multiply")
+
+pushdrawstate()  -- Save state 2 (nested)
+setclipregion(10, 10, 100, 80)
+
+-- Draw with nested state
+fillrect(20, 20, 60, 40, 0x20)
+
+popdrawstate()  -- Restore to state 1 (multiply mode, no clipping)
+fillrect(120, 20, 60, 40, 0x20)
+
+popdrawstate()  -- Restore to original state
+fillrect(200, 20, 40, 40, 0x20)
+```
+
+### `settransform`
+
+**Signature:** `settransform(tx, ty, sx, sy, rot)`
+Sets a global 2D transformation matrix that applies to all subsequent drawing operations. The transform applies rotation around the origin, then scaling, then translation.
+
+**Parameters:**
+- `tx` (number): Translation X offset in pixels
+- `ty` (number): Translation Y offset in pixels
+- `sx` (number): Scale factor for X axis (1.0 = no scaling)
+- `sy` (number): Scale factor for Y axis (1.0 = no scaling)
+- `rot` (number): Rotation angle in degrees (0 = no rotation)
+
+**Returns:** Nothing
+
+**Notes:**
+- The transform is applied in order: rotation (around origin), then scale, then translation
+- Rotation is applied around the origin (0, 0) before translation
+- Transform persists across all drawing function calls until changed by `settransform()` again or reset with `resettransform()`
+- Transform state is saved/restored by `pushdrawstate()` and `popdrawstate()`
+- Useful for coordinate transformations, camera effects, and drawing objects at different positions/scales/rotations
+- Transform is currently applied to point-based drawing functions (like `drawpixel()`)
+
+**Example:**
+```lua
+-- Translation only (move everything 30 pixels right)
+settransform(30, 0, 1, 1, 0)
+fillrect(10, 10, 20, 20, 0x20)
+
+-- Scale only (make everything 1.5x larger)
+settransform(0, 0, 1.5, 1.5, 0)
+fillrect(10, 10, 20, 20, 0x20)
+
+-- Rotation only (rotate 45 degrees around origin, then translate)
+settransform(128, 100, 1, 1, 45)
+for i = 0, 10 do
+    drawpixel(i, 0, 0x20)  -- Draws rotated line at center
+end
+
+-- Combined transform
+settransform(50, 30, 1.2, 1.2, 30)  -- Translate, scale, rotate
+fillrect(10, 10, 20, 20, 0x20)
+
+-- Reset to no transform
+resettransform()
+```
+
+### `resettransform`
+
+**Signature:** `resettransform()`
+Resets the global 2D transformation to identity (no transform). This disables all transformations and restores normal coordinate system.
+
+**Parameters:** None
+
+**Returns:** Nothing
+
+**Notes:**
+- Resets transform to identity: translation (0, 0), scale (1, 1), rotation (0 degrees)
+- Disables the transform (sets `transformEnabled` to false)
+- All subsequent drawing operations use normal coordinates until `settransform()` is called again
+- Transform state is saved/restored by `pushdrawstate()` and `popdrawstate()`
+
+**Example:**
+```lua
+-- Apply transform
+settransform(30, 20, 1.5, 1.5, 45)
+fillrect(10, 10, 20, 20, 0x20)  -- Transformed
+
+-- Reset transform
+resettransform()
+fillrect(10, 10, 20, 20, 0x20)  -- Normal coordinates
+```
+
+### `beginbatch`
+
+**Signature:** `beginbatch()`
+Begins a batch of draw calls. This marks the start of a drawing batch that can be optimized to reduce state changes and improve performance when drawing multiple primitives.
+
+**Parameters:** None
+
+**Returns:** Nothing
+
+**Notes:**
+- Marks the beginning of a batch of drawing operations
+- Supports nested calls - you can call `beginbatch()` multiple times and must call `endbatch()` the same number of times
+- Batching state is saved/restored by `pushdrawstate()` and `popdrawstate()`
+- Use `endbatch()` to mark the end of the batch
+- The batching infrastructure allows drawing functions to optimize operations (e.g., reduce redundant state changes, batch similar operations)
+- Useful for performance optimization when drawing many shapes with similar properties
+
+**Example:**
+```lua
+-- Batch multiple draw calls
+beginbatch()
+fillrect(10, 10, 20, 20, 0x20)
+fillrect(40, 10, 20, 20, 0x20)
+fillrect(70, 10, 20, 20, 0x20)
+endbatch()
+
+-- Nested batching
+beginbatch()
+fillrect(10, 50, 20, 20, 0x16)
+beginbatch()  -- Nested
+fillrect(40, 50, 20, 20, 0x28)
+endbatch()
+fillrect(70, 50, 20, 20, 0x29)
+endbatch()
+```
+
+### `endbatch`
+
+**Signature:** `endbatch()`
+Ends a batch of draw calls. This marks the end of a drawing batch that was started with `beginbatch()`.
+
+**Parameters:** None
+
+**Returns:** Nothing
+
+**Notes:**
+- Marks the end of a batch of drawing operations
+- Must be called to match each `beginbatch()` call
+- Supports nested calls - decrements the batch depth counter
+- Batching is only disabled when the batch depth reaches 0
+- Batching state is saved/restored by `pushdrawstate()` and `popdrawstate()`
+- Always pair `endbatch()` with a corresponding `beginbatch()` call
+
+**Example:**
+```lua
+-- Simple batch
+beginbatch()
+fillrect(10, 10, 20, 20, 0x20)
+fillrect(40, 10, 20, 20, 0x20)
+endbatch()
+
+-- Batch with state changes
+beginbatch()
+setdrawmode("add")
+fillrect(10, 50, 20, 20, 0x20)
+fillrect(40, 50, 20, 20, 0x20)
+setdrawmode("normal")
+endbatch()
+```
+
+### `setimagescale`
+
+**Signature:** `setimagescale(mode)`
+Sets the image scaling mode for subsequent `drawimage()` calls. Controls how images are scaled when drawn at different sizes (when scaling is implemented in `drawimage()`).
+
+**Parameters:**
+- `mode` (string): Scaling mode. Valid values are:
+  - `"nearest"` - Nearest-neighbor interpolation (pixelated, fast). Each pixel is mapped directly to the nearest source pixel.
+  - `"linear"` - Linear interpolation (smooth, slower). Pixels are blended for smoother scaling.
+
+**Returns:** Nothing
+
+**Notes:**
+- The scaling mode persists across all `drawimage()` calls until changed by `setimagescale()` again
+- Image scale mode state is saved/restored by `pushdrawstate()` and `popdrawstate()`
+- Default mode is `"nearest"` (fastest)
+- Use `getimagescale()` to query the current scaling mode
+- The actual scaling effect will be visible when `drawimage()` is enhanced to support scaling operations
+
+**Example:**
+```lua
+-- Set to nearest-neighbor (pixelated)
+setimagescale("nearest")
+drawimage(10, 10, imgData, 4, 4)
+
+-- Set to linear interpolation (smooth)
+setimagescale("linear")
+drawimage(10, 50, imgData, 4, 4)
+
+-- Save and restore mode
+pushdrawstate()
+setimagescale("linear")
+drawimage(10, 90, imgData, 4, 4)
+popdrawstate()  -- Restores previous mode
+```
+
+### `getimagescale`
+
+**Signature:** `getimagescale()`
+Returns the current image scaling mode as a string.
+
+**Parameters:** None
+
+**Returns:**
+- `string`: Current scaling mode, either `"nearest"` or `"linear"`
+
+**Notes:**
+- Useful for debugging and verifying that `setimagescale()` is working correctly
+- Returns the mode that was last set with `setimagescale()`
+- The returned value matches what was passed to `setimagescale()`
+
+**Example:**
+```lua
+-- Set mode and verify
+setimagescale("nearest")
+local mode = getimagescale()  -- Returns "nearest"
+drawtext(4, 4, "Mode: " .. mode, 0x20)
+
+setimagescale("linear")
+local mode2 = getimagescale()  -- Returns "linear"
+drawtext(4, 12, "Mode: " .. mode2, 0x20)
+```
+
+### `createcanvas`
+
+**Signature:** `createcanvas(w, h)`
+Creates an offscreen rendering surface (canvas) that can be used for offscreen drawing operations and post-processing effects.
+
+**Parameters:**
+- `w` (integer): Width of the canvas in pixels. Must be positive.
+- `h` (integer): Height of the canvas in pixels. Must be positive.
+
+**Returns:**
+- `integer`: Canvas handle (unique identifier). Use this handle with other canvas functions to draw to or draw from the canvas. Returns 0 on failure.
+
+**Notes:**
+- Maximum canvas size is 1024x1024 pixels to prevent excessive memory usage
+- Canvas buffer is initialized to transparent (all pixels set to 0)
+- Each canvas has a unique handle that persists until the canvas is destroyed
+- Canvas handles are integers starting from 1 (0 is invalid)
+- Canvas buffers use the same format as the overlay (uint8 per pixel, 0x00-0x3F color indices)
+- Useful for offscreen rendering, post-processing effects, and caching rendered graphics
+- Canvas memory is automatically managed - canvases are cleaned up when Lua state is reset
+- Multiple canvases can be created simultaneously
+
+**Example:**
+```lua
+-- Create a small canvas for a sprite
+local spriteCanvas = createcanvas(16, 16)
+
+-- Create a screen-sized canvas for post-processing
+local screenCanvas = createcanvas(256, 240)
+
+-- Create multiple canvases for different layers
+local bgCanvas = createcanvas(256, 240)
+local fgCanvas = createcanvas(256, 240)
+local uiCanvas = createcanvas(256, 240)
+
+-- Verify canvas was created
+if spriteCanvas > 0 then
+    drawtext(4, 4, "Canvas created: " .. spriteCanvas, 0x20)
+end
+```
+
+### `setrendertarget`
+
+**Signature:** `setrendertarget(canvas)`
+Sets the render target to a canvas for offscreen rendering, or resets to screen rendering. All subsequent drawing operations will render to the specified canvas instead of the screen overlay.
+
+**Parameters:**
+- `canvas` (integer or nil): Canvas handle returned by `createcanvas()`, or `nil`/no argument to reset to screen rendering.
+
+**Returns:** Nothing
+
+**Notes:**
+- When a canvas handle is provided, all drawing functions (like `drawpixel()`, `fillrect()`, `drawimage()`, etc.) will render to that canvas instead of the screen
+- When `nil` or no argument is provided, rendering is reset to the screen overlay
+- **Important:** Currently, only screen-sized canvases (256x240) are supported for safety. Smaller canvases may cause buffer overruns because drawing functions use screen dimensions for buffer offsets
+- The render target is automatically reset to screen at the start of each frame
+- Canvas must be created with `createcanvas()` before it can be used as a render target
+- Invalid canvas handles will return an error
+- Useful for offscreen rendering, post-processing effects, render-to-texture, and caching graphics
+
+**Example:**
+```lua
+-- Create a canvas
+local myCanvas = createcanvas(256, 240)
+
+-- Set render target to canvas
+setrendertarget(myCanvas)
+
+-- Draw to canvas (offscreen)
+fillrect(0, 0, 256, 240, 0x16)  -- Red background
+fillcircle(128, 120, 50, 0x20)  -- White circle
+
+-- Reset to screen rendering
+setrendertarget(nil)
+
+-- Now drawing goes to screen again
+drawtext(4, 4, "Back to screen", 0x20)
+
+-- Switch back to canvas
+setrendertarget(myCanvas)
+drawrect(10, 10, 100, 80, 0x28)  -- Yellow border on canvas
+
+-- Reset to screen
+setrendertarget(nil)
+```
+
+### `blit`
+
+**Signature:** `blit(canvas, x, y)`
+Blits (copies) a canvas to the screen at the specified position. This allows you to composite rendered surfaces onto the screen overlay.
+
+**Parameters:**
+- `canvas` (integer): Canvas handle returned by `createcanvas()`.
+- `x` (integer): X coordinate on screen where the canvas will be drawn (0-255).
+- `y` (integer): Y coordinate on screen where the canvas will be drawn (0-239).
+
+**Returns:** Nothing
+
+**Notes:**
+- The canvas is copied pixel-by-pixel to the screen at the specified position
+- Transparent pixels (value 0) in the canvas are skipped and do not overwrite the destination
+- The canvas can be partially off-screen; only the visible portion will be drawn (automatic clipping)
+- Blending mode is applied when copying pixels, so the canvas will blend with existing screen content
+- Canvas pixels are already in overlay format (0x80-0xBF) since they were drawn using the same drawing functions
+- Invalid canvas handles will return an error
+- Useful for compositing rendered surfaces, post-processing effects, sprite rendering, and UI elements
+
+**Example:**
+```lua
+-- Create a canvas and draw to it
+local myCanvas = createcanvas(256, 240)
+setrendertarget(myCanvas)
+fillrect(0, 0, 256, 240, 0x16)  -- Red background
+fillcircle(128, 120, 50, 0x20)  -- White circle
+setrendertarget(nil)
+
+-- Blit canvas to screen at (0, 0)
+blit(myCanvas, 0, 0)
+
+-- Blit the same canvas at different positions
+blit(myCanvas, 50, 50)
+blit(myCanvas, 100, 100)
+
+-- Blit partially off-screen (will clip automatically)
+blit(myCanvas, 200, 200)  -- Partially off right and bottom edges
+```
+
+### `lineargradient`
+
+**Signature:** `lineargradient(x1, y1, x2, y2, ...)`
+Creates a linear gradient fill that can be used to fill shapes with smooth color transitions. The gradient is defined by a start point, end point, and color stops.
+
+**Parameters:**
+- `x1` (number): X coordinate of the gradient start point.
+- `y1` (number): Y coordinate of the gradient start point.
+- `x2` (number): X coordinate of the gradient end point.
+- `y2` (number): Y coordinate of the gradient end point.
+- Additional parameters depend on the mode:
+  - **Simple mode (6 args)**: `color1` (integer), `color2` (integer) - Two colors for a simple gradient
+  - **Variable mode (6+ args)**: `color1`, `color2`, `color3`, ... - Multiple colors evenly spaced
+  - **Table mode (5 args)**: `stops` (table) - Table of `{position, color}` pairs, e.g. `{{0.0, 0x16}, {0.5, 0x28}, {1.0, 0x20}}`
+
+**Returns:**
+- `integer`: Gradient handle (unique identifier). Use this handle with `fillrectgradient()` or other gradient drawing functions. Returns 0 on failure.
+
+**Notes:**
+- Start and end points cannot be the same (will return an error)
+- Color values are palette indices (0x00-0x3F), automatically clamped to valid range
+- Position values in table mode are normalized (0.0 to 1.0), automatically clamped
+- Stops in table mode are automatically sorted by position
+- Gradient handles are unique integers starting from 1 (0 is invalid)
+- Gradients persist until Lua state is reset
+- Useful for creating smooth color transitions in rectangles, backgrounds, and UI elements
+
+**Example:**
+```lua
+-- Simple two-color horizontal gradient (red to white)
+local grad1 = lineargradient(0, 0, 100, 0, 0x16, 0x20)
+
+-- Simple two-color vertical gradient (blue to yellow)
+local grad2 = lineargradient(0, 0, 0, 50, 0x01, 0x28)
+
+-- Multiple colors evenly spaced (red, yellow, blue, white)
+local grad3 = lineargradient(0, 0, 100, 0, 0x16, 0x28, 0x01, 0x20)
+
+-- Table of stops with custom positions
+local stops = {
+    {0.0, 0x16},   -- Red at start
+    {0.3, 0x28},   -- Yellow at 30%
+    {0.7, 0x01},   -- Blue at 70%
+    {1.0, 0x20}    -- White at end
+}
+local grad4 = lineargradient(0, 0, 100, 0, stops)
+
+-- Diagonal gradient
+local grad5 = lineargradient(0, 0, 80, 40, 0x28, 0x16)  -- Yellow to red
+```
+
+### `fillrectgradient`
+
+**Signature:** `fillrectgradient(x, y, w, h, gradient)`
+Fills a rectangle with a linear gradient. Each pixel's color is determined by projecting its position onto the gradient line and interpolating between color stops.
+
+**Parameters:**
+- `x` (integer): X coordinate of the rectangle's top-left corner (0-255).
+- `y` (integer): Y coordinate of the rectangle's top-left corner (0-239).
+- `w` (integer): Width of the rectangle in pixels. Must be positive.
+- `h` (integer): Height of the rectangle in pixels. Must be positive.
+- `gradient` (integer): Gradient handle returned by `lineargradient()` or `radialgradient()`.
+
+**Returns:** Nothing
+
+**Notes:**
+- The gradient is applied by projecting each pixel onto the gradient line (for linear) or calculating distance from center (for radial)
+- Colors are interpolated between stops based on the pixel's position
+- Rectangle is automatically clipped to screen bounds (0-255, 0-239)
+- Respects clipping regions set with `setclipregion()`
+- Blending mode is applied (set with `setdrawmode()`)
+- Invalid gradient handles will return an error
+- Works with both linear gradients (from `lineargradient()`) and radial gradients (from `radialgradient()`)
+- **Performance Warning:** Gradient fills can be very resource intensive, especially for large rectangles, complex gradients with many stops, or radial gradients. Each pixel requires calculations and color interpolation. This may cause significant FPS drops. Use sparingly, prefer smaller rectangles, or use simpler gradients with fewer stops for better performance.
+- Useful for creating smooth color transitions in backgrounds, buttons, and UI elements
+
+**Example:**
+```lua
+-- Create a horizontal gradient (red to white)
+local myGradient = lineargradient(0, 0, 100, 0, 0x16, 0x20)
+
+-- Fill a rectangle with the gradient
+fillrectgradient(10, 10, 100, 50, myGradient)
+
+-- Create a vertical gradient (blue to yellow)
+local vertGradient = lineargradient(0, 0, 0, 50, 0x01, 0x28)
+
+-- Fill a rectangle with vertical gradient
+fillrectgradient(120, 10, 50, 100, vertGradient)
+
+-- Create a multi-color gradient
+local rainbow = lineargradient(0, 0, 200, 0, 0x16, 0x28, 0x01, 0x20)
+fillrectgradient(10, 120, 200, 40, rainbow)
+```
+
+### `radialgradient`
+
+**Signature:** `radialgradient(cx, cy, radius, ...)`
+Creates a radial gradient fill that radiates outward from a center point. The gradient transitions colors in a circular pattern from the center to the edge.
+
+**Parameters:**
+- `cx` (number): X coordinate of the gradient center point.
+- `cy` (number): Y coordinate of the gradient center point.
+- `radius` (number): Radius of the gradient (distance from center to edge). Must be positive.
+- Additional parameters depend on the mode:
+  - **Simple mode (5 args)**: `color1` (integer), `color2` (integer) - Two colors (center to edge)
+  - **Variable mode (5+ args)**: `color1`, `color2`, `color3`, ... - Multiple colors evenly spaced from center to edge
+  - **Table mode (4 args)**: `stops` (table) - Table of `{position, color}` pairs, e.g. `{{0.0, 0x16}, {0.5, 0x28}, {1.0, 0x20}}`
+
+**Returns:**
+- `integer`: Gradient handle (unique identifier). Use this handle with `fillrectgradient()` or other gradient drawing functions. Returns 0 on failure.
+
+**Notes:**
+- Radius must be positive (will return an error if zero or negative)
+- Color values are palette indices (0x00-0x3F), automatically clamped to valid range
+- Position values in table mode are normalized (0.0 to 1.0), where 0.0 is the center and 1.0 is at the radius edge
+- Stops in table mode are automatically sorted by position
+- Gradient handles are unique integers starting from 1 (0 is invalid)
+- Gradients persist until Lua state is reset
+- **Performance Warning:** Radial gradients can be very resource intensive, especially when filling large areas or using many color stops. Each pixel requires distance calculations and color interpolation. This may cause significant FPS drops. Use sparingly, prefer smaller rectangles, or use simpler gradients with fewer stops for better performance.
+- Useful for creating spotlight effects, circular color transitions, and radial backgrounds
+
+**Example:**
+```lua
+-- Simple two-color radial gradient (red center to white edge)
+local grad1 = radialgradient(128, 120, 50, 0x16, 0x20)
+
+-- Simple two-color radial gradient (blue center to yellow edge)
+local grad2 = radialgradient(64, 64, 40, 0x01, 0x28)
+
+-- Multiple colors evenly spaced (red, yellow, blue, white)
+local grad3 = radialgradient(128, 120, 60, 0x16, 0x28, 0x01, 0x20)
+
+-- Table of stops with custom positions
+local stops = {
+    {0.0, 0x20},   -- White at center
+    {0.2, 0x28},   -- Yellow at 20%
+    {0.4, 0x16},   -- Red at 40%
+    {0.6, 0x39},   -- Green at 60%
+    {0.8, 0x01},   -- Blue at 80%
+    {1.0, 0x00}    -- Black at edge
+}
+local grad4 = radialgradient(128, 120, 100, stops)
+
+-- Use with fillrectgradient
+fillrectgradient(0, 0, 256, 240, grad4)
 ```
 
 ## Shape Functions
