@@ -7,7 +7,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.8.0** — *Complete File I/O API Suite: File and directory management, reading, writing, listing, creation, deletion + all prior features from v0.7.9–v0.6.1*
+* Current release: **v0.8.1** — *Enhanced Drawing API: 2D transforms, canvas rendering, gradients, advanced text styling, and partial screenshot capture + all prior features from v0.8.0–v0.6.1*
 
 ---
 
@@ -15,6 +15,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.8.1 - Enhanced Drawing API](#whats-new-v081)
   - [v0.8.0 - Complete File I/O API Suite](#whats-new-v080)
   - [v0.7.9 - Complete Audio API Suite](#whats-new-v079)
   - [v0.7.8 - Audio API Functions and Screenshot Performance Fix](#whats-new-v078)
@@ -84,7 +85,118 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 ## What's New
 
-*Current release: **v0.8.0** — Complete File I/O API Suite: File and directory management, reading, writing, listing, creation, deletion + all prior features from v0.7.9–v0.6.1*
+*Current release: **v0.8.1** — Enhanced Drawing API: 2D transforms, canvas rendering, gradients, advanced text styling, and partial screenshot capture + all prior features from v0.8.0–v0.6.1*
+
+---
+
+## What's new (v0.8.1)
+
+* **New Lua API Functions:** Added **comprehensive enhanced drawing API suite** with **16 powerful functions** for 2D transformations, canvas rendering, gradients, advanced text styling, and partial screenshot capture!
+
+  * **Drawing State Management:**
+    * `settransform(tx, ty, sx, sy, rot)` - Apply 2D transformations (translation, scale, rotation) to all drawing operations
+      * Supports translation (tx, ty), scaling (sx, sy), and rotation (rot in degrees)
+      * Transformations are applied to all subsequent drawing operations
+      * Can be saved/restored with `pushdrawstate()` / `popdrawstate()`
+    * `resettransform()` - Reset transformation matrix to identity (no transformation)
+    * `beginbatch()` / `endbatch()` - Batch drawing operations to optimize performance by reducing state changes
+      * Nested batching supported (batch depth tracking)
+      * Can be saved/restored with `pushdrawstate()` / `popdrawstate()`
+    * `setimagescale(mode)` - Set image scaling mode ("nearest" or "linear") for quality control
+      * "nearest" - Fast, pixelated scaling (default)
+      * "linear" - Smooth, interpolated scaling (higher quality)
+    * `getimagescale()` - Get current image scaling mode
+
+  * **Advanced Image Drawing:**
+    * `drawimageex(img, x, y, options)` - Extended image drawing with rotation, scaling, flipping, and tinting
+      * Supports rotation (degrees), scaling (w, h), horizontal/vertical flipping, and color tinting
+      * All transformations can be combined for complex effects
+      * Options table: `{w, h, rot, flipX, flipY, tint}`
+
+  * **Canvas and Render Target Operations:**
+    * `createcanvas(w, h)` - Create offscreen rendering surfaces for advanced compositing
+      * Returns canvas handle for use with `setrendertarget()` and `blit()`
+      * Enables post-processing effects and multi-pass rendering
+    * `setrendertarget(canvas)` - Switch render target between screen and canvas
+      * Pass `nil` to render to screen (default)
+      * Pass canvas handle to render to offscreen surface
+    * `blit(canvas, x, y)` - Copy canvas contents to screen with clipping and blending
+      * Supports partial blitting with automatic clipping
+      * Respects current blend mode and clipping region
+
+  * **Gradient Support:**
+    * `lineargradient(...)` - Create linear gradients with configurable color stops
+      * Supports two-color mode: `lineargradient(x1, y1, x2, y2, color1, color2)`
+      * Supports multiple colors: `lineargradient(x1, y1, x2, y2, color1, color2, color3, ...)`
+      * Supports table of stops: `lineargradient(x1, y1, x2, y2, {[0.0]=color1, [0.5]=color2, [1.0]=color3})`
+      * Returns gradient handle for use with `fillrectgradient()`
+    * `fillrectgradient(x, y, w, h, gradient)` - Fill rectangles with gradient patterns
+      * Supports both linear and radial gradients
+      * Automatically interpolates colors along gradient path
+    * `radialgradient(...)` - Create radial gradients (resource-intensive, may cause FPS drops)
+      * Supports two-color mode: `radialgradient(cx, cy, radius, color1, color2)`
+      * Supports multiple colors and table of stops (same as linear gradients)
+      * **Performance Warning:** Radial gradients are computationally expensive and may cause FPS drops
+
+  * **Text Styling and Metrics:**
+    * `textstyle(options)` - Configure advanced text rendering options
+      * Options table: `{font, size, wrap, align, shadow, spacing}`
+      * `size` - Text scale factor (0.5 to 4.0, default 1.0)
+      * `align` - Text alignment ("left", "center", "right")
+      * `wrap` - Enable word wrapping (boolean)
+      * `shadow` - Enable text shadow effect (boolean)
+      * `spacing` - Character spacing in pixels (-2 to 10, default 0)
+      * Settings persist across `drawtext()` calls until changed
+    * `measuretextblock(text, width)` - Calculate wrapped text dimensions
+      * Returns table with `width`, `height`, and `lineCount`
+      * Respects current `textstyle()` settings (size, spacing, wrap)
+      * Useful for text layout calculations and UI positioning
+
+  * **Screenshot Functionality:**
+    * `screenshotregion(x, y, w, h, path)` - Capture partial screen regions including Lua GUI overlays
+      * Captures specified region (x, y, w, h) from screen
+      * Includes both NES frame and all Lua-drawn overlays
+      * Saves to `game:\snaps` directory with specified filename
+      * Returns `true` on success, `false` on failure
+      * Saved image is 256x240 pixels with captured region at top-left
+
+* **Improvements:**
+  * Enhanced `pushdrawstate()` / `popdrawstate()` to save/restore transform, batching, and image scale states
+  * All new drawing functions respect current transform matrix
+  * Screenshots now include Lua-drawn overlays and GUI elements
+  * Comprehensive test scripts for all new functions
+  * Complete wiki documentation for all new features
+
+* **Technical Details:**
+  * Transform system supports translation, scaling, and rotation in degrees
+  * Canvas system enables offscreen rendering and post-processing effects
+  * Gradient system supports both linear and radial gradients with multiple color stops
+  * Text style system persists across draw calls until explicitly changed
+  * Screenshot system composites overlay buffer onto frame buffer before capture
+
+* **Documentation:**
+  * All functions added to Drawing Functions section in table of contents
+  * Complete API documentation with parameters, returns, notes, and examples
+  * Test scripts provided for all new functions:
+    * `test_settransform_resettransform.lua` - Transform system tests
+    * `test_beginbatch_endbatch.lua` - Batching performance tests
+    * `test_setimagescale.lua` - Image scaling mode tests
+    * `test_drawimageex.lua` - Extended image drawing tests
+    * `test_createcanvas.lua` - Canvas creation tests
+    * `test_setrendertarget.lua` - Render target switching tests
+    * `test_blit.lua` - Canvas blitting tests
+    * `test_lineargradient.lua` - Linear gradient tests
+    * `test_radialgradient.lua` - Radial gradient demo
+    * `test_textstyle.lua` - Text styling tests
+    * `test_measuretextblock.lua` - Text metrics tests
+    * `test_screenshotregion.lua` - Partial screenshot tests
+
+* **Includes Previous Features:**
+  * All v0.8.0 features: Complete File I/O API Suite (readfile, writefile, listfiles, etc.)
+  * All v0.7.9 features: Complete Audio API Suite
+  * All v0.7.8 features: Audio API Functions and Screenshot Performance Fix
+  * All v0.7.7 features: State Management and Xbox 360 Input Lua API Functions
+  * All prior features from v0.7.6–v0.6.1
 
 ---
 
