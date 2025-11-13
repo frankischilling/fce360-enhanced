@@ -7,7 +7,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.8.1** — *Enhanced Drawing API: 2D transforms, canvas rendering, gradients, advanced text styling, and partial screenshot capture + all prior features from v0.8.0–v0.6.1*
+* Current release: **v0.8.2** — *Enhanced Input API: Button callbacks, hold timing, haptic feedback, and per-script input remapping + all prior features from v0.8.1–v0.6.1*
 
 ---
 
@@ -15,6 +15,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.8.2 - Enhanced Input API](#whats-new-v082)
   - [v0.8.1 - Enhanced Drawing API](#whats-new-v081)
   - [v0.8.0 - Complete File I/O API Suite](#whats-new-v080)
   - [v0.7.9 - Complete Audio API Suite](#whats-new-v079)
@@ -85,7 +86,96 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 ## What's New
 
-*Current release: **v0.8.1** — Enhanced Drawing API: 2D transforms, canvas rendering, gradients, advanced text styling, and partial screenshot capture + all prior features from v0.8.0–v0.6.1*
+*Current release: **v0.8.2** — Enhanced Input API: Button callbacks, hold timing, haptic feedback, and per-script input remapping + all prior features from v0.8.1–v0.6.1*
+
+---
+
+## What's new (v0.8.2)
+
+* **New Lua API Functions:** Added **5 powerful new input management functions** for event-driven input handling, button timing, haptic feedback, and custom control schemes!
+
+  * **Button Event Callbacks:**
+    * `onbuttonpress(button, callback)` - Registers a callback function that fires when a specific Xbox 360 controller button is pressed
+      * Parameters: button (string, case-insensitive), callback (function or nil to remove)
+      * Callback receives (player, buttonName) parameters
+      * Supports all Xbox 360 controller buttons: A, B, X, Y, START, BACK, LEFT_SHOULDER, RIGHT_SHOULDER, LEFT_THUMB, RIGHT_THUMB, DPAD_UP, DPAD_DOWN, DPAD_LEFT, DPAD_RIGHT
+      * Can be removed by passing nil as callback
+      * Useful for event-driven input handling, button-specific actions, and reactive scripts
+      * Example: `onbuttonpress("A", function(player, button) print("A pressed!") end)`
+    * `onbuttonrelease(button, callback)` - Registers a callback function that fires when a specific Xbox 360 controller button is released
+      * Parameters: button (string, case-insensitive), callback (function or nil to remove)
+      * Callback receives (player, buttonName) parameters
+      * Same button support as onbuttonpress
+      * Useful for detecting button release events, toggle mechanisms, and state changes
+      * Example: `onbuttonrelease("A", function(player, button) print("A released!") end)`
+
+  * **Button Timing Function:**
+    * `getbuttonheldms(player, button)` - Returns how long a button has been held in milliseconds
+      * Parameters: player (integer, 0-3), button (string, case-insensitive)
+      * Returns: number (milliseconds, 0 if not currently held)
+      * Supports both Xbox 360 controller buttons and NES buttons
+      * Uses hardware state before Lua overrides for accurate timing
+      * Useful for measuring hold duration, implementing hold-to-activate features, and timing-based actions
+      * Example: `local holdTime = getbuttonheldms(0, "A")` - returns milliseconds A button has been held
+
+  * **Haptic Feedback Function:**
+    * `setrumble(ms, intensity)` - Sets controller haptic feedback (rumble/vibration) for player 0
+      * Parameters: ms (integer, duration in milliseconds), intensity (number, 0.0-1.0)
+      * Returns: Nothing
+      * Automatically stops after specified duration
+      * Intensity values are automatically clamped to 0.0-1.0 range
+      * Useful for providing haptic feedback in response to game events, damage, collisions, achievements, etc.
+      * Example: `setrumble(200, 0.5)` - 200ms rumble at 50% intensity
+
+  * **Input Remapping Function:**
+    * `mapinput(virtualBtn, physicalSpec)` - Per-script input remapping - maps virtual button names to physical input specifications
+      * Parameters: virtualBtn (string, virtual button name), physicalSpec (string, physical input spec)
+      * Returns: Nothing
+      * Virtual button names are case-insensitive (e.g., "JUMP", "ATTACK", "FIRE")
+      * Supports mapping to NES buttons: A, B, SELECT, START, UP, DOWN, LEFT, RIGHT
+      * Supports mapping to Xbox buttons: A, B, X, Y, START, BACK, LEFT_SHOULDER, RIGHT_SHOULDER, LEFT_THUMB, RIGHT_THUMB, DPAD_UP, DPAD_DOWN, DPAD_LEFT, DPAD_RIGHT
+      * Virtual buttons work with `isbuttonpressed()` - automatically resolves to physical specs
+      * Mappings are per-script and automatically cleaned up on script unload
+      * Useful for creating custom control schemes, game-specific button names, and remapping controls
+      * Example: `mapinput("JUMP", "A")` then `isbuttonpressed(0, "JUMP")` works
+
+* **Enhanced Input Functions:**
+  * Enhanced `isbuttonpressed()` to support virtual button names (via `mapinput`)
+  * Enhanced `isbuttonpressed()` to support both NES and Xbox button names
+  * Virtual button resolution happens automatically when checking button states
+
+* **Technical Enhancements:**
+  * Virtual input mappings stored per-Lua-state for script isolation
+  * Rumble state tracking with automatic expiration handling in frame boundary callback
+  * Button hold timing tracked per-player with millisecond precision
+  * Event callbacks integrated into frame boundary processing (`FCEU_LuaFrameBoundary`)
+  * Automatic cleanup of virtual mappings when Lua state is closed
+  * All functions registered in both `InitLua()` and `EnsureLuaInit()`
+
+* **Documentation:**
+  * Complete API documentation added to `wiki/Input-Functions.md`
+  * Updated `wiki/Home.md` with links to all new functions
+  * Multiple usage examples provided for each function
+  * Edge cases and best practices documented
+
+* **Testing:**
+  * Created `test_setrumble.lua` with automated tests and interactive controls
+  * Created `test_mapinput.lua` with mapping verification and comparison tests
+  * All functions tested for parameter validation, edge cases, and error handling
+
+* **Use Cases:**
+  * **Event-Driven Input:** Use `onbuttonpress()` and `onbuttonrelease()` for reactive scripts that respond to button events
+  * **Button Timing:** Use `getbuttonheldms()` for hold-to-activate features, timing-based actions, and measuring input duration
+  * **Haptic Feedback:** Use `setrumble()` for game event feedback, damage indicators, collision responses, and achievement notifications
+  * **Custom Controls:** Use `mapinput()` for game-specific button names, custom control schemes, and per-script remapping
+
+* **Includes Previous Features:**
+  * All v0.8.1 features: Enhanced Drawing API (2D transforms, canvas rendering, gradients, advanced text styling, partial screenshot capture)
+  * All v0.8.0 features: Complete File I/O API Suite (readfile, writefile, listfiles, etc.)
+  * All v0.7.9 features: Complete Audio API Suite
+  * All v0.7.8 features: Audio API Functions and Screenshot Performance Fix
+  * All v0.7.7 features: State Management and Xbox 360 Input Lua API Functions
+  * All prior features from v0.7.6–v0.6.1
 
 ---
 
