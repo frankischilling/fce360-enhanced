@@ -16,7 +16,7 @@ See [Setup](Setup) for detailed instructions.
 
 ### Getting Started
 - **[Setup](Setup)** - How to set up Lua scripting
-- **[Technical Details](Technical-Details)** - Lua version, update frequency, rendering details, script timing ([`setscriptinterval()`](Technical-Details#setscriptinterval), [`getscriptinterval()`](Technical-Details#getscriptinterval))
+- **[Technical Details](Technical-Details)** - Lua version, update frequency, rendering details, script timing ([`setscriptinterval()`](Technical-Details#setscriptinterval), [`getscriptinterval()`](Technical-Details#getscriptinterval)), console spacing ([`setconsolespacing()`](Utility-Functions#setconsolespacing))
 - **[Troubleshooting](Troubleshooting)** - Common issues and solutions
 
 ### API Reference
@@ -69,7 +69,7 @@ See [Setup](Setup) for detailed instructions.
   - **Callbacks:** [`onbuttonpress()`](Input-Functions#onbuttonpress), [`onbuttonrelease()`](Input-Functions#onbuttonrelease)
   - **Utilities:** [`getbuttonname()`](Input-Functions#getbuttonname), [`getbuttonmask()`](Input-Functions#getbuttonmask)
 - **[Input Recording Functions](Input-Recording-Functions)** - Capture and replay controller input
-  - [`startinputrecording()`](Input-Recording-Functions#startinputrecording), [`stopinputrecording()`](Input-Recording-Functions#stopinputrecording), [`playinputrecording()`](Input-Recording-Functions#playinputrecording)
+  - [`startinputrecording()`](Input-Recording-Functions#startinputrecording), [`stopinputrecording()`](Input-Recording-Functions#stopinputrecording), [`playinputrecording()`](Input-Recording-Functions#playinputrecording), [`saveinputrecording()`](Input-Recording-Functions#saveinputrecording), [`loadinputrecording()`](Input-Recording-Functions#loadinputrecording)
   - Recording utilities integrate with [`gethardwarejoypad()`](Input-Functions#gethardwarejoypad) for toggles and [`setjoypad()`](Input-Functions#setjoypad) for scripted overrides
 
 #### State Management Functions
@@ -96,6 +96,11 @@ See [Setup](Setup) for detailed instructions.
 - **[Color Functions](Color-Functions)** - Color manipulation and palette
   - **Palette:** [`getpalettecolor()`](Color-Functions#getpalettecolor), [`setpalettecolor()`](Color-Functions#setpalettecolor), [`getnescolor()`](Color-Functions#getnescolor)
   - **Color utilities:** [`getcolorrgb()`](Color-Functions#getcolorrgb), [`blendcolors()`](Color-Functions#blendcolors)
+
+#### Utility Functions
+- **[Utility Functions](Utility-Functions)** - Debugging and console output
+  - **Console output:** [`print()`](Utility-Functions#print), [`log()`](Utility-Functions#log)
+  - **Console settings:** [`setconsolespacing()`](Utility-Functions#setconsolespacing)
 
 ### Callbacks and Scripting
 - **[Callbacks](Callbacks)** - Required and optional callback functions
