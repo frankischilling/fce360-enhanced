@@ -2457,6 +2457,357 @@ static const char* ResolveVirtualButton(lua_State* L, const char* virtualBtn)
 	 return 0;
  }
 
+ // Forward declaration
+ static void CreateParentDirectories(const char* filepath);
+
+ // saveinputrecording(path) -> boolean
+ // Saves input recording to file
+ // Parameters: path (file path string)
+ // Returns: Boolean (success)
+ // Use case: Save TAS inputs
+ static int lua_saveinputrecording(lua_State* L)
+ {
+	 int n = lua_gettop(L);
+	 if (n < 1) {
+		 return luaL_error(L, "saveinputrecording(path) requires 1 argument");
+	 }
+	 
+	 const char* filename = luaL_checkstring(L, 1);
+	 if (!filename || strlen(filename) == 0) {
+		 lua_pushboolean(L, 0);
+		 return 1;
+	 }
+	 
+	 // Check if there's any recorded data
+	 bool hasData = false;
+	 size_t maxFrames = 0;
+	 for (int p = 0; p < 4; ++p) {
+		 if (s_recordedInput[p].size() > 0) {
+			 hasData = true;
+			 if (s_recordedInput[p].size() > maxFrames) {
+				 maxFrames = s_recordedInput[p].size();
+			 }
+		 }
+	 }
+	 
+	 if (!hasData) {
+		 lua_pushboolean(L, 0);
+		 return 1;
+	 }
+	 
+	 // Build full path
+	 char fullpath[512];
+	 
+	 // If filename already contains a drive/path, use it as-is
+	 if (strchr(filename, ':') || filename[0] == '\\' || filename[0] == '/') {
+		 strncpy(fullpath, filename, sizeof(fullpath) - 1);
+		 fullpath[sizeof(fullpath) - 1] = '\0';
+	 } else {
+		 // Relative to writable directory (try hdd1: first as it's always writable)
+		 // Save in "recordings" subfolder within lua directory
+		 const char* baseDir = "hdd1:\\fce360-enhanced\\lua\\recordings\\";
+		 snprintf(fullpath, sizeof(fullpath), "%s%s", baseDir, filename);
+	 }
+	 
+	 // Normalize path separators (convert / to \)
+	 for (int i = 0; fullpath[i] != '\0'; i++) {
+		 if (fullpath[i] == '/') {
+			 fullpath[i] = '\\';
+		 }
+	 }
+	 
+	 // Create all parent directories recursively
+	 CreateParentDirectories(fullpath);
+	 
+	 // Use Win32 API for file writing (better compatibility with Xbox 360 paths like hdd1:)
+	 HANDLE hFile = CreateFileA(fullpath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	 if (hFile == INVALID_HANDLE_VALUE) {
+		 // If hdd1: failed and path was relative, try game: directory
+		 if (!strchr(filename, ':') && filename[0] != '\\' && filename[0] != '/') {
+			 // Save in "recordings" subfolder within lua directory
+			 const char* gameDir = "game:\\lua\\recordings\\";
+			 snprintf(fullpath, sizeof(fullpath), "%s%s", gameDir, filename);
+			 
+			 // Normalize path separators
+			 for (int i = 0; fullpath[i] != '\0'; i++) {
+				 if (fullpath[i] == '/') {
+					 fullpath[i] = '\\';
+				 }
+			 }
+			 
+			 // Create all parent directories recursively
+			 CreateParentDirectories(fullpath);
+			 
+			 hFile = CreateFileA(fullpath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+		 }
+		 
+		 if (hFile == INVALID_HANDLE_VALUE) {
+			 // Failed to open file for writing
+			 lua_pushboolean(L, 0);
+			 return 1;
+		 }
+	 }
+	 
+	 // Write data to file
+	 // Format: one frame per line, comma-separated button masks for each player
+	 // Example: "0,0,0,0\n" for frame 0 (all players no buttons)
+	 bool writeSuccess = true;
+	 DWORD bytesWritten = 0;
+	 
+	 for (size_t frame = 0; frame < maxFrames; ++frame) {
+		 char line[64];
+		 int len = 0;
+		 
+		 // Write button masks for each player (comma-separated)
+		 for (int p = 0; p < 4; ++p) {
+			 uint8 buttonMask = 0;
+			 if (frame < s_recordedInput[p].size()) {
+				 buttonMask = s_recordedInput[p][frame];
+			 }
+			 
+			 if (p > 0) {
+				 line[len++] = ',';
+			 }
+			 
+			 // Write button mask as decimal number
+			 len += snprintf(line + len, sizeof(line) - len, "%d", (int)buttonMask);
+		 }
+		 
+		 line[len++] = '\n';
+		 line[len] = '\0';
+		 
+		 BOOL result = WriteFile(hFile, line, (DWORD)len, &bytesWritten, NULL);
+		 if (!result || bytesWritten != (DWORD)len) {
+			 writeSuccess = false;
+			 break;
+		 }
+	 }
+	 
+	 CloseHandle(hFile);
+	 
+	 lua_pushboolean(L, writeSuccess ? 1 : 0);
+	 return 1;
+ }
+
+ // loadinputrecording(path) -> boolean
+ // Loads input recording from file and starts playback
+ // Parameters: path (file path string)
+ // Returns: Boolean (success)
+ // Use case: Playback TAS inputs
+ static int lua_loadinputrecording(lua_State* L)
+ {
+	 int n = lua_gettop(L);
+	 if (n < 1) {
+		 return luaL_error(L, "loadinputrecording(path) requires 1 argument");
+	 }
+	 
+	 const char* filename = luaL_checkstring(L, 1);
+	 if (!filename || strlen(filename) == 0) {
+		 lua_pushboolean(L, 0);
+		 return 1;
+	 }
+	 
+	 // Build full path
+	 char fullpath[512];
+	 
+	 // If filename already contains a drive/path, use it as-is
+	 if (strchr(filename, ':') || filename[0] == '\\' || filename[0] == '/') {
+		 strncpy(fullpath, filename, sizeof(fullpath) - 1);
+		 fullpath[sizeof(fullpath) - 1] = '\0';
+	 } else {
+		 // Try recordings directory first (where saveinputrecording saves)
+		 const char* baseDir = "hdd1:\\fce360-enhanced\\lua\\recordings\\";
+		 snprintf(fullpath, sizeof(fullpath), "%s%s", baseDir, filename);
+	 }
+	 
+	 // Normalize path separators (convert / to \)
+	 for (int i = 0; fullpath[i] != '\0'; i++) {
+		 if (fullpath[i] == '/') {
+			 fullpath[i] = '\\';
+		 }
+	 }
+	 
+	 // Try to open file
+	 FILE* file = fopen(fullpath, "rb");
+	 if (!file) {
+		 // Try alternative paths if initial path fails
+		 const char* altPaths[] = {
+			 "game:\\lua\\recordings\\%s",
+			 "hdd1:\\fce360-enhanced\\lua\\recordings\\%s",
+			 "game:\\lua\\%s",
+			 "hdd1:\\fce360-enhanced\\lua\\%s",
+			 "game:\\%s"
+		 };
+		 
+		 bool found = false;
+		 for (int i = 0; i < (int)(sizeof(altPaths) / sizeof(altPaths[0])); i++) {
+			 char altPath[512];
+			 snprintf(altPath, sizeof(altPath), altPaths[i], filename);
+			 
+			 // Normalize path separators
+			 for (int j = 0; altPath[j] != '\0'; j++) {
+				 if (altPath[j] == '/') {
+					 altPath[j] = '\\';
+				 }
+			 }
+			 
+			 file = fopen(altPath, "rb");
+			 if (file) {
+				 strncpy(fullpath, altPath, sizeof(fullpath) - 1);
+				 fullpath[sizeof(fullpath) - 1] = '\0';
+				 found = true;
+				 break;
+			 }
+		 }
+		 
+		 if (!found) {
+			 // File not found
+			 lua_pushboolean(L, 0);
+			 return 1;
+		 }
+	 }
+	 
+	 // Get file size
+	 fseek(file, 0, SEEK_END);
+	 long fileSize = ftell(file);
+	 fseek(file, 0, SEEK_SET);
+	 
+	 if (fileSize < 0) {
+		 fclose(file);
+		 lua_pushboolean(L, 0);
+		 return 1;
+	 }
+	 
+	 if (fileSize == 0) {
+		 // Empty file
+		 fclose(file);
+		 lua_pushboolean(L, 0);
+		 return 1;
+	 }
+	 
+	 // Allocate buffer for file contents
+	 char* buffer = (char*)malloc(fileSize + 1);
+	 if (!buffer) {
+		 fclose(file);
+		 lua_pushboolean(L, 0);
+		 return 1;
+	 }
+	 
+	 // Read file
+	 size_t bytesRead = fread(buffer, 1, fileSize, file);
+	 fclose(file);
+	 
+	 if (bytesRead != (size_t)fileSize) {
+		 free(buffer);
+		 lua_pushboolean(L, 0);
+		 return 1;
+	 }
+	 
+	 // Null-terminate
+	 buffer[fileSize] = '\0';
+	 
+	 // Stop any current playback
+	 s_inputPlayback = false;
+	 s_playbackFrame = 0;
+	 
+	 // Clear playback data
+	 for (int p = 0; p < 4; ++p) {
+		 s_playbackInput[p].clear();
+	 }
+	 
+	 // Parse file contents
+	 // Format: one frame per line, comma-separated button masks for each player
+	 // Example: "0,0,0,0\n" for frame 0 (all players no buttons)
+	 char* lineStart = buffer;
+	 
+	 while (lineStart < buffer + fileSize) {
+		 // Find end of line
+		 char* lineEnd = strchr(lineStart, '\n');
+		 if (!lineEnd) {
+			 lineEnd = buffer + fileSize;
+		 }
+		 
+		 // Null-terminate line for parsing
+		 char savedChar = *lineEnd;
+		 *lineEnd = '\0';
+		 
+		 // Skip empty lines
+		 if (lineStart == lineEnd || (*lineStart == '\r' && lineStart + 1 == lineEnd)) {
+			 *lineEnd = savedChar;
+			 lineStart = lineEnd + 1;
+			 continue;
+		 }
+		 
+		 // Parse comma-separated values for 4 players
+		 int values[4] = {0, 0, 0, 0};
+		 int valueIndex = 0;
+		 char* token = lineStart;
+		 
+		 while (token < lineEnd && valueIndex < 4) {
+			 // Skip whitespace
+			 while (*token == ' ' || *token == '\t' || *token == '\r') {
+				 token++;
+			 }
+			 
+			 if (token >= lineEnd) break;
+			 
+			 // Find comma or end of line
+			 char* comma = strchr(token, ',');
+			 if (!comma || comma > lineEnd) {
+				 comma = lineEnd;
+			 }
+			 
+			 // Parse number
+			 char savedComma = *comma;
+			 *comma = '\0';
+			 
+			 int value = atoi(token);
+			 if (value < 0) value = 0;
+			 if (value > 0xFF) value = 0xFF;
+			 values[valueIndex] = value;
+			 
+			 *comma = savedComma;
+			 
+			 valueIndex++;
+			 token = comma + 1;
+		 }
+		 
+		 // Restore line end character
+		 *lineEnd = savedChar;
+		 
+		 // Add frame data for each player
+		 for (int p = 0; p < 4; ++p) {
+			 s_playbackInput[p].push_back((uint8)(values[p] & 0xFF));
+		 }
+		 
+		 // Move to next line
+		 lineStart = lineEnd + 1;
+	 }
+	 
+	 free(buffer);
+	 
+	 // Check if we loaded any data
+	 bool hasData = false;
+	 for (int p = 0; p < 4; ++p) {
+		 if (s_playbackInput[p].size() > 0) {
+			 hasData = true;
+			 break;
+		 }
+	 }
+	 
+	 if (!hasData) {
+		 lua_pushboolean(L, 0);
+		 return 1;
+	 }
+	 
+	 // Start playback
+	 s_inputPlayback = true;
+	 s_playbackFrame = 0;
+	 
+	 lua_pushboolean(L, 1);
+	 return 1;
+ }
+
  // getromname() -> string
  // Gets the current ROM filename (without path)
  // Returns the filename with extension (.nes, .fds, etc.)
@@ -10950,6 +11301,8 @@ int lua_ismemorywritable(lua_State *L) {
 	 lua_register(luaState, "stopinputrecording", lua_stopinputrecording);
 	 lua_pushcfunction(luaState, lua_playinputrecording);
 	 lua_setglobal(luaState, "playinputrecording");
+	 lua_register(luaState, "saveinputrecording", lua_saveinputrecording);
+	 lua_register(luaState, "loadinputrecording", lua_loadinputrecording);
 	 lua_register(luaState, "getromname", lua_getromname);
 	 lua_register(luaState, "getframecount", lua_getframecount);
 	 lua_register(luaState, "getframecycles", lua_getframecycles);
@@ -11145,6 +11498,8 @@ static void EnsureLuaInit() {
 	REG("stopinputrecording", lua_stopinputrecording);
 	lua_pushcfunction(luaState, lua_playinputrecording);
 	lua_setglobal(luaState, "playinputrecording");
+	REG("saveinputrecording", lua_saveinputrecording);
+	REG("loadinputrecording", lua_loadinputrecording);
 	REG("getromname", lua_getromname);
 	REG("getframecount", lua_getframecount);
 	REG("getframecycles", lua_getframecycles);
@@ -11201,9 +11556,9 @@ static void EnsureLuaInit() {
 	REG("getmapperstring", lua_getmapperstring);
 	REG("isbuttonpressed", lua_isbuttonpressed);
 	REG("isxboxbuttonpressed", lua_isxboxbuttonpressed);
-REG("onbuttonpress", lua_onbuttonpress);
-REG("onbuttonrelease", lua_onbuttonrelease);
-REG("getbuttonheldms", lua_getbuttonheldms);
+	REG("onbuttonpress", lua_onbuttonpress);
+	REG("onbuttonrelease", lua_onbuttonrelease);
+	REG("getbuttonheldms", lua_getbuttonheldms);
 	REG("getbuttonname",  lua_getbuttonname);
 	REG("getbuttonmask",  lua_getbuttonmask);
 	REG("drawpixel",      lua_drawpixel);
@@ -11265,17 +11620,17 @@ REG("getbuttonheldms", lua_getbuttonheldms);
 	REG("readbytes",      lua_readbytes);
 	REG("readram",        lua_readram);
 	REG("scanbyte",       lua_scanbyte);
- REG("scanword",       lua_scanword);
-REG("scanbytes",      lua_scanbytes);
-REG("findpattern",    lua_findpattern);
-REG("scanchanged",    lua_scanchanged);
-REG("watchbyte",      lua_watchbyte);
-REG("unwatchbyte",    lua_unwatchbyte);
-REG("getmemorysnapshot", lua_getmemorysnapshot);
-REG("setbit",         lua_setbit);
-REG("clearbit",       lua_clearbit);
-REG("togglebit",      lua_togglebit);
-REG("testbit",        lua_testbit);
+ 	REG("scanword",       lua_scanword);
+	REG("scanbytes",      lua_scanbytes);
+	REG("findpattern",    lua_findpattern);
+	REG("scanchanged",    lua_scanchanged);
+	REG("watchbyte",      lua_watchbyte);
+	REG("unwatchbyte",    lua_unwatchbyte);
+	REG("getmemorysnapshot", lua_getmemorysnapshot);
+	REG("setbit",         lua_setbit);
+	REG("clearbit",       lua_clearbit);
+	REG("togglebit",      lua_togglebit);
+	REG("testbit",        lua_testbit);
 	REG("writebyte",      lua_writebyte);
 	REG("writeword",      lua_writeword);
 	REG("writebytes",     lua_writebytes);
@@ -11289,8 +11644,8 @@ REG("testbit",        lua_testbit);
 	REG("ismemorywritable", lua_ismemorywritable);
 	REG("log",            lua_log);
 	REG("setconsolespacing", lua_setconsolespacing);
-REG("setscriptinterval", lua_setscriptinterval);
-REG("getscriptinterval", lua_getscriptinterval);
+	REG("setscriptinterval", lua_setscriptinterval);
+	REG("getscriptinterval", lua_getscriptinterval);
 	lua_pushcfunction(luaState, lua_print_redirect);
 	lua_setglobal(luaState, "print");
 	#undef REG
