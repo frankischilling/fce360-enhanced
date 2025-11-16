@@ -7,7 +7,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.8.2** — *Enhanced Input API: Button callbacks, hold timing, haptic feedback, and per-script input remapping + all prior features from v0.8.1–v0.6.1*
+* Current release: **v0.8.3** — *Input Recording Save/Load API: Save and load TAS input recordings to/from files + all prior features from v0.8.2–v0.6.1*
 
 ---
 
@@ -15,6 +15,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.8.3 - Input Recording Save/Load API](#whats-new-v083)
   - [v0.8.2 - Enhanced Input API](#whats-new-v082)
   - [v0.8.1 - Enhanced Drawing API](#whats-new-v081)
   - [v0.8.0 - Complete File I/O API Suite](#whats-new-v080)
@@ -86,7 +87,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 ## What's New
 
-*Current release: **v0.8.2** — Enhanced Input API: Button callbacks, hold timing, haptic feedback, and per-script input remapping + all prior features from v0.8.1–v0.6.1*
+*Current release: **v0.8.3** — Input Recording Save/Load API: Save and load TAS input recordings to/from files + all prior features from v0.8.2–v0.6.1*
 
 ---
 
@@ -170,6 +171,77 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
   * **Custom Controls:** Use `mapinput()` for game-specific button names, custom control schemes, and per-script remapping
 
 * **Includes Previous Features:**
+  * All v0.8.1 features: Enhanced Drawing API (2D transforms, canvas rendering, gradients, advanced text styling, partial screenshot capture)
+  * All v0.8.0 features: Complete File I/O API Suite (readfile, writefile, listfiles, etc.)
+  * All v0.7.9 features: Complete Audio API Suite
+  * All v0.7.8 features: Audio API Functions and Screenshot Performance Fix
+  * All v0.7.7 features: State Management and Xbox 360 Input Lua API Functions
+  * All prior features from v0.7.6–v0.6.1
+
+---
+
+## What's new (v0.8.3)
+
+* **New Lua API Functions:** Added **2 powerful input recording management functions** for saving and loading TAS input recordings to/from files!
+
+  * **Input Recording Management:**
+    * `saveinputrecording(path)` - Saves current input recording to file
+      * Parameters: path (file path string, optional - defaults to recordings folder)
+      * Returns: boolean (success/failure)
+      * Saves TAS inputs from all 4 players to a text file
+      * Automatically creates parent directories recursively
+      * Saves to `hdd1:\fce360-enhanced\lua\recordings\` by default (or `game:\lua\recordings\` as fallback)
+      * File format: One frame per line, comma-separated button masks for each player
+      * Example: `saveinputrecording("myrecording.txt")` - saves to recordings folder
+      * Example: `saveinputrecording("hdd1:\fce360-enhanced\lua\recordings\custom.txt")` - saves to absolute path
+    * `loadinputrecording(path)` - Loads input recording from file and starts playback
+      * Parameters: path (file path string)
+      * Returns: boolean (success/failure)
+      * Loads TAS inputs from a saved file and automatically begins playback
+      * Searches multiple locations automatically (recordings folder, lua folder, game root)
+      * Stops any current playback before loading new data
+      * Supports relative and absolute paths
+      * Example: `loadinputrecording("myrecording.txt")` - loads from recordings folder
+      * Example: `loadinputrecording("hdd1:\fce360-enhanced\lua\recordings\custom.txt")` - loads from absolute path
+
+* **Technical Details:**
+  * File format: One frame per line, comma-separated button masks for 4 players (e.g., "0,0,0,0\n")
+  * Button masks stored as decimal numbers (0-255)
+  * Uses Win32 API (CreateFileA, WriteFile) for file writing (better Xbox 360 compatibility)
+  * Uses standard C file I/O (fopen, fread) for file reading
+  * Automatically creates parent directories recursively
+  * Path normalization: Automatic conversion of / to \
+  * Multiple search locations: loadinputrecording() searches recordings folder, lua folder, and game root
+  * Comprehensive error handling and validation
+  * Stops current playback before loading new recording
+
+* **Documentation:**
+  * Complete API documentation added to `wiki/Input-Recording-Functions.md`
+  * Updated `wiki/Home.md` with links to both new functions
+  * Multiple usage examples provided for each function
+  * Error handling examples documented
+  * Workflow integration examples included
+
+* **Testing:**
+  * Created `test_saveinputrecording.lua` - Tests saving input recordings
+    * X button: Save with default filename (test_recording.txt)
+    * Y button: Save with custom filename (recording_[frameCount].txt)
+    * Displays save status and file path
+  * Created `test_loadinputrecording.lua` - Tests loading input recordings
+    * X button: Load default test recording (test_recording.txt)
+    * Y button: Search and load numbered recordings (recording_N.txt) or custom names
+    * Select button: Load common test filenames
+    * Displays load status and file path
+
+* **Use Cases:**
+  * **TAS Development:** Save and load input recordings for tool-assisted speedruns
+  * **Input Playback:** Replay recorded inputs for testing and verification
+  * **Input Sharing:** Share TAS inputs between sessions or users
+  * **Input Backup:** Save important input recordings for later use
+  * **Input Analysis:** Load and analyze previously recorded inputs
+
+* **Includes Previous Features:**
+  * All v0.8.2 features: Enhanced Input API (button callbacks, hold timing, haptic feedback, input remapping)
   * All v0.8.1 features: Enhanced Drawing API (2D transforms, canvas rendering, gradients, advanced text styling, partial screenshot capture)
   * All v0.8.0 features: Complete File I/O API Suite (readfile, writefile, listfiles, etc.)
   * All v0.7.9 features: Complete Audio API Suite
