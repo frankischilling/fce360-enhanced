@@ -4,6 +4,10 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 > **Note:** Code hasn't been touched since around 2016, so I'm giving it some love with UI improvements and modern features while preserving the original emulation core.
 
+> **Note:** This can also be built with newer versions of Visual Studio and the Xbox 360 SDK/XDK. If you want to update from Visual Studio 2008, try using Visual Studio 2010.
+
+> **Warning:** You might run into build errors or incompatibilities when using newer toolchains or SDK/XDK versions. Building outside of the original environment (VS2008 + Nov 2008 XDK) may require extra fixes or changes.
+
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
