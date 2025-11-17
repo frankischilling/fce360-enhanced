@@ -148,7 +148,9 @@ The console supports scrolling to view older messages.
 ---
 
 ## See Also
+
 - **[Technical Details](Technical-Details)** - Script timing, console behavior, and implementation details
 - **[Troubleshooting](Troubleshooting)** - Debugging tips and common issues
 - **[Monitoring Functions](Monitoring-Functions)** - Functions to get frame count, FPS, and timing information
+- **[Home](Home)** - Return to the main wiki page
 

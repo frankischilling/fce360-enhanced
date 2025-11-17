@@ -1474,7 +1474,7 @@ The actual capture/playback API is documented separately for clarity.
 
 ## See Also
 
-- [Callbacks](Callbacks) - The `joypad()` callback function for input handling
-- [State Management Functions](State-Management-Functions) - Functions for save/load states (useful for TAS)
-- [Monitoring Functions](Monitoring-Functions) - Functions for frame counting and timing
-- [Home](Home) - Return to the main wiki page
+- **[Callbacks](Callbacks)** - The `joypad()` callback function for input handling
+- **[State Management Functions](State-Management-Functions)** - Functions for save/load states (useful for TAS)
+- **[Monitoring Functions](Monitoring-Functions)** - Functions for frame counting and timing
+- **[Home](Home)** - Return to the main wiki page

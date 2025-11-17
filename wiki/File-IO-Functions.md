@@ -1243,8 +1243,8 @@ end
 
 ## See Also
 
-- [Drawing Functions](Drawing-Functions) - Functions for drawing on the screen
-- [Memory Functions](Memory-Functions) - Functions for reading and writing memory
-- [State Management Functions](State-Management-Functions) - Functions for save/load states
-- [Monitoring Functions](Monitoring-Functions) - Functions for performance and timing
-- [Home](Home) - Return to the main wiki page
+- **[Drawing Functions](Drawing-Functions)** - Functions for drawing on the screen
+- **[Memory Functions](Memory-Functions)** - Functions for reading and writing memory
+- **[State Management Functions](State-Management-Functions)** - Functions for save/load states
+- **[Monitoring Functions](Monitoring-Functions)** - Functions for performance and timing
+- **[Home](Home)** - Return to the main wiki page

@@ -1626,6 +1626,6 @@ restorebytes(0x0700, savedState)
 
 ## See Also
 
-- [Home](Home) - Overview of all API functions
-- [Examples](Examples) - Working example scripts
-- [Callbacks](Callbacks) - Callback functions including `onwatch()` for memory watchpoints
+- **[Examples](Examples)** - Working example scripts
+- **[Callbacks](Callbacks)** - Callback functions including `onwatch()` for memory watchpoints
+- **[Home](Home)** - Return to the main wiki page

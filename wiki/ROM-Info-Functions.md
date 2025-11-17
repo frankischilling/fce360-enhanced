@@ -1245,7 +1245,7 @@ end
 
 ## See Also
 
-- [Memory Functions](Memory-Functions) - Functions for reading and writing ROM/RAM memory
-- [State Management Functions](State-Management-Functions) - Functions for save/load states
-- [Monitoring Functions](Monitoring-Functions) - Functions for frame counting and timing
-- [Home](Home) - Return to the main wiki page
+- **[Memory Functions](Memory-Functions)** - Functions for reading and writing ROM/RAM memory
+- **[State Management Functions](State-Management-Functions)** - Functions for save/load states
+- **[Monitoring Functions](Monitoring-Functions)** - Functions for frame counting and timing
+- **[Home](Home)** - Return to the main wiki page

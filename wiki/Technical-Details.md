@@ -132,7 +132,7 @@ Scripts are automatically searched in these locations (in order):
 
 ## See Also
 
-- [Setup](Setup) - How to set up Lua scripting
-- [Troubleshooting](Troubleshooting) - Common issues and solutions
-- [Home](Home) - Overview of all API functions
+- **[Setup](Setup)** - How to set up Lua scripting
+- **[Troubleshooting](Troubleshooting)** - Common issues and solutions
+- **[Home](Home)** - Return to the main wiki page
 

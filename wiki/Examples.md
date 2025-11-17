@@ -231,7 +231,7 @@ end
 
 ## See Also
 
-- [Home](Home) - Overview of all API functions
-- [Setup](Setup) - How to set up Lua scripting
-- [Callbacks](Callbacks) - Callback function reference
+- **[Setup](Setup)** - How to set up Lua scripting
+- **[Callbacks](Callbacks)** - Callback function reference
+- **[Home](Home)** - Return to the main wiki page
 

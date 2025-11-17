@@ -541,7 +541,7 @@ Sample conversion helpers (`audiosampletofloat()`, `normalizeaudiosample()`, and
 
 ## See Also
 
-- [Home](Home) - Main wiki page
-- [Drawing Functions](Drawing-Functions) - For displaying monitoring data
-- [Memory Functions](Memory-Functions) - For memory monitoring
-- [State Management Functions](State-Management-Functions) - For save state operations
+- **[Drawing Functions](Drawing-Functions)** - For displaying monitoring data
+- **[Memory Functions](Memory-Functions)** - For memory monitoring
+- **[State Management Functions](State-Management-Functions)** - For save state operations
+- **[Home](Home)** - Return to the main wiki page

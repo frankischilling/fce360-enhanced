@@ -2360,7 +2360,7 @@ drawpolygon(128, 60, 148, 90, 128, 120, 108, 90, 0x20)  -- Bright white outline 
 
 ## See Also
 
-- [Home](Home) - Overview of all API functions
-- [Palette Reference](Palette-Reference) - Complete NES palette color reference
-- [Color Functions](Color-Functions) - Color manipulation functions
-- [Examples](Examples) - Working example scripts
+- **[Palette Reference](Palette-Reference)** - Complete NES palette color reference
+- **[Color Functions](Color-Functions)** - Color manipulation functions
+- **[Examples](Examples)** - Working example scripts
+- **[Home](Home)** - Return to the main wiki page

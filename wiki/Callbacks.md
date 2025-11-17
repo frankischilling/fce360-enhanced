@@ -261,6 +261,6 @@ end
 
 ## See Also
 
-- [Home](Home) - Overview of all API functions
-- [Input Functions](Input-Functions) - Input manipulation functions
-- [Examples](Examples) - Complete working examples
+- **[Input Functions](Input-Functions)** - Input manipulation functions
+- **[Examples](Examples)** - Complete working examples
+- **[Home](Home)** - Return to the main wiki page

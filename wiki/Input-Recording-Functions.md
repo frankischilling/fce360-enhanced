@@ -1,6 +1,6 @@
 ﻿# Input Recording Functions
 
-The input recording helpers let Lua scripts capture controller activity frame-by-frame, store it, and play it back later. Recordings always include every player (0â€“3) and honour the final button state for each frame after any Lua overrides.
+The input recording helpers let Lua scripts capture controller activity frame-by-frame, store it, and play it back later. Recordings always include every player (0-3) and honour the final button state for each frame after any Lua overrides.
 
 ## Workflow Overview
 1. Call `startinputrecording()` to begin capturing input.
@@ -62,7 +62,7 @@ end
 Stop capturing and return the recorded input.
 
 - **Parameters:** none
-- **Returns:** table containing four keys (`player0` â€¦ `player3`). Each value is a 1-indexed array of integer button masks (0x00â€“0xFF) representing each frame.
+- **Returns:** table containing four keys (`player0` ... `player3`). Each value is a 1-indexed array of integer button masks (0x00-0xFF) representing each frame.
 - **Errors:** Raises a Lua error if you call it while no recording is active.
 - **Notes:**
   - Players with no activity still return an empty array for consistency.
@@ -103,7 +103,7 @@ end
 Replay a recording created by `stopinputrecording()`.
 
 - **Parameters:**
-  - `data` â€" table with keys `player0` â€¦ `player3`; each value is an array of button masks.
+  - `data` - table with keys `player0` ... `player3`; each value is an array of button masks.
 - **Returns:** nothing
 - **Behaviour:**
   - Playback overrides *all* other input sources (hardware pads, `setjoypad()`, `pressbutton()`, etc.) until the recording finishes.
@@ -126,7 +126,7 @@ function beforeframe()
     if selectPressed and not lastSelect then
         if recording == nil then
             startinputrecording()
-            print("Recording nowâ€¦")
+            print("Recording now...")
         else
             recording = stopinputrecording()
             print("Recording saved")
@@ -163,7 +163,7 @@ playinputrecording(recording)
 Saves the current input recording to a file on disk.
 
 - **Parameters:**
-  - `path` â€" file path string (relative or absolute)
+  - `path` - file path string (relative or absolute)
 - **Returns:** `boolean`
   - `true` if the file was successfully saved
   - `false` if there's no recording data, the file cannot be opened, or write fails
@@ -231,7 +231,7 @@ end
 Loads an input recording from a file and automatically starts playback.
 
 - **Parameters:**
-  - `path` â€" file path string (relative or absolute)
+  - `path` - file path string (relative or absolute)
 - **Returns:** `boolean`
   - `true` if the file was successfully loaded and playback started
   - `false` if the file cannot be found, opened, or parsed
@@ -298,7 +298,7 @@ end
 Sets a marker at the current frame in the recording. Markers can be used to bookmark specific positions in a recording for later reference or navigation.
 
 - **Parameters:**
-  - `name` â€" marker name string (required)
+  - `name` - marker name string (required)
 - **Returns:** nothing
 - **Behaviour & Notes:**
   - Sets a marker at the current frame in the active recording.
@@ -396,7 +396,7 @@ end
 Jumps to a marker position in the current playback. This allows you to navigate to specific bookmarked frames during playback.
 
 - **Parameters:**
-  - `name` â€" marker name string (required)
+  - `name` - marker name string (required)
 - **Returns:** `boolean`
   - `true` if the jump was successful
   - `false` if playback is not active, marker not found, or marker frame is out of bounds
@@ -770,6 +770,8 @@ end
 ---
 
 ## See Also
-- **[Input Functions](Input-Functions)** â€" Inspect or override controller states (`getjoypad()`, `setjoypad()`, `pressbutton()`, etc.).
-- **[State Management Functions](State-Management-Functions)** â€" Save states allow you to combine recordings with quick resets for testing.
-- **[File I/O Functions](File-IO-Functions)** â€" Additional file operations (`readfile()`, `writefile()`) for custom serialization if needed.
+
+- **[Input Functions](Input-Functions)** - Inspect or override controller states (`getjoypad()`, `setjoypad()`, `pressbutton()`, etc.).
+- **[State Management Functions](State-Management-Functions)** - Save states allow you to combine recordings with quick resets for testing.
+- **[File I/O Functions](File-IO-Functions)** - Additional file operations (`readfile()`, `writefile()`) for custom serialization if needed.
+- **[Home](Home)** - Return to the main wiki page

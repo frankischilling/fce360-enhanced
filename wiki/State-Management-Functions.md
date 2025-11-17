@@ -513,7 +513,7 @@ end
 
 ## See Also
 
-- [Home](Home) - Main wiki page
-- [Drawing Functions](Drawing-Functions) - For displaying save state UI
-- [Input Functions](Input-Functions) - For button-based save/load controls
-- [Memory Functions](Memory-Functions) - For memory operations
+- **[Drawing Functions](Drawing-Functions)** - For displaying save state UI
+- **[Input Functions](Input-Functions)** - For button-based save/load controls
+- **[Memory Functions](Memory-Functions)** - For memory operations
+- **[Home](Home)** - Return to the main wiki page

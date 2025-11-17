@@ -728,7 +728,7 @@ end
 
 ## See Also
 
-- [Palette Reference](Palette-Reference) - Complete NES 64-color palette reference
-- [Drawing Functions](Drawing-Functions) - Functions for drawing with colors
-- [Memory Functions](Memory-Functions) - Functions for reading and writing memory
-- [Home](Home) - Return to the main wiki page
+- **[Palette Reference](Palette-Reference)** - Complete NES 64-color palette reference
+- **[Drawing Functions](Drawing-Functions)** - Functions for drawing with colors
+- **[Memory Functions](Memory-Functions)** - Functions for reading and writing memory
+- **[Home](Home)** - Return to the main wiki page

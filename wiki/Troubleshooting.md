@@ -134,7 +134,8 @@ Common issues and solutions for Lua scripting in FCE360 Enhanced.
 
 ## See Also
 
-- [Setup](Setup) - How to set up Lua scripting
-- [Technical Details](Technical-Details) - Implementation specifics
-- [Examples](Examples) - Working code samples
+- **[Setup](Setup)** - How to set up Lua scripting
+- **[Technical Details](Technical-Details)** - Implementation specifics
+- **[Examples](Examples)** - Working code samples
+- **[Home](Home)** - Return to the main wiki page
 

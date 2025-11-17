@@ -1227,6 +1227,8 @@ print(string.format("Stereo: L=%d, R=%d -> Mono: %d",
 ---
 
 ## See Also
-- **[Monitoring Functions](Monitoring-Functions)** – Frame timing helpers including `getfps()` and `gettimedelta()`.
-- **[Input Functions](Input-Functions)** – Inspect or override controller states.
-- **[ROM Information Functions](ROM-Info-Functions)** – Mapper, battery, and Game Genie helpers for deeper metadata.
+
+- **[Monitoring Functions](Monitoring-Functions)** - Frame timing helpers including `getfps()` and `gettimedelta()`
+- **[Input Functions](Input-Functions)** - Inspect or override controller states
+- **[ROM Information Functions](ROM-Info-Functions)** - Mapper, battery, and Game Genie helpers for deeper metadata
+- **[Home](Home)** - Return to the main wiki page
