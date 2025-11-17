@@ -488,7 +488,10 @@ static bool s_inputRecording = false;              // true if recording input
 static std::vector<uint8> s_recordedInput[4];      // recorded input per player (frame-by-frame)
 static bool s_inputPlayback = false;               // true if playing back input
 static std::vector<uint8> s_playbackInput[4];      // playback input per player
-static int s_playbackFrame = 0;                    // current frame in playback
+static int s_playbackFrame = 0;                    // current frame in playback (integer frame index)
+static double s_playbackPosition = 0.0;            // current playback position (for speed control)
+static double s_playbackSpeed = 1.0;               // playback speed multiplier (1.0 = normal, 0.5 = half, 2.0 = double)
+static std::map<std::string, int> s_recordingMarkers;  // recording markers (name -> frame number)
 
 static void LuaConsolePushLine(const char* msg) {
      if (!msg || !msg[0]) return;
@@ -2358,6 +2361,9 @@ static const char* ResolveVirtualButton(lua_State* L, const char* virtualBtn)
 		 s_recordedInput[p].clear();
 	 }
 	 
+	 // Clear markers when starting new recording
+	 s_recordingMarkers.clear();
+	 
 	 s_inputRecording = true;
 	 lua_pushboolean(L, 1);  // true - recording started
 	 return 1;
@@ -2453,6 +2459,7 @@ static const char* ResolveVirtualButton(lua_State* L, const char* virtualBtn)
 	 // Start playback
 	 s_inputPlayback = true;
 	 s_playbackFrame = 0;
+	 s_playbackPosition = 0.0;
 	 
 	 return 0;
  }
@@ -2709,12 +2716,13 @@ static const char* ResolveVirtualButton(lua_State* L, const char* virtualBtn)
 	 // Stop any current playback
 	 s_inputPlayback = false;
 	 s_playbackFrame = 0;
+	 s_playbackPosition = 0.0;
 	 
 	 // Clear playback data
 	 for (int p = 0; p < 4; ++p) {
 		 s_playbackInput[p].clear();
 	 }
-	 
+
 	 // Parse file contents
 	 // Format: one frame per line, comma-separated button masks for each player
 	 // Example: "0,0,0,0\n" for frame 0 (all players no buttons)
@@ -2804,6 +2812,218 @@ static const char* ResolveVirtualButton(lua_State* L, const char* virtualBtn)
 	 s_inputPlayback = true;
 	 s_playbackFrame = 0;
 	 
+	 lua_pushboolean(L, 1);
+	 return 1;
+ }
+
+ // setrecordingmarker(name) -> nothing
+ // Sets a marker at the current frame in the recording
+ // Parameters: name (marker name string)
+ // Returns: Nothing
+ // Use case: Bookmark positions in recording
+ static int lua_setrecordingmarker(lua_State* L)
+ {
+	 int n = lua_gettop(L);
+	 if (n < 1) {
+		 return luaL_error(L, "setrecordingmarker(name) requires 1 argument");
+	 }
+
+	 const char* name = luaL_checkstring(L, 1);
+	 if (!name || strlen(name) == 0) {
+		 return 0;  // Empty name, do nothing
+	 }
+
+	 // Check if recording is active
+	 if (!s_inputRecording) {
+		 return 0;  // Not recording, do nothing
+	 }
+
+	 // Get current frame number (use player 0's size as frame count)
+	 // The size represents the number of frames recorded so far
+	 // Since setrecordingmarker() is called from beforeframe() callback,
+	 // the current frame hasn't been recorded yet - it will be recorded at the end of the frame
+	 // So we mark the frame at index = size (the next frame to be recorded)
+	 // Example: If 10 frames are recorded (indices 0-9), size=10, we mark frame 10
+	 int currentFrame = (int)s_recordedInput[0].size();
+
+	 // Store marker
+	 s_recordingMarkers[std::string(name)] = currentFrame;
+
+	 return 0;
+ }
+
+ // jumptorecordingmarker(name) -> boolean
+ // Jumps to marker in recording during playback
+ // Parameters: name (marker name string)
+ // Returns: Boolean (success)
+ // Use case: Navigate recording
+ static int lua_jumptorecordingmarker(lua_State* L)
+ {
+	 int n = lua_gettop(L);
+	 if (n < 1) {
+		 return luaL_error(L, "jumptorecordingmarker(name) requires 1 argument");
+	 }
+
+	 const char* name = luaL_checkstring(L, 1);
+	 if (!name || strlen(name) == 0) {
+		 lua_pushboolean(L, 0);
+		 return 1;
+	 }
+
+	 // Check if playback is active
+	 if (!s_inputPlayback) {
+		 lua_pushboolean(L, 0);
+		 return 1;
+	 }
+
+	 // Look up marker
+	 std::map<std::string, int>::iterator it = s_recordingMarkers.find(std::string(name));
+	 if (it == s_recordingMarkers.end()) {
+		 // Marker not found
+		 lua_pushboolean(L, 0);
+		 return 1;
+	 }
+
+	 int markerFrame = it->second;
+
+	 // Check if marker frame is within bounds of playback data
+	 // Find the maximum frame count across all players
+	 int maxFrames = 0;
+	 for (int p = 0; p < 4; ++p) {
+		 if ((int)s_playbackInput[p].size() > maxFrames) {
+			 maxFrames = (int)s_playbackInput[p].size();
+		 }
+	 }
+
+	 // Validate marker frame is within bounds
+	 // Note: markerFrame is 0-indexed, so valid range is 0 to maxFrames-1
+	 // However, if markerFrame equals maxFrames (one past the end), clamp it to maxFrames-1
+	 if (markerFrame < 0) {
+		 lua_pushboolean(L, 0);
+		 return 1;
+	 }
+	 if (markerFrame >= maxFrames) {
+		 // Clamp to last valid frame if marker is out of bounds
+		 if (maxFrames > 0) {
+			 markerFrame = maxFrames - 1;
+		 } else {
+			 lua_pushboolean(L, 0);
+			 return 1;
+		 }
+	 }
+
+	 // Jump to marker frame
+	 s_playbackFrame = markerFrame;
+	 s_playbackPosition = (double)markerFrame;
+
+	 lua_pushboolean(L, 1);
+	 return 1;
+ }
+
+ // setplaybackspeed(mult) -> nothing
+ // Sets playback speed multiplier
+ // Parameters: mult (number: 0.5, 1.0, 2.0, etc.)
+ // Returns: Nothing
+ // Use case: Slow/fast motion playback
+ static int lua_setplaybackspeed(lua_State* L)
+ {
+	 int n = lua_gettop(L);
+	 if (n < 1) {
+		 return luaL_error(L, "setplaybackspeed(mult) requires 1 argument");
+	 }
+
+	 double mult = luaL_checknumber(L, 1);
+	 
+	 // Clamp speed to reasonable range (0.1 to 10.0)
+	 if (mult < 0.1) mult = 0.1;
+	 if (mult > 10.0) mult = 10.0;
+
+	 // Set playback speed
+	 s_playbackSpeed = mult;
+
+	 return 0;
+ }
+
+ // trimrecording(startFrame, endFrame) -> boolean
+ // Trims recording to frame range
+ // Parameters: startFrame, endFrame (frame numbers)
+ // Returns: Boolean (success)
+ // Use case: Edit recordings
+ static int lua_trimrecording(lua_State* L)
+ {
+	 int n = lua_gettop(L);
+	 if (n < 2) {
+		 return luaL_error(L, "trimrecording(startFrame, endFrame) requires 2 arguments");
+	 }
+
+	 int startFrame = (int)luaL_checkinteger(L, 1);
+	 int endFrame = (int)luaL_checkinteger(L, 2);
+
+	 // Check if recording is active
+	 if (!s_inputRecording) {
+		 lua_pushboolean(L, 0);
+		 return 1;
+	 }
+
+	 // Validate frame range
+	 if (startFrame < 0 || endFrame < 0) {
+		 lua_pushboolean(L, 0);
+		 return 1;
+	 }
+
+	 if (startFrame > endFrame) {
+		 lua_pushboolean(L, 0);
+		 return 1;
+	 }
+
+	 // Find the maximum frame count across all players
+	 int maxFrames = 0;
+	 for (int p = 0; p < 4; ++p) {
+		 if ((int)s_recordedInput[p].size() > maxFrames) {
+			 maxFrames = (int)s_recordedInput[p].size();
+		 }
+	 }
+
+	 // Check if frame range is valid
+	 if (startFrame >= maxFrames || endFrame >= maxFrames) {
+		 lua_pushboolean(L, 0);
+		 return 1;
+	 }
+
+	 // Trim all player vectors to the specified range
+	 // Keep frames from startFrame to endFrame (inclusive)
+	 for (int p = 0; p < 4; ++p) {
+		 if ((int)s_recordedInput[p].size() > 0) {
+			 // Create new vector with trimmed range
+			 std::vector<uint8> trimmed;
+			 trimmed.reserve(endFrame - startFrame + 1);
+			 
+			 for (int i = startFrame; i <= endFrame; ++i) {
+				 if (i < (int)s_recordedInput[p].size()) {
+					 trimmed.push_back(s_recordedInput[p][i]);
+				 } else {
+					 // If this player has fewer frames, pad with 0
+					 trimmed.push_back(0);
+				 }
+			 }
+			 
+			 // Replace original with trimmed version
+			 s_recordedInput[p] = trimmed;
+		 }
+	 }
+
+	 // Update markers: remove markers outside the trimmed range, adjust others
+	 std::map<std::string, int> newMarkers;
+	 for (std::map<std::string, int>::iterator it = s_recordingMarkers.begin(); it != s_recordingMarkers.end(); ++it) {
+		 int markerFrame = it->second;
+		 if (markerFrame >= startFrame && markerFrame <= endFrame) {
+			 // Marker is within range, adjust its position (subtract startFrame)
+			 newMarkers[it->first] = markerFrame - startFrame;
+		 }
+		 // Markers outside the range are discarded
+	 }
+	 s_recordingMarkers = newMarkers;
+
 	 lua_pushboolean(L, 1);
 	 return 1;
  }
@@ -11303,6 +11523,10 @@ int lua_ismemorywritable(lua_State *L) {
 	 lua_setglobal(luaState, "playinputrecording");
 	 lua_register(luaState, "saveinputrecording", lua_saveinputrecording);
 	 lua_register(luaState, "loadinputrecording", lua_loadinputrecording);
+	 lua_register(luaState, "setrecordingmarker", lua_setrecordingmarker);
+	 lua_register(luaState, "jumptorecordingmarker", lua_jumptorecordingmarker);
+	 lua_register(luaState, "setplaybackspeed", lua_setplaybackspeed);
+	 lua_register(luaState, "trimrecording", lua_trimrecording);
 	 lua_register(luaState, "getromname", lua_getromname);
 	 lua_register(luaState, "getframecount", lua_getframecount);
 	 lua_register(luaState, "getframecycles", lua_getframecycles);
@@ -11500,6 +11724,10 @@ static void EnsureLuaInit() {
 	lua_setglobal(luaState, "playinputrecording");
 	REG("saveinputrecording", lua_saveinputrecording);
 	REG("loadinputrecording", lua_loadinputrecording);
+	REG("setrecordingmarker", lua_setrecordingmarker);
+	REG("jumptorecordingmarker", lua_jumptorecordingmarker);
+	REG("setplaybackspeed", lua_setplaybackspeed);
+	REG("trimrecording", lua_trimrecording);
 	REG("getromname", lua_getromname);
 	REG("getframecount", lua_getframecount);
 	REG("getframecycles", lua_getframecycles);
@@ -13289,6 +13517,9 @@ extern "C" void FCEU_LuaJoypadApply(void)
 	// Apply input playback FIRST if active (playback overrides everything)
 	// This must happen before other overrides so playback takes precedence
 	if (s_inputPlayback) {
+		// Use playback position (converted to int frame index)
+		s_playbackFrame = (int)s_playbackPosition;
+		
 		// Apply playback for player 0 (low byte of powerpadbuf)
 		if (s_playbackFrame < (int)s_playbackInput[0].size()) {
 			uint8 pad0 = s_playbackInput[0][s_playbackFrame];
@@ -13391,6 +13622,8 @@ extern "C" void FCEU_LuaJoypadApply(void)
 		// Apply input playback if active (playback overrides everything)
 		// This must happen before recording so we record the playback, not the original input
 		if (s_inputPlayback && p < 4) {
+			// Use playback position (converted to int frame index)
+			s_playbackFrame = (int)s_playbackPosition;
 			if (s_playbackFrame < (int)s_playbackInput[p].size()) {
 				// Use recorded input for this frame
 				finalButtons = s_playbackInput[p][s_playbackFrame];
@@ -13408,9 +13641,36 @@ extern "C" void FCEU_LuaJoypadApply(void)
 		joy[p] = finalButtons;
 	}
 	
-	// Advance playback frame counter
+	// Advance playback position based on speed multiplier
+	// CRITICAL: We must play EVERY frame sequentially to avoid missing inputs
+	// At speeds >= 1.0: play frames 0,1,2,3... in sequence (one per emulator frame)
+	//   This means at 4x speed, playback takes the same time as 1x, but all inputs are played
+	// At speeds < 1.0: hold each frame longer (play each frame multiple times for slow motion)
 	if (s_inputPlayback) {
-		s_playbackFrame++;
+		if (s_playbackSpeed >= 1.0) {
+			// At normal or high speeds: play every frame sequentially
+			// Always advance by 1.0 to ensure we play frames 0,1,2,3... in order
+			// This guarantees no inputs are missed, even at high speeds
+			s_playbackFrame = (int)s_playbackPosition;
+			s_playbackPosition += 1.0;  // Always advance by 1.0 to play every frame
+		} else {
+			// At low speeds (< 1.0): hold frames longer for slow motion
+			// Advance position by speed multiplier, so each frame plays multiple times
+			s_playbackPosition += s_playbackSpeed;
+			s_playbackFrame = (int)floor(s_playbackPosition);
+		}
+		
+		// Clamp to valid range
+		int maxFrames = 0;
+		for (int p = 0; p < 4; ++p) {
+			if ((int)s_playbackInput[p].size() > maxFrames) {
+				maxFrames = (int)s_playbackInput[p].size();
+			}
+		}
+		if (s_playbackFrame >= maxFrames && maxFrames > 0) {
+			s_playbackFrame = maxFrames - 1;
+		}
+		
 		// Check if all players have finished playback
 		bool allFinished = true;
 		for (int p = 0; p < 4; ++p) {
@@ -13422,6 +13682,7 @@ extern "C" void FCEU_LuaJoypadApply(void)
 		if (allFinished) {
 			s_inputPlayback = false;
 			s_playbackFrame = 0;
+			s_playbackPosition = 0.0;
 		}
 	}
 }
