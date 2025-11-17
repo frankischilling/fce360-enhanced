@@ -7,7 +7,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.8.3** — *Input Recording Save/Load API: Save and load TAS input recordings to/from files + all prior features from v0.8.2–v0.6.1*
+* Current release: **v0.8.4** — *Enhanced Input Recording Functions: Recording markers, playback navigation, speed control, and trimming + all prior features from v0.8.3–v0.6.1*
 
 ---
 
@@ -15,6 +15,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.8.4 - Enhanced Input Recording Functions](#whats-new-v084)
   - [v0.8.3 - Input Recording Save/Load API](#whats-new-v083)
   - [v0.8.2 - Enhanced Input API](#whats-new-v082)
   - [v0.8.1 - Enhanced Drawing API](#whats-new-v081)
@@ -87,7 +88,107 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 ## What's New
 
-*Current release: **v0.8.3** — Input Recording Save/Load API: Save and load TAS input recordings to/from files + all prior features from v0.8.2–v0.6.1*
+*Current release: **v0.8.4** — Enhanced Input Recording Functions: Recording markers, playback navigation, speed control, and trimming + all prior features from v0.8.3–v0.6.1*
+
+---
+
+## What's new (v0.8.4)
+
+* **New Lua API Functions:** Added **4 powerful input recording functions** for recording navigation, editing, and playback control!
+
+  * **Recording Markers:**
+    * `setrecordingmarker(name)` - Sets a named marker at the current frame during recording
+      * Parameters: name (marker name string)
+      * Returns: nothing
+      * Allows bookmarking specific positions in a recording
+      * Markers are stored with the recording and persist through save/load
+      * Use case: Mark important moments like jump points, checkpoints, or transitions
+      * Example: `setrecordingmarker("jump_point")` - marks current frame as "jump_point"
+    * `jumptorecordingmarker(name)` - Jumps playback to a previously set marker during playback
+      * Parameters: name (marker name string)
+      * Returns: boolean (success)
+      * Only works when playback is active
+      * Automatically handles marker position adjustment after trimming
+      * Use case: Quick navigation to specific sections of a recording
+      * Example: `jumptorecordingmarker("jump_point")` - jumps to the "jump_point" marker
+
+  * **Playback Speed Control:**
+    * `setplaybackspeed(mult)` - Sets playback speed multiplier for input recordings
+      * Parameters: mult (number: 0.5, 1.0, 2.0, etc.)
+      * Returns: nothing
+      * Valid range: 0.1x to 10.0x (automatically clamped)
+      * At speeds >= 1.0x: Plays every frame sequentially to preserve all inputs
+      * At speeds < 1.0x: Holds frames longer for slow motion analysis
+      * Speed persists until changed or playback stops
+      * Use case: Slow down playback for frame-perfect analysis or speed up for faster testing
+      * Example: `setplaybackspeed(0.5)` - half speed (slow motion)
+      * Example: `setplaybackspeed(2.0)` - double speed
+
+  * **Recording Editing:**
+    * `trimrecording(startFrame, endFrame)` - Trims active recording to specified frame range
+      * Parameters: startFrame, endFrame (frame numbers, 0-indexed)
+      * Returns: boolean (success)
+      * Only works when recording is active
+      * Removes all frames outside the specified range
+      * Automatically updates markers: adjusts positions for markers within range, removes markers outside range
+      * All four players are trimmed to the same range
+      * Use case: Edit recordings by removing unwanted frames, keeping only important sections
+      * Example: `trimrecording(10, 50)` - keeps only frames 10-50 (inclusive)
+
+* **Technical Details:**
+  * Markers are stored in a std::map<std::string, int> for efficient lookup
+  * Marker positions are automatically adjusted when trimming (subtract startFrame)
+  * Playback speed uses double precision for fractional frame advancement
+  * At speeds >= 1.0, playback advances by 1.0 per frame to ensure all inputs are played
+  * At speeds < 1.0, playback advances by speed multiplier for slow motion
+  * Trim operation validates frame range and updates all player vectors and markers atomically
+
+* **Documentation:**
+  * Complete API documentation added to `wiki/Input-Recording-Functions.md`
+  * Updated `wiki/Home.md` with links to all four new functions
+  * Updated Workflow Overview to include new functions
+  * Multiple usage examples provided for each function
+  * Error handling examples documented
+  * Use case examples included
+
+* **Testing:**
+  * Created `test_setrecordingmarker.lua` - Tests marker setting during recording
+    * SELECT to start/stop recording
+    * A/B/X/Y buttons to set different markers
+    * Displays marker status and list of set markers
+  * Created `test_jumptorecordingmarker.lua` - Tests marker navigation during playback
+    * SELECT to start recording, B to stop, Y to start playback
+    * NES A/START/UP/DOWN to set markers during recording
+    * NES A/START/UP/DOWN to jump to markers during playback
+    * Displays recording/playback status and jump results
+  * Created `test_setplaybackspeed.lua` - Tests speed control with automatic playback restart
+    * SELECT to toggle recording
+    * Y to start playback
+    * A/B/X/START/UP to set speeds (0.5x, 1.0x, 2.0x, 0.25x, 4.0x)
+    * Automatically restarts playback when it finishes
+  * Created `test_trimrecording.lua` - Tests trimming functionality
+    * SELECT to start/stop recording
+    * A/B to set trim start/end frames
+    * X to trim recording
+    * Y to reset trim selection
+    * Displays trim selection and results
+
+* **Use Cases:**
+  * **Recording Navigation:** Use markers to quickly jump to important sections during playback
+  * **Frame Analysis:** Slow down playback to analyze frame-perfect inputs
+  * **Recording Editing:** Trim recordings to remove unwanted frames, keeping only important sections
+  * **TAS Development:** Combine markers, trimming, and speed control for efficient TAS creation
+  * **Input Testing:** Speed up playback for faster testing while preserving all inputs
+
+* **Includes Previous Features:**
+  * All v0.8.3 features: Input Recording Save/Load API (saveinputrecording, loadinputrecording)
+  * All v0.8.2 features: Enhanced Input API (button callbacks, hold timing, haptic feedback, input remapping)
+  * All v0.8.1 features: Enhanced Drawing API (2D transforms, canvas rendering, gradients, advanced text styling, partial screenshot capture)
+  * All v0.8.0 features: Complete File I/O API Suite (readfile, writefile, listfiles, etc.)
+  * All v0.7.9 features: Complete Audio API Suite
+  * All v0.7.8 features: Audio API Functions and Screenshot Performance Fix
+  * All v0.7.7 features: State Management and Xbox 360 Input Lua API Functions
+  * All prior features from v0.7.6–v0.6.1
 
 ---
 
