@@ -74,6 +74,511 @@ function gui()
 end
 ```
 
+---
+
+### `getrompath()`
+
+**Signature:** `getrompath()`
+
+Returns the full path of the currently loaded ROM file (including archive entry if applicable).
+
+- **Parameters:** none
+- **Returns:** `string`
+  - Full file path such as `hdd1:\fce360-enhanced\roms\Game.nes`
+  - For archives, returns the `zipPath|internalFile.nes` format used internally
+  - Returns empty string (`""`) if no ROM is loaded
+- **Notes:**
+  - Useful when you need to load/save files relative to the ROM location (e.g., sidecar data, metadata, movie files).
+  - When the ROM came from a `.zip`, the path includes the archive path followed by `|` and the internal filename so you can distinguish entries.
+
+**Example: Derive ROM directory**
+```lua
+function script()
+    local path = getrompath()
+    if path == "" then
+        drawtext(4, 4, "No ROM loaded", 0x2D)
+        return
+    end
+
+    drawtext(4, 4, "Full path:", 0x2E)
+    drawtext(4, 14, path, 0x20)
+
+    -- Strip archive entry or filename to get directory
+    local clean = path
+    local pipe = clean:find("|", 1, true)
+    if pipe then
+        clean = clean:sub(1, pipe - 1)
+    end
+    local lastSlash = clean:match(".*()[/\\]")
+    if lastSlash then
+        clean = clean:sub(1, lastSlash - 1)
+    end
+    drawtext(4, 28, "Directory: " .. clean, 0x29)
+end
+```
+
+---
+
+### `getromhash(algorithm)`
+
+**Signature:** `getromhash(algorithm)`
+
+Gets the ROM hash using the specified algorithm. Returns a hexadecimal string representation of the hash value for ROM identification and verification.
+
+- **Parameters:**
+  - `algorithm` (string): Hash algorithm to use
+    - `"crc32"` or `"crc"` - CRC32 checksum (8-character hex string)
+    - `"md5"` - MD5 hash (32-character hex string)
+    - `"sum"` or `"checksum"` - Simple 8-bit sum checksum (2-character hex string)
+    - `"sum16"` - 16-bit sum checksum (4-character hex string)
+    - `"xor"` - XOR checksum (2-character hex string)
+- **Returns:**
+  - `string` - Hash value as hexadecimal string
+    - CRC32: 8-character hex string (e.g., `"a0b1c2d3"`)
+    - MD5: 32-character hex string (e.g., `"0123456789abcdef0123456789abcdef"`)
+    - Sum: 2-character hex string (e.g., `"a5"`)
+    - Sum16: 4-character hex string (e.g., `"a5b3"`)
+    - XOR: 2-character hex string (e.g., `"7f"`)
+    - Returns empty string (`""`) if no ROM is loaded
+- **Errors:**
+  - Raises a Lua error if algorithm is invalid or unsupported (e.g., `"sha1"`, `"sha256"`, `"sha512"`)
+- **Notes:**
+  - Algorithm names are case-insensitive (`"crc32"`, `"CRC32"`, `"Crc32"` all work)
+  - CRC32 and MD5 hashes are calculated when the ROM is loaded and cached
+  - Sum, Sum16, and XOR checksums are calculated on-the-fly from ROM data
+  - CRC32 is useful for quick ROM identification
+  - MD5 is useful for precise ROM verification and database lookups
+  - Simple checksums (sum, sum16, xor) are useful for quick integrity checks
+  - SHA algorithms (SHA1, SHA256, SHA512) are not supported in FCEUX
+  - Use case: ROM identification, verification against known good dumps, database lookups
+
+**Example: Display ROM Hashes:**
+```lua
+function script()
+    local romName = getromname()
+    if romName == "" then
+        drawtext(4, 4, "No ROM loaded", 0x2D)
+        return
+    end
+    
+    local y = 4
+    drawtext(4, y, "ROM: " .. romName, 0x20)
+    y = y + 10
+    
+    -- Get CRC32 hash
+    local crc32 = getromhash("crc32")
+    drawtext(4, y, "CRC32: " .. crc32, 0x39)
+    y = y + 10
+    
+    -- Get MD5 hash
+    local md5 = getromhash("md5")
+    drawtext(4, y, "MD5: " .. string.sub(md5, 1, 16) .. "...", 0x39)
+    y = y + 10
+    drawtext(4, y, "     " .. string.sub(md5, 17, 32), 0x39)
+end
+```
+
+**Example: ROM Verification:**
+```lua
+local knownGoodCRC32 = "a0b1c2d3"  -- Example known good CRC32
+
+function script()
+    local romName = getromname()
+    if romName == "" then
+        return
+    end
+    
+    local crc32 = getromhash("crc32")
+    
+    if crc32 == knownGoodCRC32 then
+        drawtext(4, 4, "ROM verified: OK", 0x29)
+    else
+        drawtext(4, 4, "ROM verification failed!", 0x2D)
+        drawtext(4, 14, "Expected: " .. knownGoodCRC32, 0x2D)
+        drawtext(4, 24, "Got: " .. crc32, 0x2D)
+    end
+end
+```
+
+**Example: ROM Database Lookup:**
+```lua
+local romDatabase = {
+    ["a0b1c2d3"] = "Super Mario Bros. (USA)",
+    ["b1c2d3e4"] = "The Legend of Zelda (USA)",
+    ["c2d3e4f5"] = "Metroid (USA)"
+}
+
+function script()
+    local romName = getromname()
+    if romName == "" then
+        return
+    end
+    
+    local crc32 = getromhash("crc32")
+    local gameName = romDatabase[crc32]
+    
+    if gameName then
+        drawtext(4, 4, "Game: " .. gameName, 0x20)
+        drawtext(4, 14, "CRC32: " .. crc32, 0x39)
+    else
+        drawtext(4, 4, "Unknown ROM", 0x2D)
+        drawtext(4, 14, "CRC32: " .. crc32, 0x39)
+    end
+end
+```
+
+**Example: Multiple Hash Algorithms:**
+```lua
+function script()
+    local romName = getromname()
+    if romName == "" then
+        return
+    end
+    
+    local y = 4
+    drawtext(4, y, "ROM: " .. romName, 0x20)
+    y = y + 10
+    
+    -- Display all available hash types
+    local crc32 = getromhash("crc32")
+    local md5 = getromhash("md5")
+    local sum = getromhash("sum")
+    local sum16 = getromhash("sum16")
+    local xor = getromhash("xor")
+    
+    drawtext(4, y, "CRC32: " .. crc32, 0x39)
+    y = y + 10
+    drawtext(4, y, "MD5: " .. string.sub(md5, 1, 16) .. "...", 0x39)
+    y = y + 10
+    drawtext(4, y, "Sum: " .. sum, 0x39)
+    y = y + 10
+    drawtext(4, y, "Sum16: " .. sum16, 0x39)
+    y = y + 10
+    drawtext(4, y, "XOR: " .. xor, 0x39)
+end
+```
+
+**Example: Error Handling:**
+```lua
+function script()
+    local romName = getromname()
+    if romName == "" then
+        drawtext(4, 4, "No ROM loaded", 0x2D)
+        return
+    end
+    
+    -- Try to get MD5 hash
+    local success, md5 = pcall(function()
+        return getromhash("md5")
+    end)
+    
+    if success then
+        drawtext(4, 4, "MD5: " .. string.sub(md5, 1, 16) .. "...", 0x39)
+    else
+        drawtext(4, 4, "Error getting MD5", 0x2D)
+    end
+    
+    -- Try SHA1 (will error)
+    local sha1Success, sha1Result = pcall(function()
+        return getromhash("sha1")
+    end)
+    
+    if not sha1Success then
+        drawtext(4, 14, "SHA1: Not supported", 0x2D)
+    end
+end
+```
+
+---
+
+### `getinesheader()`
+
+**Signature:** `getinesheader()`
+
+Gets the full iNES header dump as a Lua table. Returns comprehensive information about the ROM header including mapper, mirroring, flags, and raw header data.
+
+- **Parameters:** None
+- **Returns:**
+  - `table` - Lua table containing iNES header information, or `nil` if no ROM is loaded
+  - Table fields:
+    - `id` (string): Header identification string (typically "NES\x1a")
+    - `rom_size` (integer): PRG-ROM size in 16KB units (raw header value)
+    - `vrom_size` (integer): CHR-ROM size in 8KB units (raw header value)
+    - `rom_type` (integer): Raw ROM_type byte (flags)
+    - `rom_type2` (integer): Raw ROM_type2 byte (extended flags)
+    - `mapper` (integer): Calculated mapper number (0-255)
+    - `mirroring` (integer): Mirroring mode (0=horizontal, 1=vertical, 2=four-screen)
+    - `mirroring_string` (string): Mirroring mode as string ("horizontal", "vertical", "four-screen")
+    - `has_battery` (boolean): `true` if ROM has battery-backed save RAM
+    - `has_trainer` (boolean): `true` if ROM has 512-byte trainer
+    - `four_screen` (boolean): `true` if ROM uses four-screen VRAM mode
+    - `vs_system` (boolean): `true` if ROM is VS System (arcade)
+    - `playchoice10` (boolean): `true` if ROM is PlayChoice-10
+    - `nes2_format` (boolean): `true` if ROM uses NES 2.0 format
+    - `raw_header` (table): Array of all 16 header bytes (1-indexed)
+    - `reserve` (table): Array of 8 reserve bytes (1-indexed)
+- **Notes:**
+  - Returns `nil` if no ROM is loaded
+  - Mapper number is calculated from `rom_type` and `rom_type2` bytes
+  - Mirroring values: 0 = horizontal (vertical mirroring), 1 = vertical (horizontal mirroring), 2 = four-screen VRAM
+  - Raw header bytes are useful for advanced ROM analysis and validation
+  - Use case: ROM analysis, mapper detection, header validation, compatibility checking
+
+**Example: Display Header Information:**
+```lua
+function script()
+    local romName = getromname()
+    if romName == "" then
+        drawtext(4, 4, "No ROM loaded", 0x2D)
+        return
+    end
+    
+    local header = getinesheader()
+    if header == nil then
+        drawtext(4, 4, "Header: nil", 0x2D)
+        return
+    end
+    
+    local y = 4
+    drawtext(4, y, "ROM: " .. romName, 0x2E)
+    y = y + 10
+    
+    if header.mapper then
+        drawtext(4, y, "Mapper: " .. header.mapper, 0x20)
+        y = y + 10
+    end
+    
+    if header.mirroring_string then
+        drawtext(4, y, "Mirroring: " .. header.mirroring_string, 0x20)
+        y = y + 10
+    end
+    
+    if header.rom_size then
+        drawtext(4, y, "PRG-ROM: " .. header.rom_size .. " x 16KB", 0x29)
+        y = y + 10
+    end
+    
+    if header.vrom_size then
+        drawtext(4, y, "CHR-ROM: " .. header.vrom_size .. " x 8KB", 0x29)
+    end
+end
+```
+
+**Example: ROM Analysis:**
+```lua
+function script()
+    local header = getinesheader()
+    if header == nil then
+        return
+    end
+    
+    print("=== iNES Header Analysis ===")
+    print("Mapper: " .. header.mapper)
+    print("Mirroring: " .. header.mirroring_string)
+    print("PRG-ROM: " .. header.rom_size .. " x 16KB")
+    print("CHR-ROM: " .. header.vrom_size .. " x 8KB")
+    print("")
+    
+    print("Features:")
+    print("  Battery: " .. tostring(header.has_battery))
+    print("  Trainer: " .. tostring(header.has_trainer))
+    print("  Four-screen: " .. tostring(header.four_screen))
+    print("  VS System: " .. tostring(header.vs_system))
+    print("  PlayChoice-10: " .. tostring(header.playchoice10))
+    print("  NES 2.0 Format: " .. tostring(header.nes2_format))
+    print("")
+    
+    print("Raw Header Bytes:")
+    if header.raw_header then
+        local headerStr = ""
+        for i = 1, 16 do
+            headerStr = headerStr .. string.format("%02X ", header.raw_header[i])
+            if i % 8 == 0 then
+                print(headerStr)
+                headerStr = ""
+            end
+        end
+    end
+end
+```
+
+**Example: Mapper Detection:**
+```lua
+function script()
+    local header = getinesheader()
+    if header == nil then
+        return
+    end
+    
+    local mapper = header.mapper
+    local mapperName = getmapperstring()
+    
+    print("=== Mapper Detection ===")
+    print("Mapper Number: " .. mapper)
+    print("Mapper Name: " .. mapperName)
+    print("")
+    
+    -- Compare with getmapper()
+    local mapperFromFunc = getmapper()
+    if mapper == mapperFromFunc then
+        print("Mapper match: PASS")
+    else
+        print("Mapper mismatch: header=" .. mapper .. ", getmapper()=" .. mapperFromFunc)
+    end
+end
+```
+
+**Example: Header Validation:**
+```lua
+function script()
+    local header = getinesheader()
+    if header == nil then
+        return
+    end
+    
+    print("=== Header Validation ===")
+    
+    -- Check header ID
+    if header.id == "NES\x1a" then
+        print("Header ID: Valid")
+    else
+        print("Header ID: Invalid (" .. header.id .. ")")
+    end
+    
+    -- Check mapper range
+    if header.mapper >= 0 and header.mapper <= 255 then
+        print("Mapper: Valid (" .. header.mapper .. ")")
+    else
+        print("Mapper: Invalid (" .. header.mapper .. ")")
+    end
+    
+    -- Check ROM sizes
+    if header.rom_size > 0 and header.rom_size <= 512 then
+        print("PRG-ROM Size: Valid (" .. header.rom_size .. ")")
+    else
+        print("PRG-ROM Size: Invalid (" .. header.rom_size .. ")")
+    end
+    
+    if header.vrom_size <= 512 then
+        print("CHR-ROM Size: Valid (" .. header.vrom_size .. ")")
+    else
+        print("CHR-ROM Size: Invalid (" .. header.vrom_size .. ")")
+    end
+end
+```
+
+**Example: Compare with Other Functions:**
+```lua
+function script()
+    local header = getinesheader()
+    if header == nil then
+        return
+    end
+    
+    print("=== Function Comparison ===")
+    
+    -- Compare mapper
+    local mapperFromHeader = header.mapper
+    local mapperFromFunc = getmapper()
+    print("Mapper: header=" .. mapperFromHeader .. ", getmapper()=" .. mapperFromFunc)
+    
+    -- Compare battery
+    local batteryFromHeader = header.has_battery
+    local batteryFromFunc = hasbattery()
+    print("Battery: header=" .. tostring(batteryFromHeader) .. ", hasbattery()=" .. tostring(batteryFromFunc))
+    
+    -- Compare ROM sizes
+    local romSizeFromHeader = header.rom_size * 16 * 1024  -- Convert to bytes
+    local romSizeFromFunc = getromsize()
+    print("ROM Size: header=" .. romSizeFromHeader .. " bytes, getromsize()=" .. romSizeFromFunc .. " bytes")
+end
+```
+
+---
+
+### `getregion()`
+
+**Signature:** `getregion()`
+
+Returns the current ROM region as a string. Useful for adjusting logic or overlays based on the ROM's intended video system.
+
+- **Parameters:** none
+- **Returns:** `string`
+  - `"NTSC"` — NTSC timing/graphics (default for most USA/Japan ROMs)
+  - `"PAL"` — PAL timing (European ROMs or PAL-enforced configs)
+  - `"Dendy"` — Hybrid “Dendy” timing (PAL clock + NTSC PPU timing)
+- **Notes:**
+  - Detected from the ROM header (NES 2.0 timing bits or iNES PAL flag). Falls back to user video settings when header data is missing.
+  - Honors forced user overrides set via config (e.g., if the user selects PAL/Dendy manually).
+  - Combines with the runtime PAL flag so scripts always see the effective region in use.
+  - Use case: Region-specific overlays, timing tweaks, or content warnings.
+
+**Example: Region-specific overlay**
+```lua
+function script()
+    local region = getregion()
+    drawtext(4, 4, "Region: " .. region, 0x2E)
+
+    if region == "PAL" then
+        drawtext(4, 14, "50 FPS timing active", 0x29)
+    elseif region == "Dendy" then
+        drawtext(4, 14, "Dendy hybrid timing", 0x29)
+    end
+end
+```
+
+**Example: Conditional behavior**
+```lua
+function beforeframe()
+    if getregion() == "PAL" then
+        -- Adjust polling interval or HUD animations for 50 Hz
+        setscriptinterval(2)
+    else
+        setscriptinterval(1)
+    end
+end
+```
+
+---
+
+### `getsavepath()`
+
+**Signature:** `getsavepath()`
+
+Returns the battery save path for the current ROM (single combined save file).
+
+- **Parameters:** none
+- **Returns:** `string`
+  - `<rom>.sav` when present
+  - Legacy `game.sav` if that is the only file present
+  - Empty string (`""`) if neither save file exists
+- **Notes:**
+  - Use for save file management or migration tooling
+  - Does not create the file; only reports existing paths
+
+**Example: Show battery save path**
+```lua
+function script()
+    local rom = getromname()
+    if rom == "" then
+        drawtext(4, 4, "No ROM loaded", 0x2D)
+        return
+    end
+
+    local path = getsavepath()
+    local y = 4
+    drawtext(4, y, "ROM: " .. rom, 0x20)  y = y + 10
+    if path == "" then
+        drawtext(4, y, "Save path: (none yet)", 0x2A)
+    else
+        drawtext(4, y, "Save path:", 0x20)  y = y + 10
+        drawtext(4, y, path, 0x29)
+    end
+end
+```
+
+---
+
 ## ROM Size Functions
 
 ### `getromsize`

@@ -86,9 +86,10 @@ See [Setup](Setup) for detailed instructions.
 
 #### ROM Information Functions
 - **[ROM Information Functions](ROM-Info-Functions)** - Game and cartridge information
-  - **ROM info:** [`getromname()`](ROM-Info-Functions#getromname), [`getromsize()`](ROM-Info-Functions#getromsize), [`getprgsize()`](ROM-Info-Functions#getprgsize), [`getchrsize()`](ROM-Info-Functions#getchrsize)
+  - **ROM info:** [`getromname()`](ROM-Info-Functions#getromname), [`getrompath()`](ROM-Info-Functions#getrompath), [`getromhash(algorithm)`](ROM-Info-Functions#getromhashalgorithm), [`getinesheader()`](ROM-Info-Functions#getinesheader), [`getregion()`](ROM-Info-Functions#getregion), [`getromsize()`](ROM-Info-Functions#getromsize), [`getprgsize()`](ROM-Info-Functions#getprgsize), [`getchrsize()`](ROM-Info-Functions#getchrsize)
   - **Mapper:** [`getmapper()`](ROM-Info-Functions#getmapper), [`getmapperstring()`](ROM-Info-Functions#getmapperstring)
   - **Features:** [`hasbattery()`](ROM-Info-Functions#hasbattery)
+  - **Saves:** [`getsavepath()`](ROM-Info-Functions#getsavepath) — returns `<rom>.sav` (or legacy `game.sav` if that’s the only file), empty string if no save exists
   - **Emulation state:** [`isframeadvancing()`](ROM-Info-Functions#isframeadvancing), [`isrewinding()`](ROM-Info-Functions#isrewinding), [`isfastforwarding()`](ROM-Info-Functions#isfastforwarding)
   - **Game Genie:** [`getgamegeniecode()`](ROM-Info-Functions#getgamegeniecode), [`decodegamegenie()`](ROM-Info-Functions#decodegamegenie)
 
@@ -139,4 +140,3 @@ end
 - Check the [Troubleshooting](Troubleshooting) page for common issues
 - Review [Complete Examples](Examples) for working code samples
 - See [Technical Details](Technical-Details) for implementation specifics
-

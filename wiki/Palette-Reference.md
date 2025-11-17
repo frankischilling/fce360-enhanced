@@ -122,4 +122,3 @@ This will display all 64 colors from the NES palette as an overlay grid.
 - **[Color Functions](Color-Functions)** - Color manipulation functions
 - **[Drawing Functions](Drawing-Functions)** - Drawing functions that use colors
 - **[Home](Home)** - Return to the main wiki page
-

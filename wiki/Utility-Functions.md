@@ -153,4 +153,3 @@ The console supports scrolling to view older messages.
 - **[Troubleshooting](Troubleshooting)** - Debugging tips and common issues
 - **[Monitoring Functions](Monitoring-Functions)** - Functions to get frame count, FPS, and timing information
 - **[Home](Home)** - Return to the main wiki page
-
