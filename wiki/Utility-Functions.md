@@ -4,7 +4,10 @@ Utility functions for debugging, logging, and console output.
 
 ---
 
-## `print(...)`
+### `print(...)`
+
+**Signature:** `print(...)`
+
 Outputs text to the Lua console.
 
 - **Parameters:** Variable number of arguments (strings, numbers, etc.)
@@ -53,7 +56,10 @@ end
 
 ---
 
-## `log(...)`
+### `log(...)`
+
+**Signature:** `log(...)`
+
 Alias for `print()`. Outputs text to the Lua console.
 
 - **Parameters:** Variable number of arguments (strings, numbers, etc.)
@@ -87,7 +93,10 @@ debugLog("This only prints if DEBUG is true")
 
 ---
 
-## `setconsolespacing(pixels)`
+### `setconsolespacing(pixels)`
+
+**Signature:** `setconsolespacing(pixels)`
+
 Sets the line spacing (gap) between lines in the Lua console.
 
 - **Parameters:**

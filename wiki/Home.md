@@ -69,7 +69,7 @@ See [Setup](Setup) for detailed instructions.
   - **Callbacks:** [`onbuttonpress()`](Input-Functions#onbuttonpress), [`onbuttonrelease()`](Input-Functions#onbuttonrelease)
   - **Utilities:** [`getbuttonname()`](Input-Functions#getbuttonname), [`getbuttonmask()`](Input-Functions#getbuttonmask)
 - **[Input Recording Functions](Input-Recording-Functions)** - Capture and replay controller input
-  - [`startinputrecording()`](Input-Recording-Functions#startinputrecording), [`stopinputrecording()`](Input-Recording-Functions#stopinputrecording), [`playinputrecording()`](Input-Recording-Functions#playinputrecording), [`saveinputrecording()`](Input-Recording-Functions#saveinputrecording), [`loadinputrecording()`](Input-Recording-Functions#loadinputrecording)
+  - [`startinputrecording()`](Input-Recording-Functions#startinputrecording), [`stopinputrecording()`](Input-Recording-Functions#stopinputrecording), [`playinputrecording(data)`](Input-Recording-Functions#playinputrecordingdata), [`saveinputrecording(path)`](Input-Recording-Functions#saveinputrecordingpath), [`loadinputrecording(path)`](Input-Recording-Functions#loadinputrecordingpath), [`setrecordingmarker(name)`](Input-Recording-Functions#setrecordingmarkername), [`jumptorecordingmarker(name)`](Input-Recording-Functions#jumptorecordingmarkername), [`setplaybackspeed(mult)`](Input-Recording-Functions#setplaybackspeedmult), [`trimrecording(startFrame, endFrame)`](Input-Recording-Functions#trimrecordingstartframe-endframe)
   - Recording utilities integrate with [`gethardwarejoypad()`](Input-Functions#gethardwarejoypad) for toggles and [`setjoypad()`](Input-Functions#setjoypad) for scripted overrides
 
 #### State Management Functions
@@ -99,8 +99,8 @@ See [Setup](Setup) for detailed instructions.
 
 #### Utility Functions
 - **[Utility Functions](Utility-Functions)** - Debugging and console output
-  - **Console output:** [`print()`](Utility-Functions#print), [`log()`](Utility-Functions#log)
-  - **Console settings:** [`setconsolespacing()`](Utility-Functions#setconsolespacing)
+  - **Console output:** [`print(...)`](Utility-Functions#print), [`log(...)`](Utility-Functions#log)
+  - **Console settings:** [`setconsolespacing(pixels)`](Utility-Functions#setconsolespacingpixels)
 
 ### Callbacks and Scripting
 - **[Callbacks](Callbacks)** - Required and optional callback functions
