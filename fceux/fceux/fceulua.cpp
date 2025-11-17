@@ -37,6 +37,7 @@
 #include "ppu.h"
 #include "git.h"
 #include "cart.h"
+#include "file.h"  // BaseDirectory and path helpers
 #include "ines.h"
 #include "movie.h"
 #include "x6502.h"
@@ -3068,6 +3069,386 @@ static const char* ResolveVirtualButton(lua_State* L, const char* virtualBtn)
 	 
 	 // Return the filename with extension (e.g., "Super Mario Bros.nes" or "game.fds")
 	 lua_pushstring(L, filename.c_str());
+	 return 1;
+ }
+
+// getrompath() -> string
+// Gets the full ROM file path (or archive entry)
+// Use case: File operations relative to ROM location
+static int lua_getrompath(lua_State* L)
+{
+	 extern FCEUGI *GameInfo;
+	 
+	 if (!GameInfo || !GameInfo->filename) {
+		 lua_pushstring(L, "");
+		 return 1;
+	 }
+	 
+	 const char* fullPath = GameInfo->filename;
+	 if (!fullPath || !fullPath[0]) {
+		 lua_pushstring(L, "");
+		 return 1;
+	 }
+	 
+	 lua_pushstring(L, fullPath);
+	 return 1;
+}
+
+// getsavepath() -> string
+// Gets the battery save path for the current ROM
+// Use case: Save file management
+static int lua_getsavepath(lua_State* L)
+{
+		 extern FCEUGI *GameInfo;
+		 extern std::string FCEU_MakeFName(int type, int id1, const char *cd1);
+		 
+	if (!GameInfo) {
+			lua_pushstring(L, "");
+			return 1;
+	}
+	
+	// Canonical per-ROM battery save path (single file holding all in-game slots)
+	std::string savePath = FCEU_MakeFName(FCEUMKF_SAV, 0, "sav");
+
+	// If canonical is missing but a legacy game.sav exists (older builds),
+	// surface that path so scripts can migrate/inspect it.
+	FILE* fp = FCEUD_UTF8fopen(savePath.c_str(), "rb");
+	if(!fp)
+	{
+		// Build legacy path in same directory named "game.sav"
+		std::string legacyPath;
+		size_t sep = savePath.find_last_of("/\\");
+		if(sep == std::string::npos)
+			legacyPath = "game.sav";
+		else
+			legacyPath = savePath.substr(0, sep + 1) + "game.sav";
+
+		fp = FCEUD_UTF8fopen(legacyPath.c_str(), "rb");
+		if(fp)
+			savePath = legacyPath;
+	}
+
+	// If we still have no file, return empty string to indicate absence.
+	if(!fp)
+	{
+		lua_pushstring(L, "");
+		return 1;
+	}
+
+	fclose(fp);
+	lua_pushstring(L, savePath.c_str());
+	return 1;
+}
+
+ // getromhash(algorithm) -> string
+ // Gets ROM hash using specified algorithm
+ // Parameters: algorithm (string: "crc32", "crc", "md5", "sum", "sum16", "xor", etc.)
+ // Returns: hash value as hexadecimal string, or empty string if no ROM is loaded
+ // Throws error if algorithm is invalid or unsupported (e.g., "sha1")
+ static int lua_getromhash(lua_State* L)
+ {
+	 extern FCEUGI *GameInfo;
+	 extern uint32 iNESGameCRC32;
+	 extern uint8 *PRGptr[32];
+	 extern uint8 *CHRptr[32];
+	 extern uint32 ROM_size;
+	 extern uint32 VROM_size;
+	 
+	 // Check if a game is loaded
+	 if (!GameInfo) {
+		 lua_pushstring(L, "");
+		 return 1;
+	 }
+	 
+	 // Get algorithm parameter
+	 const char* algorithm = luaL_checkstring(L, 1);
+	 if (!algorithm || !algorithm[0]) {
+		 return luaL_error(L, "getromhash: algorithm cannot be empty");
+	 }
+	 
+	 // Convert algorithm to lowercase for case-insensitive comparison
+	 char lowerAlg[16];
+	 int i = 0;
+	 for (; algorithm[i] && i < 15; ++i) {
+		 char c = algorithm[i];
+		 if (c >= 'A' && c <= 'Z') {
+			 lowerAlg[i] = c - 'A' + 'a';
+		 } else {
+			 lowerAlg[i] = c;
+		 }
+	 }
+	 lowerAlg[i] = '\0';
+	 
+	 // Handle different algorithms
+	 if (strcmp(lowerAlg, "crc32") == 0 || strcmp(lowerAlg, "crc") == 0) {
+		 // Return CRC32 as 8-character hex string
+		 char hexStr[9];
+		 sprintf(hexStr, "%08x", iNESGameCRC32);
+		 lua_pushstring(L, hexStr);
+		 return 1;
+	 } else if (strcmp(lowerAlg, "md5") == 0) {
+		 // Return MD5 as 32-character hex string
+		 char hexStr[33];
+		 char* ptr = hexStr;
+		 for (int i = 0; i < 16; ++i) {
+			 sprintf(ptr, "%02x", GameInfo->MD5[i]);
+			 ptr += 2;
+		 }
+		 hexStr[32] = '\0';
+		 lua_pushstring(L, hexStr);
+		 return 1;
+	 } else if (strcmp(lowerAlg, "sum") == 0 || strcmp(lowerAlg, "checksum") == 0) {
+		 // Calculate simple 8-bit sum of all ROM bytes
+		 uint32 sum = 0;
+		 uint32 prgSize = ROM_size << 14;
+		 uint32 chrSize = VROM_size << 13;
+		 
+		 // Sum PRG-ROM
+		 if (PRGptr[0]) {
+			 for (uint32 i = 0; i < prgSize && i < (32 << 14); ++i) {
+				 sum += PRGptr[0][i];
+			 }
+		 }
+		 
+		 // Sum CHR-ROM
+		 if (CHRptr[0]) {
+			 for (uint32 i = 0; i < chrSize && i < (32 << 13); ++i) {
+				 sum += CHRptr[0][i];
+			 }
+		 }
+		 
+		 // Return as 2-character hex string (8-bit sum)
+		 char hexStr[3];
+		 sprintf(hexStr, "%02x", sum & 0xFF);
+		 lua_pushstring(L, hexStr);
+		 return 1;
+	 } else if (strcmp(lowerAlg, "sum16") == 0) {
+		 // Calculate 16-bit sum of all ROM bytes
+		 uint32 sum = 0;
+		 uint32 prgSize = ROM_size << 14;
+		 uint32 chrSize = VROM_size << 13;
+		 
+		 // Sum PRG-ROM
+		 if (PRGptr[0]) {
+			 for (uint32 i = 0; i < prgSize && i < (32 << 14); ++i) {
+				 sum += PRGptr[0][i];
+			 }
+		 }
+		 
+		 // Sum CHR-ROM
+		 if (CHRptr[0]) {
+			 for (uint32 i = 0; i < chrSize && i < (32 << 13); ++i) {
+				 sum += CHRptr[0][i];
+			 }
+		 }
+		 
+		 // Return as 4-character hex string (16-bit sum)
+		 char hexStr[5];
+		 sprintf(hexStr, "%04x", sum & 0xFFFF);
+		 lua_pushstring(L, hexStr);
+		 return 1;
+	 } else if (strcmp(lowerAlg, "xor") == 0) {
+		 // Calculate XOR checksum of all ROM bytes
+		 uint8 xorSum = 0;
+		 uint32 prgSize = ROM_size << 14;
+		 uint32 chrSize = VROM_size << 13;
+		 
+		 // XOR PRG-ROM
+		 if (PRGptr[0]) {
+			 for (uint32 i = 0; i < prgSize && i < (32 << 14); ++i) {
+				 xorSum ^= PRGptr[0][i];
+			 }
+		 }
+		 
+		 // XOR CHR-ROM
+		 if (CHRptr[0]) {
+			 for (uint32 i = 0; i < chrSize && i < (32 << 13); ++i) {
+				 xorSum ^= CHRptr[0][i];
+			 }
+		 }
+		 
+		 // Return as 2-character hex string
+		 char hexStr[3];
+		 sprintf(hexStr, "%02x", xorSum);
+		 lua_pushstring(L, hexStr);
+		 return 1;
+	 } else if (strcmp(lowerAlg, "sha1") == 0 || strcmp(lowerAlg, "sha256") == 0 || strcmp(lowerAlg, "sha512") == 0) {
+		 // SHA algorithms are not supported in FCEUX
+		 return luaL_error(L, "getromhash: %s is not supported in FCEUX", algorithm);
+	 } else {
+		 // Invalid algorithm
+		 return luaL_error(L, "getromhash: invalid algorithm '%s'. Valid algorithms: 'crc32', 'crc', 'md5', 'sum', 'sum16', 'xor'", algorithm);
+	 }
+ }
+
+ // getinesheader() -> table
+ // Gets full iNES header dump
+ // Returns: Table with mapper, mirroring, flags, and header data
+ // Use case: ROM analysis, mapper detection
+ static int lua_getinesheader(lua_State* L)
+ {
+	 extern FCEUGI *GameInfo;
+	 extern struct iNES_HEADER head;
+	 
+	 // Check if a game is loaded
+	 if (!GameInfo) {
+		 lua_pushnil(L);
+		 return 1;
+	 }
+	 
+	 // Create table to return
+	 lua_createtable(L, 0, 20);
+	 
+	 // Header identification
+	 char idStr[5];
+	 idStr[0] = head.ID[0];
+	 idStr[1] = head.ID[1];
+	 idStr[2] = head.ID[2];
+	 idStr[3] = head.ID[3];
+	 idStr[4] = '\0';
+	 lua_pushstring(L, "id");
+	 lua_pushstring(L, idStr);
+	 lua_settable(L, -3);
+	 
+	 // ROM sizes (raw header values)
+	 lua_pushstring(L, "rom_size");
+	 lua_pushinteger(L, head.ROM_size);
+	 lua_settable(L, -3);
+	 
+	 lua_pushstring(L, "vrom_size");
+	 lua_pushinteger(L, head.VROM_size);
+	 lua_settable(L, -3);
+	 
+	 // ROM type flags
+	 lua_pushstring(L, "rom_type");
+	 lua_pushinteger(L, head.ROM_type);
+	 lua_settable(L, -3);
+	 
+	 lua_pushstring(L, "rom_type2");
+	 lua_pushinteger(L, head.ROM_type2);
+	 lua_settable(L, -3);
+	 
+	 // Mapper number (calculated from header)
+	 int mapper = (head.ROM_type >> 4);
+	 mapper |= (head.ROM_type2 & 0xF0);
+	 lua_pushstring(L, "mapper");
+	 lua_pushinteger(L, mapper);
+	 lua_settable(L, -3);
+	 
+	 // Mirroring (0=horizontal, 1=vertical, 2=four-screen)
+	 int mirroring = (head.ROM_type & 1);
+	 if (head.ROM_type & 8) {
+		 mirroring = 2;  // Four-screen VRAM
+	 }
+	 lua_pushstring(L, "mirroring");
+	 lua_pushinteger(L, mirroring);
+	 lua_settable(L, -3);
+	 
+	 // Mirroring as string
+	 const char* mirroringStr = "horizontal";
+	 if (mirroring == 1) {
+		 mirroringStr = "vertical";
+	 } else if (mirroring == 2) {
+		 mirroringStr = "four-screen";
+	 }
+	 lua_pushstring(L, "mirroring_string");
+	 lua_pushstring(L, mirroringStr);
+	 lua_settable(L, -3);
+	 
+	 // Flags
+	 lua_pushstring(L, "has_battery");
+	 lua_pushboolean(L, (head.ROM_type & 2) != 0);
+	 lua_settable(L, -3);
+	 
+	 lua_pushstring(L, "has_trainer");
+	 lua_pushboolean(L, (head.ROM_type & 4) != 0);
+	 lua_settable(L, -3);
+	 
+	 lua_pushstring(L, "four_screen");
+	 lua_pushboolean(L, (head.ROM_type & 8) != 0);
+	 lua_settable(L, -3);
+	 
+	 lua_pushstring(L, "vs_system");
+	 lua_pushboolean(L, (head.ROM_type2 & 1) != 0);
+	 lua_settable(L, -3);
+	 
+	 lua_pushstring(L, "playchoice10");
+	 lua_pushboolean(L, (head.ROM_type2 & 2) != 0);
+	 lua_settable(L, -3);
+	 
+	 lua_pushstring(L, "nes2_format");
+	 lua_pushboolean(L, (head.ROM_type2 & 8) != 0);
+	 lua_settable(L, -3);
+	 
+	 // Raw header bytes (for advanced analysis)
+	 lua_pushstring(L, "raw_header");
+	 lua_createtable(L, 16, 0);
+	 for (int i = 0; i < 16; ++i) {
+		 lua_pushinteger(L, i + 1);  // 1-indexed
+		 lua_pushinteger(L, ((uint8*)&head)[i]);
+		 lua_settable(L, -3);
+	 }
+	 lua_settable(L, -3);
+	 
+	 // Reserve bytes
+	 lua_pushstring(L, "reserve");
+	 lua_createtable(L, 8, 0);
+	 for (int i = 0; i < 8; ++i) {
+		 lua_pushinteger(L, i + 1);  // 1-indexed
+		 lua_pushinteger(L, head.reserve[i]);
+		 lua_settable(L, -3);
+	 }
+	 lua_settable(L, -3);
+	 
+	 return 1;
+ }
+
+// getregion() -> string
+// Gets ROM region ("NTSC", "PAL", "Dendy")
+// Use case: Region-specific behavior
+static int lua_getregion(lua_State* L)
+{
+	 extern FCEUGI *GameInfo;
+	 extern FCEUS FSettings;
+	 extern uint8 PAL;
+	 extern struct iNES_HEADER head;
+	 
+	 int regionCode = 0; // 0 = NTSC, 1 = PAL, 2 = Dendy
+	 
+	 if (GameInfo) {
+		 bool isNES20 = ((head.ROM_type2 & 0x0C) == 0x08);
+		 if (isNES20 && head.reserve[4]) {
+			 int tvBits = head.reserve[4] & 0x03; // NES 2.0 timing bits
+			 if (tvBits == 1) regionCode = 1;
+			 else if (tvBits == 3) regionCode = 2;
+			 else regionCode = 0;
+		 } else {
+			 if ((head.reserve[1] & 0x01) != 0)
+				 regionCode = 1;
+		 }
+		 
+		 if (GameInfo->vidsys == GIV_PAL) {
+			 regionCode = 1;
+		 } else if (GameInfo->vidsys == GIV_USER) {
+			 if (FSettings.PAL == 2) regionCode = 2;
+			 else if (FSettings.PAL) regionCode = 1;
+		 }
+	 } else {
+		 if (FSettings.PAL == 2) regionCode = 2;
+		 else regionCode = FSettings.PAL ? 1 : 0;
+	 }
+ 
+	 if (regionCode != 2 && PAL)
+		 regionCode = 1;
+	 
+	 const char* regionStr = "NTSC";
+	 if (regionCode >= 2) {
+		 regionStr = "Dendy";
+	 } else if (regionCode == 1) {
+		 regionStr = "PAL";
+	 }
+	 
+	 lua_pushstring(L, regionStr);
 	 return 1;
  }
 
@@ -11527,7 +11908,12 @@ int lua_ismemorywritable(lua_State *L) {
 	 lua_register(luaState, "jumptorecordingmarker", lua_jumptorecordingmarker);
 	 lua_register(luaState, "setplaybackspeed", lua_setplaybackspeed);
 	 lua_register(luaState, "trimrecording", lua_trimrecording);
-	 lua_register(luaState, "getromname", lua_getromname);
+		 lua_register(luaState, "getromname", lua_getromname);
+		 lua_register(luaState, "getrompath", lua_getrompath);
+		 lua_register(luaState, "getsavepath", lua_getsavepath);
+		 lua_register(luaState, "getromhash", lua_getromhash);
+	 lua_register(luaState, "getinesheader", lua_getinesheader);
+	 lua_register(luaState, "getregion", lua_getregion);
 	 lua_register(luaState, "getframecount", lua_getframecount);
 	 lua_register(luaState, "getframecycles", lua_getframecycles);
 	 lua_register(luaState, "getelapsedtime", lua_getelapsedtime);
@@ -11728,7 +12114,12 @@ static void EnsureLuaInit() {
 	REG("jumptorecordingmarker", lua_jumptorecordingmarker);
 	REG("setplaybackspeed", lua_setplaybackspeed);
 	REG("trimrecording", lua_trimrecording);
-	REG("getromname", lua_getromname);
+		REG("getromname", lua_getromname);
+		REG("getrompath", lua_getrompath);
+		REG("getsavepath", lua_getsavepath);
+		REG("getromhash", lua_getromhash);
+	REG("getinesheader", lua_getinesheader);
+	REG("getregion", lua_getregion);
 	REG("getframecount", lua_getframecount);
 	REG("getframecycles", lua_getframecycles);
 	REG("getelapsedtime", lua_getelapsedtime);
@@ -11784,9 +12175,9 @@ static void EnsureLuaInit() {
 	REG("getmapperstring", lua_getmapperstring);
 	REG("isbuttonpressed", lua_isbuttonpressed);
 	REG("isxboxbuttonpressed", lua_isxboxbuttonpressed);
-	REG("onbuttonpress", lua_onbuttonpress);
-	REG("onbuttonrelease", lua_onbuttonrelease);
-	REG("getbuttonheldms", lua_getbuttonheldms);
+REG("onbuttonpress", lua_onbuttonpress);
+REG("onbuttonrelease", lua_onbuttonrelease);
+REG("getbuttonheldms", lua_getbuttonheldms);
 	REG("getbuttonname",  lua_getbuttonname);
 	REG("getbuttonmask",  lua_getbuttonmask);
 	REG("drawpixel",      lua_drawpixel);
@@ -11848,17 +12239,17 @@ static void EnsureLuaInit() {
 	REG("readbytes",      lua_readbytes);
 	REG("readram",        lua_readram);
 	REG("scanbyte",       lua_scanbyte);
- 	REG("scanword",       lua_scanword);
-	REG("scanbytes",      lua_scanbytes);
-	REG("findpattern",    lua_findpattern);
-	REG("scanchanged",    lua_scanchanged);
-	REG("watchbyte",      lua_watchbyte);
-	REG("unwatchbyte",    lua_unwatchbyte);
-	REG("getmemorysnapshot", lua_getmemorysnapshot);
-	REG("setbit",         lua_setbit);
-	REG("clearbit",       lua_clearbit);
-	REG("togglebit",      lua_togglebit);
-	REG("testbit",        lua_testbit);
+ REG("scanword",       lua_scanword);
+REG("scanbytes",      lua_scanbytes);
+REG("findpattern",    lua_findpattern);
+REG("scanchanged",    lua_scanchanged);
+REG("watchbyte",      lua_watchbyte);
+REG("unwatchbyte",    lua_unwatchbyte);
+REG("getmemorysnapshot", lua_getmemorysnapshot);
+REG("setbit",         lua_setbit);
+REG("clearbit",       lua_clearbit);
+REG("togglebit",      lua_togglebit);
+REG("testbit",        lua_testbit);
 	REG("writebyte",      lua_writebyte);
 	REG("writeword",      lua_writeword);
 	REG("writebytes",     lua_writebytes);
@@ -11872,8 +12263,8 @@ static void EnsureLuaInit() {
 	REG("ismemorywritable", lua_ismemorywritable);
 	REG("log",            lua_log);
 	REG("setconsolespacing", lua_setconsolespacing);
-	REG("setscriptinterval", lua_setscriptinterval);
-	REG("getscriptinterval", lua_getscriptinterval);
+REG("setscriptinterval", lua_setscriptinterval);
+REG("getscriptinterval", lua_getscriptinterval);
 	lua_pushcfunction(luaState, lua_print_redirect);
 	lua_setglobal(luaState, "print");
 	#undef REG
@@ -13365,7 +13756,7 @@ void FCEU_ReloadLuaCode(void) {
  }
  
  // Check for audio channel state changes and trigger callbacks
- void FCEU_LuaCheckAudioEvents(void) {
+void FCEU_LuaCheckAudioEvents(void) {
 	 if (!luaInitialized || luaState == NULL || FSettings.SndRate == 0) {
 		 return;
 	 }
@@ -13395,8 +13786,8 @@ void FCEU_ReloadLuaCode(void) {
 		 
 		 lastEnabledChannels = currentChannels;
 	 }
- }
- 
+}
+
  // Memory hook callback
  void CallRegisteredLuaMemHook(unsigned int address, int size, uint8 value, LUAMEMHOOK hookType) {
 	 // Not implemented yet - can be extended for memory hooks

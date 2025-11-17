@@ -177,12 +177,48 @@ FileBaseInfo CurrentFileBase() {
 
 FileBaseInfo DetermineFileBase(const char *f) {
 
-	char drv[PATH_MAX], dir[PATH_MAX], name[PATH_MAX], ext[PATH_MAX];
-	splitpath(f,drv,dir,name,ext);
- 
-        if(dir[0] == 0) strcpy(dir,".");
+	std::string path = f ? f : "";
+	std::string devicePrefix;
 
-	return FileBaseInfo((std::string)drv + dir,name,ext);	
+	// On Xbox device paths such as "game:\\foo\\bar.nes", the colon is not a drive
+	// separator. Strip the prefix so splitpath() can see the real filename.
+	size_t colonPos = path.find(':');
+	if(colonPos != std::string::npos && colonPos != 1 &&
+		colonPos + 1 < path.size() &&
+		(path[colonPos + 1] == '\\' || path[colonPos + 1] == '/'))
+	{
+		devicePrefix = path.substr(0, colonPos + 1);
+		path = path.substr(colonPos + 1);
+	}
+
+	char drv[PATH_MAX], dir[PATH_MAX], name[PATH_MAX], ext[PATH_MAX];
+	splitpath(path.c_str(),drv,dir,name,ext);
+ 
+	if(dir[0] == 0) strcpy(dir,".");
+
+	if(name[0] == 0)
+	{
+		std::string fullPath(path);
+		size_t pipePos = fullPath.find('|');
+		std::string physicalPath = (pipePos == std::string::npos) ? fullPath : fullPath.substr(0, pipePos);
+		std::string logicalName = (pipePos == std::string::npos) ? physicalPath.substr(physicalPath.find_last_of("/\\") + 1) : fullPath.substr(pipePos + 1);
+
+		size_t slashPos = physicalPath.find_last_of("/\\");
+		std::string directory = (slashPos == std::string::npos) ? std::string(".") : physicalPath.substr(0, slashPos + 1);
+		
+		size_t dotPos = logicalName.find_last_of('.');
+		std::string base = (dotPos == std::string::npos) ? logicalName : logicalName.substr(0, dotPos);
+		std::string extension = (dotPos == std::string::npos) ? "" : logicalName.substr(dotPos);
+
+		strncpy(dir, directory.c_str(), PATH_MAX - 1);
+		dir[PATH_MAX - 1] = '\0';
+		strncpy(name, base.c_str(), PATH_MAX - 1);
+		name[PATH_MAX - 1] = '\0';
+		strncpy(ext, extension.c_str(), PATH_MAX - 1);
+		ext[PATH_MAX - 1] = '\0';
+	}
+
+	return FileBaseInfo(devicePrefix + (std::string)drv + dir,name,ext);	
 	
 }
 

@@ -122,9 +122,9 @@ void iNESGI(GI h) //bbit edited: removed static keyword
 		break;
 	case GI_CLOSE:
 		{
-			#if !defined(GEKKO)|| !defined(_XBOX)
+#if !defined(GEKKO)
 			FCEU_SaveGameSave(&iNESCart);
-			#endif
+#endif
 
 			if(iNESCart.Close) iNESCart.Close();
 #ifdef _USE_SHARED_MEMORY_

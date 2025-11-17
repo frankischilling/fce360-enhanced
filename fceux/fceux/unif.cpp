@@ -544,10 +544,10 @@ static void UNIFGI(GI h)
 			UNIFCart.Power();
 		if(UNIFchrrama) memset(UNIFchrrama,0,8192);
 		break;
-	case GI_CLOSE:
-		#if !defined(GEKKO)|| !defined(_XBOX)
+case GI_CLOSE:
+#if !defined(GEKKO)
 		FCEU_SaveGameSave(&UNIFCart);
-		#endif
+#endif
 		if(UNIFCart.Close)
 			UNIFCart.Close();
 		FreeUNIF();

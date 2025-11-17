@@ -643,6 +643,14 @@ void FCEU_SaveGameSave(CartInfo *LocalHWInfo)
 	{
 		FILE *sp;
 
+		if (GameInfo)
+		{
+			if (GameInfo->filename && GameInfo->filename[0])
+				GetFileBase(GameInfo->filename);
+			else if (GameInfo->archiveFilename && GameInfo->archiveFilename[0])
+				GetFileBase(GameInfo->archiveFilename);
+		}
+
 		std::string soot = FCEU_MakeFName(FCEUMKF_SAV,0,"sav");
 		if((sp=FCEUD_UTF8fopen(soot,"wb"))==NULL)
 		{
@@ -656,6 +664,7 @@ void FCEU_SaveGameSave(CartInfo *LocalHWInfo)
 					fwrite(LocalHWInfo->SaveGame[x],1,
 						LocalHWInfo->SaveGameLen[x],sp);
 				}
+			fclose(sp);
 		}
 	}
 }
@@ -669,6 +678,14 @@ void FCEU_LoadGameSave(CartInfo *LocalHWInfo)
 	{
 		FILE *sp;
 
+		if (GameInfo)
+		{
+			if (GameInfo->filename && GameInfo->filename[0])
+				GetFileBase(GameInfo->filename);
+			else if (GameInfo->archiveFilename && GameInfo->archiveFilename[0])
+				GetFileBase(GameInfo->archiveFilename);
+		}
+
 		std::string soot = FCEU_MakeFName(FCEUMKF_SAV,0,"sav");
 		sp=FCEUD_UTF8fopen(soot,"rb");
 		if(sp!=NULL)
@@ -676,6 +693,7 @@ void FCEU_LoadGameSave(CartInfo *LocalHWInfo)
 			for(int x=0;x<4;x++)
 				if(LocalHWInfo->SaveGame[x])
 					fread(LocalHWInfo->SaveGame[x],1,LocalHWInfo->SaveGameLen[x],sp);
+			fclose(sp);
 		}
 	}
 }
