@@ -1163,6 +1163,16 @@ HRESULT Cemulator::LoadGame(std::string name, bool restart) {
 	CreateDirectoryA("game:\\states", NULL);
 	}
 
+	// Set battery save directory to game: drive
+	static char saveDir[] = "game:\\sav";
+	FCEUI_SetDirOverride(FCEUIOD_NV, saveDir);
+
+	// Create sav directory if it doesn't exist
+	DWORD saveAttrib = GetFileAttributesA(saveDir);
+	if (saveAttrib == 0xFFFFFFFF || !(saveAttrib & FILE_ATTRIBUTE_DIRECTORY)) {
+		CreateDirectoryA(saveDir, NULL);
+	}
+
 	// Create user directories on hdd1 (always writable) for lua
 	CreateDirectoryA("hdd1:\\fce360-enhanced", NULL);
 	CreateDirectoryA("hdd1:\\fce360-enhanced\\lua", NULL);
