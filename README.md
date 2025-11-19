@@ -103,7 +103,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 * **Game Genie is officially back on Xbox 360**
   * Enable `[cheat]` -> `enable=1` in `game:\fceui.ini` to light up the new pre-launch keyboard prompt.
-  * Mash in your favorite NES-era codes before the ROM even boots�cancel or submit nothing if you just want a vanilla launch.
+  * Mash in your favorite NES-era codes before the ROM even boots, cancel or submit nothing if you just want a vanilla launch.
 
 * **Stack codes, hit start, and everything just works**
   * Feed the prompt multiple 6- or 8-character codes separated by spaces, commas, or hyphen chains like `YSAOPE-YEAOZA-YEAPYA`.
