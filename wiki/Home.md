@@ -78,10 +78,13 @@ See [Setup](Setup) for detailed instructions.
   - **File-based:** [`savestatefile()`](State-Management-Functions#savestatefile), [`loadstatefile()`](State-Management-Functions#loadstatefile)
 
 #### Monitoring Functions
-- **[Monitoring Functions](Monitoring-Functions)** - Performance and timing
+- **[Monitoring Functions](Monitoring-Functions)** - Performance, timing, frame/jitter metrics, Lua memory inspection, garbage collection, and profiling helpers.
   - **FPS:** [`getfps()`](Monitoring-Functions#getfps)
-  - **Frame info:** [`getframecount()`](Monitoring-Functions#getframecount), [`getelapsedframes()`](Monitoring-Functions#getelapsedframes), [`getframecycles()`](Monitoring-Functions#getframecycles), [`getelapsedtime()`](Monitoring-Functions#getelapsedtime)
-  - **Timing:** [`gettime()`](Monitoring-Functions#gettime), [`gettimedelta()`](Monitoring-Functions#gettimedelta), [`sleepframes()`](Monitoring-Functions#sleepframes)
+  - **Frame info:** [`getframecount()`](Monitoring-Functions#getframecount), [`getelapsedframes()`](Monitoring-Functions#getelapsedframes), [`getframecycles()`](Monitoring-Functions#getframecycles), [`getppucycles()`](Monitoring-Functions#getppucycles), [`getapucycles()`](Monitoring-Functions#getapucycles), [`getelapsedtime()`](Monitoring-Functions#getelapsedtime)
+  - **Frame timing:** [`getframetime_ms()`](Monitoring-Functions#getframetime_ms), [`getjitter_ms()`](Monitoring-Functions#getjitter_ms)
+  - **Lua memory & GC:** [`getluamem()`](Monitoring-Functions#getluamem), [`collectgarbage_now()`](Monitoring-Functions#collectgarbage_now)
+  - **Profiling:** [`beginprofile()`](Monitoring-Functions#beginprofiletag), [`endprofile()`](Monitoring-Functions#endprofiletag)
+  - **Timing helpers:** [`gettime()`](Monitoring-Functions#gettime), [`gettimedelta()`](Monitoring-Functions#gettimedelta), [`sleepframes()`](Monitoring-Functions#sleepframes)
   - **Screen info:** [`getscreenwidth()`](Monitoring-Functions#getscreenwidth), [`getscreenheight()`](Monitoring-Functions#getscreenheight), [`getscreensize()`](Monitoring-Functions#getscreensize)
 
 #### ROM Information Functions
@@ -89,7 +92,7 @@ See [Setup](Setup) for detailed instructions.
   - **ROM info:** [`getromname()`](ROM-Info-Functions#getromname), [`getrompath()`](ROM-Info-Functions#getrompath), [`getromhash(algorithm)`](ROM-Info-Functions#getromhashalgorithm), [`getinesheader()`](ROM-Info-Functions#getinesheader), [`getregion()`](ROM-Info-Functions#getregion), [`getromsize()`](ROM-Info-Functions#getromsize), [`getprgsize()`](ROM-Info-Functions#getprgsize), [`getchrsize()`](ROM-Info-Functions#getchrsize)
   - **Mapper:** [`getmapper()`](ROM-Info-Functions#getmapper), [`getmapperstring()`](ROM-Info-Functions#getmapperstring)
   - **Features:** [`hasbattery()`](ROM-Info-Functions#hasbattery)
-  - **Saves:** [`getsavepath()`](ROM-Info-Functions#getsavepath) — returns `<rom>.sav` (or legacy `game.sav` if that’s the only file), empty string if no save exists
+  - **Saves:** [`getsavepath()`](ROM-Info-Functions#getsavepath) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â returns `<rom>.sav` (or legacy `game.sav` if thatÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢s the only file), empty string if no save exists
   - **Emulation state:** [`isframeadvancing()`](ROM-Info-Functions#isframeadvancing), [`isrewinding()`](ROM-Info-Functions#isrewinding), [`isfastforwarding()`](ROM-Info-Functions#isfastforwarding)
   - **Game Genie:** [`getgamegeniecode()`](ROM-Info-Functions#getgamegeniecode), [`decodegamegenie()`](ROM-Info-Functions#decodegamegenie)
 

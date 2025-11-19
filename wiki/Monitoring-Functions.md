@@ -1,4 +1,4 @@
-﻿# Monitoring Functions
+# Monitoring Functions
 
 The Monitoring Functions provide access to performance metrics, timing information, screen dimensions, and audio monitoring capabilities. These functions are essential for creating performance overlays, timing systems, audio visualizations, and debugging tools.
 
@@ -12,7 +12,7 @@ Returns the current frame rate as a floating-point number. The FPS is recalculat
 **Parameters:** None
 
 **Returns:** 
-- `number` - Current FPS value (typically 60.0 for normal speed, 120.0 for 2× fast-forward, etc.)
+- `number` - Current FPS value (typically 60.0 for normal speed, 120.0 for 2ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â fast-forward, etc.)
 
 **Notes:**
 - The FPS value is updated once per second, so rapid calls within the same second will return the same value.
@@ -230,6 +230,62 @@ function gui()
 end
 ```
 
+### `getppucycles`
+
+**Signature:** `getppucycles()`
+Gets the number of PPU (Picture Processing Unit) cycles executed in the current frame. Provides a 3x finer-grained counter than `getframecycles()` and is ideal for overlays that need to align with PPU timing.
+
+**Parameters:** None
+
+**Returns:**
+- `integer` - Number of PPU cycles executed in the current frame
+- Typical value: ~89,346 cycles for NTSC (3 PPU cycles per 29,782 CPU cycles)
+- Returns the latched value from the last completed frame when called from `gui()`
+
+**Notes:**
+- Derived directly from the CPU cycle timer (multiplied by 3) so it stays in sync with emulation timing
+- Updates continuously during emulation and is latched at frame boundaries, just like `getframecycles()`
+- Works in all callbacks (`beforeframe()`, `gui()`, etc.) and during pause/frame advance
+- Use it to derive dot positions or verify CPU vs PPU timing in diagnostics (see `lua/test_ppucycles.lua`)
+
+**Example: Display CPU vs PPU Cycles:**
+```lua
+function gui()
+    local cpuCycles = getframecycles()
+    local ppuCycles = getppucycles()
+    local ratio = cpuCycles > 0 and (ppuCycles / cpuCycles) or 0
+
+    drawtext(4, 4,  string.format("CPU cycles: %d", cpuCycles), 0x20)
+    drawtext(4, 14, string.format("PPU cycles: %d", ppuCycles), 0x29)
+    drawtext(4, 24, string.format("PPU/CPU ratio: %.2f", ratio), 0x2E)
+end
+```
+
+### `getapucycles`
+
+**Signature:** `getapucycles()`
+Gets the APU (Audio Processing Unit) cycle count for the current frame. Because the APU runs at the CPU clock, this value mirrors `getframecycles()` but stays separate so overlays can label CPU vs APU timing explicitly.
+
+**Parameters:** None
+
+**Returns:**
+- `integer` - Number of APU cycles executed in the current frame
+- Matches CPU cycle counts (~29,782 per NTSC frame)
+- Returns the latched value when sampled after a frame completes
+
+**Notes:**
+- Useful for logging or overlays that compare CPU, PPU, and APU workload
+- Shares the same live/latched behavior as `getframecycles()` and `getppucycles()`
+- See `lua/test_ppucycles.lua` for a quick console demo of all three counters
+
+**Example: Display APU Cycles:**
+```lua
+function gui()
+    local apuCycles = getapucycles()
+    drawtext(4, 44, string.format("APU cycles: %d", apuCycles), 0x23)
+end
+```
+
 ### `getelapsedtime`
 
 **Signature:** `getelapsedtime()`
@@ -423,7 +479,146 @@ function gui()
 end
 ```
 
+## Profiling Functions
+
+### `beginprofile(tag)`
+
+**Signature:** `beginprofile(tag)`
+Begins a profiling section identified by `tag`. Stores the current timestamp so elapsed time can be measured later.
+
+**Parameters:**
+- `tag` (string) - Non-empty identifier shared with `endprofile()`
+
+**Returns:**
+- `nil`
+
+**Notes:**
+- Each tag tracks its own start time; calling `beginprofile` again for the same tag overwrites the previous start.
+- Pair with [`endprofile(tag)`](#endprofiletag) to emit a `[PROFILE]` line in the Lua console/log.
+- Profiling output uses milliseconds (via `GetTickCount()`), making it ideal for script-side performance checks.
+
+**Example:**
+```lua
+function gui()
+    beginprofile("overlay")
+    -- heavy drawing work
+    endprofile("overlay")
+end
+```
+
+### `endprofile(tag)`
+
+**Signature:** `endprofile(tag)`
+Ends a profiling section and logs the elapsed time for `tag`.
+
+**Parameters:**
+- `tag` (string) - Identifier previously passed to `beginprofile()`
+
+**Returns:**
+- `nil`
+
+**Notes:**
+- Prints `[PROFILE] <tag>: <ms> ms` to the Lua console/log.
+- If `endprofile()` is called without a matching `beginprofile()`, a warning is logged instead of raising an error.
+- Removing a tag from the internal map keeps memory usage low when profiling many sections.
+
+**Example:**
+```lua
+beginprofile("loader")
+-- do some work
+endprofile("loader")  -- logs elapsed milliseconds
+```
+
+---
+
 ## Screen Dimension Functions
+
+### `getframetime_ms()`
+
+**Signature:** `getframetime_ms()`
+Returns the elapsed time between the current frame and previous frame in milliseconds. Essentially a millisecond version of [`gettimedelta()`](#gettimedelta).
+
+**Parameters:** None
+
+**Returns:**
+- `number` - Milliseconds since the last call to `getframetime_ms()` or `gettimedelta()` (0 on the first call).
+
+**Notes:**
+- Uses `GetTickCount()` so it reflects fast-forward, rewind, and pauses.
+- Calling either function updates the shared timestamp; call just one per frame for consistent measurements.
+
+**Example:**
+```lua
+function gui()
+    local ms = getframetime_ms()
+    drawtext(4, 28, string.format("Frame %.2f ms", ms), 0x28)
+end
+```
+
+### `getjitter_ms()`
+
+**Signature:** `getjitter_ms()`
+Returns the absolute deviation from the ideal 60 Hz frame duration (16.64 ms). Handy for spotting pacing spikes even when average frame time looks fine.
+
+**Parameters:** None
+
+**Returns:**
+- `number` - Absolute milliseconds difference between the current frame time and the ideal 16.64 ms (0 on the first call).
+
+**Notes:**
+- Shares the same underlying timestamp source as `getframetime_ms()` but does not disturb its state, so you can call both each frame.
+- Fast-forward, pauses, and dropped frames will increase jitter; steady 60 Hz should report near zero.
+
+**Example:**
+```lua
+local jitter = getjitter_ms()
+drawtext(4, 40, string.format("Jitter: %.3f ms", jitter), 0x27)
+```
+
+### `getluamem()`
+
+**Signature:** `getluamem()`
+Returns a table describing the current Lua allocator usage. Helpful for watching memory growth in long-running scripts or after allocating large tables/images.
+
+**Parameters:** None
+
+**Returns:**
+- `table` with the fields:
+  - `kilobytes` (number) â€“ Approximate KB reported by Lua (same as `collectgarbage("count")`).
+  - `bytes` (number) â€“ Floating-point byte count (`kilobytes * 1024`).
+  - `rounded_bytes` (integer) â€“ Byte count rounded to an integer.
+
+**Notes:**
+- Uses `lua_gc(L, LUA_GCCOUNT/B)` internally, so it does not trigger garbage collection.
+- Useful for detecting runaway allocations or verifying that cleanup logic works (watch the values drop after `collectgarbage()`).
+
+**Example:**
+```lua
+local mem = getluamem()
+drawtext(4, 60, string.format("Lua: %.2f KB", mem.kilobytes or 0), 0x20)
+```
+
+### `collectgarbage_now()`
+
+**Signature:** `collectgarbage_now()`
+Forces an immediate full garbage collection cycle (equivalent to `collectgarbage("collect")`). Useful after freeing large tables/images to reclaim memory before continuing.
+
+**Parameters:** None
+
+**Returns:**
+- `nil`
+
+**Notes:**
+- Uses Lua's `lua_gc(..., LUA_GCCOLLECT)` under the hood, so it blocks until the GC finishes.
+- Pair it with [`getluamem()`](#getluamem) to confirm memory drops after cleanup.
+
+**Example:**
+```lua
+junk = nil
+collectgarbage_now()
+local mem = getluamem()
+print(string.format("Lua mem: %.2f KB", mem.kilobytes))
+```
 
 ### `getscreenwidth`
 
