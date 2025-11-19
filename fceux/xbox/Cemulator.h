@@ -189,6 +189,7 @@ class Cemulator {
 
 		// Netplay
 		int use_netplay;
+		int promptForGameGenie;
 
 		// video
 		DWORD SelectedVertexFilter;

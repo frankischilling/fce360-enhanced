@@ -1086,7 +1086,9 @@ HRESULT Cemulator::InitSystem() {
 	m_Settings.SelectedGfxFilter = gfx_normal;
 
 	// network
+	m_Settings.promptForGameGenie = 0;
 	fcecfg.Find("network", "enable", m_Settings.use_netplay);
+	fcecfg.Find("cheat", "enable", m_Settings.promptForGameGenie);
 
 	fcecfg.Find("controller", "XINPUT_GAMEPAD_DPAD_UP",
 				m_Settings.gamepad_dpad_up);

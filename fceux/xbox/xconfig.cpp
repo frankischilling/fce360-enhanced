@@ -1,4 +1,4 @@
-// config.cpp : définit le point d'entrée pour l'application console.
+// config.cpp�: d�finit le point d'entr�e pour l'application console.
 #include "xbox/fceusupport.h"
 #include "config_reader.h"
 #include <iostream>
@@ -86,6 +86,11 @@ void ReadConfig()
 	fcecfg.Set("controller","XINPUT_GAMEPAD_RIGHT_SHOULDER", gamepad_right_shoulder);
 	fcecfg.Set("controller","XINPUT_LEFT_TRIGGER", gamepad_left_trigger);
 	fcecfg.Set("controller","XINPUT_RIGHT_TRIGGER", gamepad_right_trigger);
+
+	/***
+	Cheats
+	**/
+	fcecfg.Set("cheat","enable", 0);
 	
 	//load the ini file
 	fcecfg.Load("game:\\fceui.ini");//overwrite default
