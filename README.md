@@ -22,7 +22,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Also builds on Xbox 360 SDK 21256.3
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.8.7** — *Advanced Performance Monitoring and Profiling Functions: Added 8 new functions for performance analysis, frame timing metrics, Lua memory inspection, and hardware cycle counting (beginprofile, endprofile, getframetime_ms, getjitter_ms, getluamem, collectgarbage_now, getppucycles, getapucycles)* � *Game Genie Support Returns: Toggle an Xbox keyboard prompt before launch, enter one or more codes, and watch them decode, activate, and save automatically just like the original hardware magic.*
+* Current release: **v0.8.8** — *Palette Management Functions: Added 3 new functions for bulk palette operations, palette retrieval, and loading custom palettes from files (setpalette, getpalette, loadpalette)* � *Game Genie Support Returns: Toggle an Xbox keyboard prompt before launch, enter one or more codes, and watch them decode, activate, and save automatically just like the original hardware magic.*
 
 ---
 
@@ -30,6 +30,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.8.8 - Palette Management Functions](#whats-new-v088)
   - [v0.8.7 - Advanced Performance Monitoring and Profiling Functions](#whats-new-v087)
   - [v0.8.6 - Game Genie Support Returns](#whats-new-v086)
   - [v0.8.5 - Battery Save Fixes and ROM Information Functions](#whats-new-v085)
@@ -106,7 +107,79 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 ## What's New
 
-*Current release: **v0.8.7** — Advanced Performance Monitoring and Profiling Functions: Added 8 new functions for detailed performance analysis, frame timing metrics, Lua memory inspection, and hardware cycle counting.*
+*Current release: **v0.8.8** — Palette Management Functions: Added 3 new functions for bulk palette operations, palette retrieval, and loading custom palettes from files.*
+
+---
+
+## What's new (v0.8.8)
+
+* **Palette Management Functions:** Added **3 new palette management functions** for bulk palette operations, palette retrieval, and loading custom palettes from files!
+
+  * **Bulk Palette Operations:**
+    * `setpalette(paletteTable)` - Sets palette in bulk operation
+      * Accepts table of color values (1-indexed array or 0-indexed key-value pairs)
+      * Supports partial palette updates
+      * Automatically applies universal color mirroring (PALRAM[0x00] → 0x04/0x08/0x0C, PALRAM[0x10] → 0x14/0x18/0x1C)
+      * Validates indices (0-31) and color values (0-63)
+      * More efficient than multiple `setpalettecolor()` calls
+      * Use case: Palette swapping, color correction, applying entire color schemes
+      * Example: `setpalette({[0] = 0x20, [1] = 0x16, [2] = 0x27})`
+
+  * **Palette Retrieval:**
+    * `getpalette()` - Gets current palette as a table
+      * Returns all 32 palette RAM entries (0-31) as 0-indexed table
+      * More efficient than calling `getpalettecolor()` 32 times
+      * Use case: Palette analysis, saving/restoring palettes, comparing palette states
+      * Example: `local palette = getpalette(); setpalette(palette)` - round-trip
+
+  * **Palette File Loading:**
+    * `loadpalette(path)` - Loads palette from .pal file
+      * Accepts relative or absolute file paths
+      * Searches multiple locations: `game:\`, `game:\lua\`, `game:\Lua\`, `hdd1:\fce360-enhanced\lua\`, etc.
+      * File format: 192 bytes (64 colors × 3 bytes RGB)
+      * Returns boolean indicating success/failure
+      * Applies palette immediately using `FCEUI_SetPaletteArray`
+      * Use case: Import custom palettes, apply color correction presets, load community palettes
+      * Example: `loadpalette("test.pal")` or `loadpalette("game:\\lua\\custom.pal")`
+
+* **Technical Details:**
+  * `setpalette()` iterates through Lua table using `lua_next()` to support both array and key-value formats
+  * Universal color mirroring is applied automatically for PALRAM[0x00] and PALRAM[0x10]
+  * `getpalette()` creates 32-entry Lua table and reads PALRAM[0] through PALRAM[31]
+  * `loadpalette()` uses path resolution similar to `readfile()` with multiple search paths
+  * Path separators (/, \) are automatically normalized
+  * All functions validate input ranges and throw errors for invalid values
+  * Functions are thread-safe for Lua script execution context
+
+* **Testing:**
+  * Created `test_setpalette.lua` - Tests bulk palette setting, array/key-value formats, partial updates, universal color mirroring, error handling
+  * Created `test_getpalette.lua` - Tests palette retrieval, table format, round-trip operations, comparison with `getpalettecolor()`
+  * Created `test_loadpalette.lua` - Tests loading palettes from various paths, error handling, file format validation
+
+* **Documentation:**
+  * Complete API documentation added to `wiki/Color-Functions.md` for all new functions
+  * Updated `wiki/Home.md` with new function links in Color and Palette Functions section
+  * All functions include detailed examples, use cases, and error handling
+  * Function signatures formatted for clickable wiki links
+
+* **Use Cases:**
+  * **Palette Swapping:** Use `setpalette()` to quickly swap entire color schemes
+  * **Palette Analysis:** Use `getpalette()` to analyze current palette state and compare changes
+  * **Custom Palettes:** Use `loadpalette()` to import community-created or custom palette files
+  * **Color Correction:** Combine `getpalette()` and `setpalette()` to apply color corrections
+  * **Palette Preservation:** Save and restore palettes using `getpalette()` and `setpalette()`
+
+* **Includes Previous Features:**
+  * All v0.8.7 features: Advanced Performance Monitoring and Profiling Functions
+  * All v0.8.6 features: Game Genie Support Returns
+  * All v0.8.5 features: Battery Save Fixes and ROM Information Functions
+  * All v0.8.4 features: Enhanced Input Recording Functions (markers, playback navigation, speed control, trimming)
+  * All v0.8.3 features: Input Recording Save/Load API (saveinputrecording, loadinputrecording)
+  * All v0.8.2 features: Enhanced Input API (button callbacks, hold timing, haptic feedback, input remapping)
+  * All v0.8.1 features: Enhanced Drawing API (2D transforms, canvas rendering, gradients, advanced text styling, partial screenshot capture)
+  * All v0.8.0 features: Complete File I/O API Suite (readfile, writefile, listfiles, etc.)
+  * All v0.7.9 features: Complete Audio API Suite
+  * All prior features from v0.7.8–v0.6.1
 
 ---
 
