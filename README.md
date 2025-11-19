@@ -1,5 +1,15 @@
 # fce360-enhanced (FCEUX-360 tweaks)
 
+FCE360-Enhanced is a fork of FCE360 (itself based on FCEUX) that focuses on front-end feel for Xbox 360. Beyond maintaining the original core emulation accuracy, this branch layers in fast list navigation, time-based scrolling, smoother menu cadence, richer pause-menu options, Lua scripting support, rewind, and an optional speed-up mode so the console version gains modern conveniences.
+
+Key additions include:
+- Time-based scrolling that accelerates while holding the stick or triggers, making giant ROM libraries manageable.
+- Refined menu/input processing so the ROM browser, pause menu, and tabs feel snappy even when lists are long.
+- Expanded pause-menu utilities (quick filters, slot controls, Lua toggles) tuned for controller workflows.
+- Full Lua scripting support with auto-load options, letting scripts read ROM metadata, draw overlays, and intercept input just like desktop FCEUX.
+- Integrated rewind system plus a turbo/speed-up toggle so you can quickly retry sections or fast-forward grindy bits.
+
+These UX upgrades sit entirely in the Xbox UI layer; the underlying emulation core stays unchanged from upstream FCEUX for compatibility and accuracy.
 Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsiveness. Core emulation code remains intact; improvements are limited to the Xbox UI layer (XUI scenes, input cadence, list scrolling).
 
 > **Note:** Code hasn't been touched since around 2016, so I'm giving it some love with UI improvements and modern features while preserving the original emulation core.
@@ -12,7 +22,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Also builds on Xbox 360 SDK 21256.3
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.8.6** *Game Genie Support Returns: Toggle an Xbox keyboard prompt before launch, enter one or more codes, and watch them decode, activate, and save automatically just like the original hardware magic.*
+* Current release: **v0.8.7** — *Advanced Performance Monitoring and Profiling Functions: Added 8 new functions for performance analysis, frame timing metrics, Lua memory inspection, and hardware cycle counting (beginprofile, endprofile, getframetime_ms, getjitter_ms, getluamem, collectgarbage_now, getppucycles, getapucycles)* � *Game Genie Support Returns: Toggle an Xbox keyboard prompt before launch, enter one or more codes, and watch them decode, activate, and save automatically just like the original hardware magic.*
 
 ---
 
@@ -20,6 +30,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.8.7 - Advanced Performance Monitoring and Profiling Functions](#whats-new-v087)
   - [v0.8.6 - Game Genie Support Returns](#whats-new-v086)
   - [v0.8.5 - Battery Save Fixes and ROM Information Functions](#whats-new-v085)
   - [v0.8.4 - Enhanced Input Recording Functions](#whats-new-v084)
@@ -95,7 +106,108 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 ## What's New
 
-*Current release: **v0.8.6** Game Genie Support Returns: Flip on the keyboard prompt, punch in classic codes, and they fire instantly just like the cartridge add-on.*
+*Current release: **v0.8.7** — Advanced Performance Monitoring and Profiling Functions: Added 8 new functions for detailed performance analysis, frame timing metrics, Lua memory inspection, and hardware cycle counting.*
+
+---
+
+## What's new (v0.8.7)
+
+* **Advanced Performance Monitoring and Profiling Functions:** Added **8 new monitoring and profiling functions** for detailed performance analysis, frame timing metrics, Lua memory inspection, and hardware cycle counting!
+
+  * **Profiling Functions:**
+    * `beginprofile(tag)` - Begins a profiling section identified by tag
+      * Stores current timestamp for elapsed time measurement
+      * Each tag tracks its own start time independently
+      * Use case: Mark the start of code sections you want to measure
+      * Example: `beginprofile("overlay")` before heavy drawing work
+
+    * `endprofile(tag)` - Ends a profiling section and logs elapsed time to Lua console
+      * Prints "[PROFILE] <tag>: <ms> ms" to the console/log
+      * Uses GetTickCount() for millisecond precision
+      * If called without matching beginprofile(), logs a warning instead of error
+      * Use case: Measure execution time of specific code blocks
+      * Example: `endprofile("overlay")` after drawing work completes
+
+  * **Frame Timing Functions:**
+    * `getframetime_ms()` - Returns elapsed time between current frame and previous frame in milliseconds
+      * Millisecond version of gettimedelta()
+      * Returns 0 on first call
+      * Uses GetTickCount() so it reflects fast-forward, rewind, and pauses
+      * Use case: Frame timing analysis, performance monitoring overlays
+      * Example: Display frame time in milliseconds for performance debugging
+
+    * `getjitter_ms()` - Returns absolute deviation from ideal 60 Hz frame duration (16.64 ms)
+      * Helps identify frame pacing spikes even when average looks fine
+      * Returns 0 on first call
+      * Shares timestamp source with getframetime_ms() but doesn't disturb its state
+      * Fast-forward, pauses, and dropped frames increase jitter
+      * Steady 60 Hz should report near zero
+      * Use case: Frame pacing analysis, detecting performance issues
+      * Example: Monitor jitter to identify frame drops or timing inconsistencies
+
+  * **Lua Memory Functions:**
+    * `getluamem()` - Returns table describing current Lua allocator usage
+      * Table fields: kilobytes (number), bytes (number), rounded_bytes (integer)
+      * Uses lua_gc(L, LUA_GCCOUNT/B) internally, does not trigger garbage collection
+      * Helpful for watching memory growth in long-running scripts
+      * Use case: Memory leak detection, monitoring script memory usage
+      * Example: Track memory usage after allocating large tables/images
+
+    * `collectgarbage_now()` - Forces immediate full garbage collection cycle
+      * Equivalent to collectgarbage("collect")
+      * Uses lua_gc(..., LUA_GCCOLLECT), blocks until GC finishes
+      * Use case: Reclaim memory after freeing large tables/images
+      * Example: Call after clearing large data structures, then check getluamem()
+
+  * **Hardware Cycle Counting:**
+    * `getppucycles()` - Gets PPU (Picture Processing Unit) cycle count for current frame
+      * Returns integer representing PPU cycles executed
+      * Shares same live/latched behavior as getframecycles()
+      * Use case: PPU performance analysis, cycle-accurate timing
+      * Example: Monitor PPU cycles to analyze rendering performance
+
+    * `getapucycles()` - Gets APU (Audio Processing Unit) cycle count for current frame
+      * Returns integer representing APU cycles executed
+      * Shares same live/latched behavior as getframecycles() and getppucycles()
+      * Use case: APU performance analysis, audio processing timing
+      * Example: Monitor APU cycles to analyze audio processing performance
+
+* **Technical Details:**
+  * Profiling functions use std::map<std::string, DWORD> to track start times per tag
+  * Frame timing functions share a static timestamp to avoid state conflicts
+  * Lua memory functions use lua_gc() with LUA_GCCOUNT and LUA_GCCOUNTB flags
+  * Cycle counting functions access internal emulator cycle counters
+  * All functions are thread-safe for Lua script execution context
+
+* **Testing:**
+  * Created `test_ppucycles.lua` - Tests PPU cycle counting and display
+  * Created `test_frametime.lua` - Tests frame timing and jitter measurement
+  * Created `test_jitter.lua` - Tests jitter calculation and monitoring
+  * Created `test_luamem.lua` - Tests Lua memory usage tracking
+  * Created `test_collectgarbage.lua` - Tests garbage collection and memory reclamation
+
+* **Documentation:**
+  * Complete API documentation added to `wiki/Monitoring-Functions.md` for all new functions
+  * Updated `wiki/Home.md` with new function links in Monitoring Functions section
+  * All functions include detailed examples and use cases
+  * Function signatures formatted for clickable wiki links
+
+* **Use Cases:**
+  * **Performance Profiling:** Use `beginprofile()` and `endprofile()` to measure execution time of code sections
+  * **Frame Timing Analysis:** Use `getframetime_ms()` and `getjitter_ms()` to monitor frame pacing and detect performance issues
+  * **Memory Management:** Use `getluamem()` and `collectgarbage_now()` to track and manage Lua script memory usage
+  * **Hardware Analysis:** Use `getppucycles()` and `getapucycles()` to analyze PPU and APU performance
+
+* **Includes Previous Features:**
+  * All v0.8.6 features: Game Genie Support Returns
+  * All v0.8.5 features: Battery Save Fixes and ROM Information Functions
+  * All v0.8.4 features: Enhanced Input Recording Functions (markers, playback navigation, speed control, trimming)
+  * All v0.8.3 features: Input Recording Save/Load API (saveinputrecording, loadinputrecording)
+  * All v0.8.2 features: Enhanced Input API (button callbacks, hold timing, haptic feedback, input remapping)
+  * All v0.8.1 features: Enhanced Drawing API (2D transforms, canvas rendering, gradients, advanced text styling, partial screenshot capture)
+  * All v0.8.0 features: Complete File I/O API Suite (readfile, writefile, listfiles, etc.)
+  * All v0.7.9 features: Complete Audio API Suite
+  * All prior features from v0.7.8–v0.6.1
 
 ---
 
@@ -103,7 +215,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 * **Game Genie is officially back on Xbox 360**
   * Enable `[cheat]` -> `enable=1` in `game:\fceui.ini` to light up the new pre-launch keyboard prompt.
-  * Mash in your favorite NES-era codes before the ROM even boots, cancel or submit nothing if you just want a vanilla launch.
+  * Mash in your favorite NES-era codes before the ROM even boots�cancel or submit nothing if you just want a vanilla launch.
 
 * **Stack codes, hit start, and everything just works**
   * Feed the prompt multiple 6- or 8-character codes separated by spaces, commas, or hyphen chains like `YSAOPE-YEAOZA-YEAPYA`.
