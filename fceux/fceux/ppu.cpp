@@ -858,6 +858,20 @@ static DECLFW(B2001)
 	if(V&0xE0)
 		deemp=V>>5;
 }
+
+void FCEU_SetPPUEmphasisBits(uint8 emphasisMask)
+{
+	// Only allow emphasis bits (5-7)
+	uint8 masked = emphasisMask & 0xE0;
+
+	FCEUPPU_LineUpdate();
+
+	// Preserve non-emphasis bits in $2001
+	PPU[1] = (PPU[1] & ~0xE0) | masked;
+
+	// Keep the emulator's deemphasis tracker in sync
+	deemp = (PPU[1] >> 5) & 0x07;
+}
 //
 static DECLFW(B2002)
 {

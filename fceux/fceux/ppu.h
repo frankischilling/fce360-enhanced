@@ -29,6 +29,7 @@ int FCEUPPU_Loop(int skip);
 
 void FCEUPPU_LineUpdate();
 void FCEUPPU_SetVideoSystem(int w);
+void FCEU_SetPPUEmphasisBits(uint8 emphasisMask);
 
 extern void (*PPU_hook)(uint32 A);
 extern void (*GameHBIRQHook)(void), (*GameHBIRQHook2)(void);

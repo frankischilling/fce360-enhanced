@@ -5915,13 +5915,41 @@ static int lua_writefile(lua_State* L)
 	 return 1;  // Return the color value
  }
 
+ // getpalette() -> table
+ // Gets current palette
+ // Parameters: None
+ // Returns: Table of color values
+ // Use case: Palette analysis
+ static int lua_getpalette(lua_State* L)
+ {
+	 int n = lua_gettop(L);
+	 if (n > 0) {
+		 return luaL_error(L, "getpalette() takes no arguments");
+	 }
+	 
+	 // Create a table with 32 entries (0-31)
+	 lua_createtable(L, 32, 0);
+	 
+	 // Read all palette entries from PALRAM and populate the table
+	 for (int i = 0; i < 32; ++i) {
+		 uint8 colorValue = PALRAM[i] & 0x3F;  // Mask to 6 bits (0-63)
+		 
+		 // Use 0-indexed keys (Lua tables can have 0-indexed keys)
+		 lua_pushinteger(L, i);
+		 lua_pushinteger(L, colorValue);
+		 lua_rawset(L, -3);  // Set table[i] = colorValue
+	 }
+	 
+	 return 1;  // Return the table
+ }
+
  // setpalettecolor(index, color) -> void
  // Sets palette color (temporary, frame-only)
  // Parameters: index (0-31), color (0-63)
  // Returns: Nothing
  // Use case: Palette effects, color cycling
- static int lua_setpalettecolor(lua_State* L)
- {
+static int lua_setpalettecolor(lua_State* L)
+{
 	 int n = lua_gettop(L);
 	 if (n < 2) {
 		 return luaL_error(L, "setpalettecolor(index, color) requires 2 arguments");
@@ -5961,6 +5989,193 @@ static int lua_writefile(lua_State* L)
 	 }
 	 
 	 return 0;  // Return nothing
+}
+
+ // setpalette(paletteTable) -> void
+ // Sets palette in bulk operation
+ // Parameters: paletteTable (table of color values)
+ // Returns: Nothing
+ // Use case: Palette swapping, color correction
+ static int lua_setpalette(lua_State* L)
+ {
+	 int n = lua_gettop(L);
+	 if (n < 1) {
+		 return luaL_error(L, "setpalette(paletteTable) requires 1 argument");
+	 }
+	 
+	 // Check if paletteTable is a table
+	 if (!lua_istable(L, 1)) {
+		 return luaL_error(L, "setpalette: paletteTable must be a table");
+	 }
+	 
+	 // Track which indices we've set to handle universal color mirroring
+	 bool setUniversalBg = false;
+	 bool setUniversalSpr = false;
+	 uint8 universalBgColor = 0;
+	 uint8 universalSprColor = 0;
+	 
+	 // Iterate through the table
+	 // Support both sequential array (1-indexed) and key-value pairs (0-31 indexed)
+	 lua_pushnil(L);  // First key for iteration
+	 while (lua_next(L, 1) != 0) {
+		 // Key is at index -2, value is at index -1
+		 if (lua_isnumber(L, -2) && lua_isnumber(L, -1)) {
+			 int key = (int)luaL_checkinteger(L, -2);
+			 int color = (int)luaL_checkinteger(L, -1);
+			 
+			 // Convert 1-indexed array to 0-indexed palette index
+			 int index = key;
+			 if (key >= 1 && key <= 32) {
+				 // Sequential array: [1] = PALRAM[0], [2] = PALRAM[1], etc.
+				 index = key - 1;
+			 }
+			 
+			 // Validate palette index range (0-31)
+			 if (index < 0 || index > 31) {
+				 lua_pop(L, 2);  // Remove value and key
+				 return luaL_error(L, "setpalette: palette index must be in range 0-31 (got %d)", index);
+			 }
+			 
+			 // Validate color range (0-63)
+			 if (color < 0 || color > 63) {
+				 lua_pop(L, 2);  // Remove value and key
+				 return luaL_error(L, "setpalette: color value must be in range 0-63 (got %d)", color);
+			 }
+			 
+			 // Mask color to 6 bits (0x3F)
+			 uint8 colorValue = (uint8)(color & 0x3F);
+			 
+			 // Write to PALRAM
+			 PALRAM[index] = colorValue;
+			 
+			 // Track universal colors for mirroring
+			 if (index == 0x00) {
+				 setUniversalBg = true;
+				 universalBgColor = colorValue;
+			 } else if (index == 0x10) {
+				 setUniversalSpr = true;
+				 universalSprColor = colorValue;
+			 }
+		 }
+		 
+		 lua_pop(L, 1);  // Remove value, keep key for next iteration
+	 }
+	 
+	 // Handle universal color mirroring (NES behavior)
+	 // Universal background color (0x00) is mirrored to 0x04, 0x08, 0x0C
+	 if (setUniversalBg) {
+		 PALRAM[0x04] = universalBgColor;
+		 PALRAM[0x08] = universalBgColor;
+		 PALRAM[0x0C] = universalBgColor;
+	 }
+	 // Universal sprite color (0x10) is mirrored to 0x14, 0x18, 0x1C
+	 if (setUniversalSpr) {
+		 PALRAM[0x14] = universalSprColor;
+		 PALRAM[0x18] = universalSprColor;
+		 PALRAM[0x1C] = universalSprColor;
+	 }
+	 
+	 return 0;  // Return nothing
+ }
+
+ // loadpalette(path) -> boolean
+ // Loads palette from .pal file
+ // Parameters: path (file path string)
+ // Returns: Boolean (success)
+ // Use case: Import custom palettes
+ static int lua_loadpalette(lua_State* L)
+ {
+	 int n = lua_gettop(L);
+	 if (n < 1) {
+		 return luaL_error(L, "loadpalette(path) requires 1 argument");
+	 }
+	 
+	 const char* path = luaL_checkstring(L, 1);
+	 if (!path || strlen(path) == 0) {
+		 lua_pushboolean(L, 0);
+		 return 1;
+	 }
+	 
+	 // Build full path - try game: directory first
+	 char fullpath[512];
+	 
+	 // If path already contains a drive/path, use it as-is
+	 if (strchr(path, ':') || path[0] == '\\' || path[0] == '/') {
+		 strncpy(fullpath, path, sizeof(fullpath) - 1);
+		 fullpath[sizeof(fullpath) - 1] = '\0';
+	 } else {
+		 // Relative to game: directory
+		 const char* baseDir = "game:\\";
+		 snprintf(fullpath, sizeof(fullpath), "%s%s", baseDir, path);
+	 }
+	 
+	 // Normalize path separators (convert / to \)
+	 for (int i = 0; fullpath[i] != '\0'; i++) {
+		 if (fullpath[i] == '/') {
+			 fullpath[i] = '\\';
+		 }
+	 }
+	 
+	 // Try to open file
+	 FILE* file = fopen(fullpath, "rb");
+	 if (!file) {
+		 // Try alternative paths if initial path fails
+		 const char* altPaths[] = {
+			 "game:\\lua\\%s",
+			 "game:\\Lua\\%s",
+			 "hdd1:\\fce360-enhanced\\lua\\%s",
+			 "hdd1:\\fce360-enhanced\\Lua\\%s",
+			 "game:\\%s"
+		 };
+		 
+		 bool found = false;
+		 for (int i = 0; i < (int)(sizeof(altPaths) / sizeof(altPaths[0])); i++) {
+			 char altPath[512];
+			 snprintf(altPath, sizeof(altPath), altPaths[i], path);
+			 
+			 // Normalize path separators
+			 for (int j = 0; altPath[j] != '\0'; j++) {
+				 if (altPath[j] == '/') {
+					 altPath[j] = '\\';
+				 }
+			 }
+			 
+			 file = fopen(altPath, "rb");
+			 if (file) {
+				 strncpy(fullpath, altPath, sizeof(fullpath) - 1);
+				 fullpath[sizeof(fullpath) - 1] = '\0';
+				 found = true;
+				 break;
+			 }
+		 }
+		 
+		 if (!found) {
+			 // File not found
+			 lua_pushboolean(L, 0);
+			 return 1;
+		 }
+	 }
+	 
+	 // .pal file format: 192 bytes (64 colors * 3 bytes RGB)
+	 // Format: RGBRGBRGB... for 64 colors
+	 uint8 paletteData[192];
+	 
+	 // Read palette data
+	 size_t bytesRead = fread(paletteData, 1, 192, file);
+	 fclose(file);
+	 
+	 if (bytesRead != 192) {
+		 // File is too small or read error
+		 lua_pushboolean(L, 0);
+		 return 1;
+	 }
+	 
+	 // Apply the palette using FCEUI_SetPaletteArray
+	 // This function expects RGBRGBRGB format (192 bytes for 64 colors)
+	 FCEUI_SetPaletteArray(paletteData);
+	 
+	 lua_pushboolean(L, 1);
+	 return 1;  // Return success
  }
 
  // getnescolor(index) -> integer
@@ -12132,7 +12347,10 @@ int lua_ismemorywritable(lua_State *L) {
 	 lua_register(luaState, "rmdir", lua_rmdir);
 	 lua_register(luaState, "getcolorrgb", lua_getcolorrgb);
 	 lua_register(luaState, "getpalettecolor", lua_getpalettecolor);
+	 lua_register(luaState, "getpalette", lua_getpalette);
 	 lua_register(luaState, "setpalettecolor", lua_setpalettecolor);
+	 lua_register(luaState, "setpalette", lua_setpalette);
+	 lua_register(luaState, "loadpalette", lua_loadpalette);
 	 lua_register(luaState, "getnescolor", lua_getnescolor);
 	 lua_register(luaState, "blendcolors", lua_blendcolors);
 	 lua_register(luaState, "sleepframes", lua_sleepframes);
@@ -12345,8 +12563,11 @@ static void EnsureLuaInit() {
 	REG("rmfile", lua_rmfile);
 	REG("rmdir", lua_rmdir);
 	REG("getcolorrgb", lua_getcolorrgb);
-	REG("getpalettecolor", lua_getpalettecolor);
-	REG("setpalettecolor", lua_setpalettecolor);
+REG("getpalettecolor", lua_getpalettecolor);
+REG("getpalette", lua_getpalette);
+REG("setpalettecolor", lua_setpalettecolor);
+REG("setpalette", lua_setpalette);
+REG("loadpalette", lua_loadpalette);
 	REG("getnescolor", lua_getnescolor);
 	REG("blendcolors", lua_blendcolors);
 	REG("sleepframes", lua_sleepframes);

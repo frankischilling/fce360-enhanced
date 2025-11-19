@@ -9,3 +9,5 @@ void FCEU_ResetPalette(void);
 void FCEU_ResetMessages();
 void FCEU_LoadGamePalette(void);
 void FCEU_DrawNTSCControlBars(uint8 *XBuf);
+void FCEUI_SetNTSCTH(int n, int tint, int hue);
+void FCEUI_GetNTSCTH(int *tint, int *hue);
