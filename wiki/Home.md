@@ -98,7 +98,7 @@ See [Setup](Setup) for detailed instructions.
 
 #### Color and Palette Functions
 - **[Color Functions](Color-Functions)** - Color manipulation and palette
-  - **Palette:** [`getpalettecolor()`](Color-Functions#getpalettecolor), [`setpalettecolor()`](Color-Functions#setpalettecolor), [`getnescolor()`](Color-Functions#getnescolor)
+  - **Palette:** [`getpalettecolor()`](Color-Functions#getpalettecolor), [`getpalette()`](Color-Functions#getpalette), [`setpalettecolor()`](Color-Functions#setpalettecolor), [`setpalette()`](Color-Functions#setpalette), [`loadpalette()`](Color-Functions#loadpalette), [`getnescolor()`](Color-Functions#getnescolor)
   - **Color utilities:** [`getcolorrgb()`](Color-Functions#getcolorrgb), [`blendcolors()`](Color-Functions#blendcolors)
 
 #### Utility Functions

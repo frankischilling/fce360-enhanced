@@ -392,6 +392,215 @@ function gui()
 end
 ```
 
+### `getpalette`
+
+**Signature:** `getpalette()`
+Gets current palette as a table. Returns all 32 palette RAM entries (0-31) as a table with 0-indexed keys. More efficient than calling `getpalettecolor()` 32 times. Useful for palette analysis, saving/restoring palettes, and comparing palette states.
+
+**Parameters:**
+- None
+
+**Returns:**
+- `table` - Table containing all palette RAM entries
+  - Keys are 0-indexed integers (0-31) corresponding to PALRAM indices
+  - Values are color indices (0-63) from the palette RAM
+  - Table structure: `{[0] = color0, [1] = color1, ..., [31] = color31}`
+  - The returned table can be used directly with `setpalette()` for save/restore operations
+
+**Notes:**
+- Reads directly from the NES palette RAM (PALRAM)
+- Returns a snapshot of the current palette state at the time of the call
+- The returned table uses 0-indexed keys matching `setpalette()`'s expected format
+- More efficient than multiple `getpalettecolor()` calls when reading the entire palette
+- Use with `setpalette()` to save and restore palette states
+- Use with `getcolorrgb()` to convert color indices to RGB values
+
+**Example: Basic Usage:**
+```lua
+-- Get current palette
+local palette = getpalette()
+
+-- Access individual entries
+local color0 = palette[0]   -- PALRAM[0x00]
+local color1 = palette[1]   -- PALRAM[0x01]
+local color31 = palette[31] -- PALRAM[0x1F]
+
+print(string.format("PALRAM[0x00] = %02X", color0))
+```
+
+**Example: Save and Restore Palette:**
+```lua
+local savedPalette = nil
+
+function gui()
+    -- Save palette on first frame
+    if not savedPalette then
+        savedPalette = getpalette()
+        print("Palette saved")
+    end
+    
+    -- ... do palette modifications ...
+    
+    -- Restore saved palette
+    if savedPalette then
+        setpalette(savedPalette)
+    end
+end
+```
+
+**Example: Palette Analysis:**
+```lua
+function gui()
+    local palette = getpalette()
+    
+    -- Count unique colors
+    local colorCounts = {}
+    for i = 0, 31 do
+        local color = palette[i]
+        colorCounts[color] = (colorCounts[color] or 0) + 1
+    end
+    
+    local uniqueColors = 0
+    for _ in pairs(colorCounts) do
+        uniqueColors = uniqueColors + 1
+    end
+    
+    drawtext(4, 4, string.format("Unique colors: %d", uniqueColors), 0x20)
+end
+```
+
+**Example: Compare Palettes:**
+```lua
+local originalPalette = nil
+
+function gui()
+    -- Capture original palette once
+    if not originalPalette then
+        originalPalette = getpalette()
+    end
+    
+    -- Get current palette
+    local currentPalette = getpalette()
+    
+    -- Compare and find differences
+    local differences = {}
+    for i = 0, 31 do
+        if currentPalette[i] ~= originalPalette[i] then
+            table.insert(differences, {
+                index = i,
+                original = originalPalette[i],
+                current = currentPalette[i]
+            })
+        end
+    end
+    
+    if #differences > 0 then
+        drawtext(4, 4, string.format("Palette changed: %d entries", #differences), 0x16)
+        for i, diff in ipairs(differences) do
+            if i <= 5 then  -- Show first 5
+                drawtext(4, 14 + i * 10, 
+                    string.format("[%02X]: %02X -> %02X", 
+                    diff.index, diff.original, diff.current), 0x29)
+            end
+        end
+    else
+        drawtext(4, 4, "Palette unchanged", 0x29)
+    end
+end
+```
+
+**Example: Round-Trip Test:**
+```lua
+function gui()
+    -- Get current palette
+    local palette = getpalette()
+    
+    -- Modify it
+    for i = 0, 31 do
+        palette[i] = (palette[i] + 1) % 64  -- Shift all colors by 1
+    end
+    
+    -- Set it back
+    setpalette(palette)
+    
+    -- Verify round-trip
+    local verifyPalette = getpalette()
+    local matches = true
+    for i = 0, 31 do
+        if verifyPalette[i] ~= palette[i] then
+            matches = false
+            break
+        end
+    end
+    
+    drawtext(4, 4, string.format("Round-trip: %s", matches and "OK" or "FAILED"), 
+        matches and 0x29 or 0x16)
+end
+```
+
+**Example: Display Full Palette:**
+```lua
+function gui()
+    local palette = getpalette()
+    
+    drawtext(4, 4, "Palette RAM (0x00-0x1F):", 0x20)
+    
+    -- Display all 32 entries as color swatches
+    for i = 0, 31 do
+        local x = 4 + (i % 16) * 12
+        local y = 14 + math.floor(i / 16) * 10
+        local color = palette[i]
+        
+        fillrect(x, y, 10, 8, color)
+        if i < 8 then  -- Show hex values for first row
+            drawtext(x, y + 8, string.format("%02X", color), 0x20)
+        end
+    end
+end
+```
+
+**Example: Monitor Palette Changes:**
+```lua
+local lastPalette = nil
+
+function gui()
+    local currentPalette = getpalette()
+    
+    -- Compare with previous frame
+    if lastPalette then
+        for i = 0, 31 do
+            if currentPalette[i] ~= lastPalette[i] then
+                print(string.format("PALRAM[%02X] changed: %02X -> %02X", 
+                    i, lastPalette[i], currentPalette[i]))
+            end
+        end
+    end
+    
+    -- Save current palette for next frame
+    lastPalette = currentPalette
+end
+```
+
+**Example: Convert to RGB:**
+```lua
+function gui()
+    local palette = getpalette()
+    
+    -- Convert first 4 entries to RGB
+    for i = 0, 3 do
+        local colorIndex = palette[i]
+        local rgb = getcolorrgb(colorIndex)
+        
+        drawtext(4, 4 + i * 20, 
+            string.format("PALRAM[%02X] = %02X -> RGB(%d,%d,%d)", 
+            i, colorIndex, rgb[1], rgb[2], rgb[3]), 0x29)
+        
+        -- Draw color swatch
+        fillrect(200, 4 + i * 20, 32, 16, colorIndex)
+    end
+end
+```
+
 ### `setpalettecolor`
 
 **Signature:** `setpalettecolor(index, color)`
@@ -541,6 +750,321 @@ function gui()
     if not success then
         print("Error caught: " .. tostring(err))
     end
+end
+```
+
+### `setpalette`
+
+**Signature:** `setpalette(paletteTable)`
+Sets palette in bulk operation. Allows you to set multiple palette RAM entries at once using a table of color values. More efficient than calling `setpalettecolor()` multiple times. Useful for palette swapping, color correction, and applying entire color schemes at once.
+
+**Parameters:**
+- `paletteTable` (table): Table containing color values for palette indices
+  - Supports two formats:
+    - **1-indexed array:** `{color1, color2, ..., color32}` where `[1]` maps to `PALRAM[0]`, `[2]` maps to `PALRAM[1]`, etc.
+    - **0-indexed key-value pairs:** `{[0] = color0, [1] = color1, ..., [31] = color31}` where keys directly correspond to PALRAM indices
+  - Each color value must be in range 0-63
+  - You can provide a partial table to update only specific palette entries
+  - Keys/index values must be in range 0-31 (for PALRAM indices)
+
+**Returns:**
+- Nothing
+
+**Notes:**
+- Writes directly to the NES palette RAM (PALRAM)
+- Changes are temporary and persist until the game or emulator modifies PALRAM again
+- The universal background color (PALRAM[0x00]) is automatically mirrored to PALRAM[0x04, 0x08, 0x0C] when set
+- The universal sprite color (PALRAM[0x10]) is automatically mirrored to PALRAM[0x14, 0x18, 0x1C] when set
+- Color values are automatically masked to 6 bits (0x3F), ensuring range 0-63
+- Throws an error if `paletteTable` is not a table, if any index is outside the valid range (0-31), or if any color value is outside the valid range (0-63)
+- More efficient than multiple `setpalettecolor()` calls when updating many palette entries
+- Use with `getpalettecolor()` to read back values and verify changes
+
+**Example: Basic Usage (1-indexed array):**
+```lua
+-- Set entire palette using 1-indexed array
+local palette = {
+    0x0D, 0x0D, 0x0D, 0x0D,  -- PALRAM[0-3]
+    0x0E, 0x0E, 0x0E, 0x0E,  -- PALRAM[4-7]
+    0x0F, 0x0F, 0x0F, 0x0F,  -- PALRAM[8-11]
+    0x10, 0x10, 0x10, 0x10,  -- PALRAM[12-15]
+    0x1D, 0x1D, 0x1D, 0x1D,  -- PALRAM[16-19]
+    0x1E, 0x1E, 0x1E, 0x1E,  -- PALRAM[20-23]
+    0x1F, 0x1F, 0x1F, 0x1F,  -- PALRAM[24-27]
+    0x20, 0x20, 0x20, 0x20,  -- PALRAM[28-31]
+}
+setpalette(palette)
+```
+
+**Example: Key-Value Format (0-indexed):**
+```lua
+-- Set palette using 0-indexed keys
+local palette = {
+    [0] = 0x0D, [1] = 0x16, [2] = 0x27, [3] = 0x37,  -- BG Pal 0
+    [4] = 0x0D, [5] = 0x16, [6] = 0x27, [7] = 0x37,  -- BG Pal 1
+    [16] = 0x1D, [17] = 0x16, [18] = 0x27, [19] = 0x37,  -- SP Pal 0
+}
+setpalette(palette)
+```
+
+**Example: Partial Palette Update:**
+```lua
+-- Only update sprite palettes (0x10-0x1F)
+local spritePalette = {}
+for i = 16, 31 do
+    spritePalette[i] = ((i - 16) * 2) % 64  -- Gradient pattern
+end
+setpalette(spritePalette)
+```
+
+**Example: Palette Swapping:**
+```lua
+-- Define multiple color schemes
+local colorSchemes = {
+    -- Grayscale scheme
+    {
+        0x0D, 0x0D, 0x0D, 0x0D, 0x0E, 0x0E, 0x0E, 0x0E,
+        0x0F, 0x0F, 0x0F, 0x0F, 0x10, 0x10, 0x10, 0x10,
+        0x1D, 0x1D, 0x1D, 0x1D, 0x1E, 0x1E, 0x1E, 0x1E,
+        0x1F, 0x1F, 0x1F, 0x1F, 0x20, 0x20, 0x20, 0x20,
+    },
+    -- Warm colors scheme
+    {
+        [0] = 0x0D, [1] = 0x16, [2] = 0x27, [3] = 0x37,
+        [4] = 0x0D, [5] = 0x16, [6] = 0x27, [7] = 0x37,
+        -- ... (rest of palette)
+    },
+}
+
+local currentScheme = 1
+local frameCounter = 0
+
+function gui()
+    frameCounter = frameCounter + 1
+    
+    -- Switch schemes every 60 frames
+    if frameCounter % 60 == 0 then
+        currentScheme = ((frameCounter // 60) % #colorSchemes) + 1
+        setpalette(colorSchemes[currentScheme])
+    end
+end
+```
+
+**Example: Save and Restore Palette:**
+```lua
+local originalPalette = {}
+
+function gui()
+    -- Save original palette on first frame
+    if not originalPalette[0] then
+        for i = 0, 31 do
+            originalPalette[i] = getpalettecolor(i)
+        end
+    end
+    
+    -- ... do palette modifications ...
+    
+    -- Restore original palette
+    setpalette(originalPalette)
+end
+```
+
+**Example: Color Correction:**
+```lua
+-- Apply color correction by shifting all colors
+function applyColorCorrection(shift)
+    local correctedPalette = {}
+    for i = 0, 31 do
+        local originalColor = getpalettecolor(i)
+        correctedPalette[i] = (originalColor + shift) % 64
+    end
+    setpalette(correctedPalette)
+end
+
+function gui()
+    -- Apply +10 color shift
+    applyColorCorrection(10)
+end
+```
+
+**Example: Error Handling:**
+```lua
+function gui()
+    -- Test with valid table
+    local success, err = pcall(function()
+        setpalette({[0] = 0x20, [1] = 0x16})
+    end)
+    
+    if not success then
+        print("Error: " .. tostring(err))
+    end
+    
+    -- Test with invalid table type
+    success, err = pcall(function()
+        setpalette("not a table")
+    end)
+    
+    if not success then
+        print("✓ Correctly caught non-table argument")
+    end
+    
+    -- Test with invalid index
+    success, err = pcall(function()
+        setpalette({[32] = 0x20})  -- Index 32 is out of range
+    end)
+    
+    if not success then
+        print("✓ Correctly caught invalid index")
+    end
+    
+    -- Test with invalid color value
+    success, err = pcall(function()
+        setpalette({[0] = 64})  -- Color 64 is out of range
+    end)
+    
+    if not success then
+        print("✓ Correctly caught invalid color value")
+    end
+end
+```
+
+### `loadpalette`
+
+**Signature:** `loadpalette(path)`
+Loads a palette from a `.pal` file and applies it to the emulator. The `.pal` file format contains 64 RGB colors (192 bytes total: 64 colors × 3 bytes per color). Useful for importing custom palettes, applying color correction presets, and loading community-created palette files.
+
+**Parameters:**
+- `path` (string): File path to the `.pal` file
+  - Can be a relative path (searches in multiple locations) or absolute path
+  - Relative paths are searched in the following order:
+    1. `game:\<path>`
+    2. `game:\lua\<path>`
+    3. `game:\Lua\<path>`
+    4. `hdd1:\fce360-enhanced\lua\<path>`
+    5. `hdd1:\fce360-enhanced\Lua\<path>`
+    6. `game:\<path>` (fallback)
+  - Path separators (`/` or `\`) are automatically normalized
+  - If the path contains a drive letter (`:`) or starts with `\` or `/`, it's treated as an absolute path
+
+**Returns:**
+- `boolean`: `true` if the palette was successfully loaded and applied, `false` if the file was not found, could not be read, or was invalid
+
+**Notes:**
+- The `.pal` file must be exactly 192 bytes (64 colors × 3 bytes RGB)
+- File format: Raw RGB data, 3 bytes per color (Red, Green, Blue), for 64 colors total
+- The palette is applied immediately using `FCEUI_SetPaletteArray`
+- This replaces the entire NES 64-color palette, not just the 32 PALRAM entries
+- Returns `false` if:
+  - The path is empty or invalid
+  - The file cannot be found in any of the search paths
+  - The file exists but is not exactly 192 bytes
+  - The file cannot be read
+- Path resolution is similar to `readfile()` - supports multiple search locations for convenience
+- Use `setpalette()` or `setpalettecolor()` if you need to modify individual PALRAM entries after loading
+
+**Example: Basic Usage:**
+```lua
+function gui()
+    -- Load a palette file from the lua directory
+    local success = loadpalette("test.pal")
+    
+    if success then
+        print("Palette loaded successfully!")
+    else
+        print("Failed to load palette file")
+    end
+end
+```
+
+**Example: Try Multiple Palette Files:**
+```lua
+local paletteFiles = {
+    "test.pal",
+    "warm.pal",
+    "cool.pal",
+    "grayscale.pal"
+}
+
+local currentPalette = 1
+
+function gui()
+    -- Try loading different palettes
+    local success = loadpalette(paletteFiles[currentPalette])
+    
+    if success then
+        print("Loaded: " .. paletteFiles[currentPalette])
+    else
+        print("Failed: " .. paletteFiles[currentPalette])
+    end
+end
+```
+
+**Example: Load Palette with Path Resolution:**
+```lua
+function gui()
+    -- Try different path formats
+    local paths = {
+        "test.pal",                    -- Relative (searches in game:\ and game:\lua\)
+        "lua\\test.pal",               -- Relative with subdirectory
+        "game:\\lua\\test.pal",        -- Absolute path
+    }
+    
+    for i, path in ipairs(paths) do
+        local success = loadpalette(path)
+        if success then
+            print("✓ Loaded: " .. path)
+            break
+        else
+            print("✗ Failed: " .. path)
+        end
+    end
+end
+```
+
+**Example: Error Handling:**
+```lua
+function gui()
+    -- Test with valid file
+    local success = loadpalette("test.pal")
+    if success then
+        print("✓ Palette loaded")
+    else
+        print("✗ Failed to load palette")
+    end
+    
+    -- Test with non-existent file
+    success = loadpalette("nonexistent.pal")
+    if not success then
+        print("✓ Correctly returned false for missing file")
+    end
+    
+    -- Test with empty path
+    success = loadpalette("")
+    if not success then
+        print("✓ Correctly returned false for empty path")
+    end
+end
+```
+
+**Example: Load Palette and Save Current One:**
+```lua
+local originalPalette = {}
+
+function gui()
+    -- Save original palette before loading new one
+    if not originalPalette[0] then
+        originalPalette = getpalette()
+    end
+    
+    -- Load custom palette
+    local success = loadpalette("custom.pal")
+    
+    if success then
+        print("Custom palette applied")
+    end
+    
+    -- Later, restore original palette
+    -- setpalette(originalPalette)
 end
 ```
 
