@@ -57,6 +57,9 @@
 #include <map>
 #include <string>
 
+static const double kNTSCFrameRate = 60.0988118623484;
+static const double kIdealFrameMs = 1000.0 / kNTSCFrameRate;
+
 // Extern PPU data for tile rendering
 extern uint8 PALRAM[0x20];
 extern uint8 PPU[4];
@@ -156,6 +159,7 @@ static const uint8 s_nesButtonMask[8] = {
 static DWORD s_nesButtonHoldStart[4][8] = {0};
 static bool s_nesButtonWasHeld[4][8] = {false};
 static std::map<std::string, WORD> s_buttonNameToMask;
+static std::map<std::string, DWORD> s_luaProfileStartTimes;
 
 // Rumble state tracking
 struct RumbleState {
@@ -3774,20 +3778,47 @@ static int lua_getregion(lua_State* L)
 		 cycles = FCEU_GetLastFrameCycles();
 	 }
 	 
-	 lua_pushinteger(L, (lua_Integer)cycles);
-	 return 1;
- }
+	lua_pushinteger(L, (lua_Integer)cycles);
+	return 1;
+}
 
- // getelapsedtime() -> float
- // Gets elapsed time since game start in seconds
- // Returns the elapsed time as a floating-point number
- static int lua_getelapsedtime(lua_State* L)
- {
+// getppucycles() -> integer
+// Gets the number of PPU cycles executed in the current frame
+// Derived from CPU frame cycles (3 PPU cycles per CPU cycle)
+static int lua_getppucycles(lua_State* L)
+{
+	uint32 cycles = FCEU_GetPPUCycles();
+
+	// If frame already finished, use the latched value
+	if (cycles == 0) {
+		cycles = FCEU_GetLastPPUCycles();
+	}
+
+	lua_pushinteger(L, (lua_Integer)cycles);
+	return 1;
+}
+
+// getapucycles() -> integer
+// Gets the APU cycle count (matches CPU cycles)
+static int lua_getapucycles(lua_State* L)
+{
+	uint32 cycles = FCEU_GetAPUCycles();
+
+	if (cycles == 0) {
+		cycles = FCEU_GetLastAPUCycles();
+	}
+
+	lua_pushinteger(L, (lua_Integer)cycles);
+	return 1;
+}
+
+// getelapsedtime() -> float
+// Gets elapsed time since game start in seconds
+// Returns the elapsed time as a floating-point number
+static int lua_getelapsedtime(lua_State* L)
+{
 	 // Use our frame counter and divide by NTSC frame rate
-	 // NTSC frame rate: 60.0988118623484 Hz
-	 static const double NTSC_FRAME_RATE = 60.0988118623484;
-	 
-	 double elapsedTime = (double)s_totalFrameCount / NTSC_FRAME_RATE;
+	 double elapsedTime = (double)s_totalFrameCount / kNTSCFrameRate;
 	 
 	 lua_pushnumber(L, elapsedTime);
 	 return 1;
@@ -6079,6 +6110,152 @@ static int lua_writefile(lua_State* L)
 	 return 1;
  }
 
+// getframetime_ms() -> float
+// Gets time since last frame in milliseconds
+// Returns: Float milliseconds since last frame (0 on first call)
+// Use case: Frame pacing metrics
+static int lua_getframetime_ms(lua_State* L)
+{
+	DWORD currentTime = GetTickCount();
+
+	lua_pushstring(L, "FCEU_LAST_FRAME_TIME");
+	lua_gettable(L, LUA_REGISTRYINDEX);
+
+	if (lua_isnil(L, -1))
+	{
+		lua_pop(L, 1);
+		lua_pushstring(L, "FCEU_LAST_FRAME_TIME");
+		lua_pushinteger(L, (lua_Integer)currentTime);
+		lua_settable(L, LUA_REGISTRYINDEX);
+		lua_pushnumber(L, 0.0);
+		return 1;
+	}
+
+	lua_Integer lastFrameTime = lua_tointeger(L, -1);
+	lua_pop(L, 1);
+
+	DWORD deltaMs = currentTime - (DWORD)lastFrameTime;
+
+	lua_pushstring(L, "FCEU_LAST_FRAME_TIME");
+	lua_pushinteger(L, (lua_Integer)currentTime);
+	lua_settable(L, LUA_REGISTRYINDEX);
+
+	lua_pushnumber(L, (lua_Number)deltaMs);
+	return 1;
+}
+
+// getjitter_ms() -> float
+// Returns absolute deviation from the ideal 60 Hz frame time.
+static int lua_getjitter_ms(lua_State* L)
+{
+	DWORD currentTime = GetTickCount();
+
+	lua_pushstring(L, "FCEU_LAST_FRAME_TIME_JITTER");
+	lua_gettable(L, LUA_REGISTRYINDEX);
+
+	if (lua_isnil(L, -1))
+	{
+		lua_pop(L, 1);
+		lua_pushstring(L, "FCEU_LAST_FRAME_TIME_JITTER");
+		lua_pushinteger(L, (lua_Integer)currentTime);
+		lua_settable(L, LUA_REGISTRYINDEX);
+		lua_pushnumber(L, 0.0);
+		return 1;
+	}
+
+	lua_Integer lastFrameTime = lua_tointeger(L, -1);
+	lua_pop(L, 1);
+
+	DWORD deltaMs = currentTime - (DWORD)lastFrameTime;
+
+	lua_pushstring(L, "FCEU_LAST_FRAME_TIME_JITTER");
+	lua_pushinteger(L, (lua_Integer)currentTime);
+	lua_settable(L, LUA_REGISTRYINDEX);
+
+	double jitter = fabs((double)deltaMs - kIdealFrameMs);
+	lua_pushnumber(L, jitter);
+	return 1;
+}
+
+// getluamem() -> table
+// Returns Lua allocator stats (similar to collectgarbage("count")), plus bytes.
+static int lua_getluamem(lua_State* L)
+{
+	int kb = lua_gc(L, LUA_GCCOUNT, 0);
+	int remainder = lua_gc(L, LUA_GCCOUNTB, 0);
+	double bytes = (double)kb * 1024.0 + (double)remainder;
+
+	lua_newtable(L);
+
+	lua_pushstring(L, "kilobytes");
+	lua_pushnumber(L, (lua_Number)kb + (lua_Number)remainder / 1024.0);
+	lua_settable(L, -3);
+
+	lua_pushstring(L, "bytes");
+	lua_pushnumber(L, bytes);
+	lua_settable(L, -3);
+
+	lua_pushstring(L, "rounded_bytes");
+	lua_pushinteger(L, (lua_Integer)(kb * 1024 + remainder));
+	lua_settable(L, -3);
+
+	return 1;
+}
+
+// collectgarbage_now() -> nil
+// Forces a full garbage collection cycle immediately.
+static int lua_collectgarbage_now(lua_State* L)
+{
+	lua_gc(L, LUA_GCCOLLECT, 0);
+	return 0;
+}
+
+ // beginprofile(tag) -> nil
+ // Marks the beginning of a profiling section identified by tag.
+ // Parameters: tag (string) - identifier for the profile block
+ // Returns: Nothing
+ static int lua_beginprofile(lua_State* L)
+ {
+	 const char* rawTag = luaL_checkstring(L, 1);
+	 if (!rawTag || !rawTag[0])
+		 return luaL_error(L, "beginprofile(tag) requires a non-empty tag string");
+
+	 std::string tag(rawTag);
+	 s_luaProfileStartTimes[tag] = GetTickCount();
+	 return 0;
+ }
+
+ // endprofile(tag) -> nil
+ // Marks the end of a profiling section and logs elapsed time to the Lua console.
+ // Parameters: tag (string) - identifier used in beginprofile
+ // Returns: Nothing
+ static int lua_endprofile(lua_State* L)
+ {
+	 const char* rawTag = luaL_checkstring(L, 1);
+	 if (!rawTag || !rawTag[0])
+		 return luaL_error(L, "endprofile(tag) requires a non-empty tag string");
+
+	 std::string tag(rawTag);
+	 std::map<std::string, DWORD>::iterator it = s_luaProfileStartTimes.find(tag);
+	 char buffer[160];
+
+	 if (it == s_luaProfileStartTimes.end())
+	 {
+		 snprintf(buffer, sizeof(buffer), "[PROFILE] %s: beginprofile() missing", tag.c_str());
+		 LuaConsolePushLine(buffer);
+		 return 0;
+	 }
+
+	 DWORD start = it->second;
+	 s_luaProfileStartTimes.erase(it);
+
+	 DWORD elapsedMs = GetTickCount() - start;
+	 snprintf(buffer, sizeof(buffer), "[PROFILE] %s: %u ms", tag.c_str(), (unsigned)elapsedMs);
+	 LuaConsolePushLine(buffer);
+	 FCEU_printf("%s\n", buffer);
+	 return 0;
+ }
+
  // sleepframes(frames) -> nil
  // Delays script execution for N frames
  // Parameters: frames (integer) - number of frames to sleep
@@ -6101,13 +6278,8 @@ static int lua_writefile(lua_State* L)
 		 return luaL_error(L, "sleepframes() frames must be >= 0");
 	 }
 	 
-	 // Calculate sleep duration in milliseconds
-	 // NTSC frame rate: 60.0988118623484 Hz
-	 // Each frame is approximately 16.639 ms
-	 static const double NTSC_FRAME_RATE = 60.0988118623484;
-	 static const double MS_PER_FRAME = 1000.0 / NTSC_FRAME_RATE;
-	 
-	 DWORD sleepDurationMs = (DWORD)(frames * MS_PER_FRAME);
+	 // Calculate sleep duration in milliseconds using standard NTSC timing
+	 DWORD sleepDurationMs = (DWORD)(frames * kIdealFrameMs);
 	 DWORD sleepStartTime = GetTickCount();
 	 
 	 // Store sleep start time and duration in Lua registry
@@ -11916,10 +12088,18 @@ int lua_ismemorywritable(lua_State *L) {
 	 lua_register(luaState, "getregion", lua_getregion);
 	 lua_register(luaState, "getframecount", lua_getframecount);
 	 lua_register(luaState, "getframecycles", lua_getframecycles);
+	 lua_register(luaState, "getppucycles", lua_getppucycles);
+	 lua_register(luaState, "getapucycles", lua_getapucycles);
 	 lua_register(luaState, "getelapsedtime", lua_getelapsedtime);
 	 lua_register(luaState, "getelapsedframes", lua_getelapsedframes);
 	 lua_register(luaState, "gettime", lua_gettime);
 	 lua_register(luaState, "gettimedelta", lua_gettimedelta);
+	 lua_register(luaState, "getframetime_ms", lua_getframetime_ms);
+	 lua_register(luaState, "getjitter_ms", lua_getjitter_ms);
+	 lua_register(luaState, "getluamem", lua_getluamem);
+	 lua_register(luaState, "collectgarbage_now", lua_collectgarbage_now);
+	 lua_register(luaState, "beginprofile", lua_beginprofile);
+	 lua_register(luaState, "endprofile", lua_endprofile);
 	 lua_register(luaState, "getscreenwidth", lua_getscreenwidth);
 	 lua_register(luaState, "getscreenheight", lua_getscreenheight);
 	 lua_register(luaState, "getscreensize", lua_getscreensize);
@@ -12122,10 +12302,18 @@ static void EnsureLuaInit() {
 	REG("getregion", lua_getregion);
 	REG("getframecount", lua_getframecount);
 	REG("getframecycles", lua_getframecycles);
+	REG("getppucycles", lua_getppucycles);
+	REG("getapucycles", lua_getapucycles);
 	REG("getelapsedtime", lua_getelapsedtime);
 	REG("getelapsedframes", lua_getelapsedframes);
 	REG("gettime", lua_gettime);
 	REG("gettimedelta", lua_gettimedelta);
+	REG("getframetime_ms", lua_getframetime_ms);
+	REG("getjitter_ms", lua_getjitter_ms);
+	REG("getluamem", lua_getluamem);
+	REG("collectgarbage_now", lua_collectgarbage_now);
+	REG("beginprofile", lua_beginprofile);
+	REG("endprofile", lua_endprofile);
 	REG("getscreenwidth", lua_getscreenwidth);
 	REG("getscreenheight", lua_getscreenheight);
 	REG("getscreensize", lua_getscreensize);
