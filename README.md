@@ -10,8 +10,9 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 * Toolchain: Visual Studio 2008 SP1
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
+* Also builds on Xbox 360 SDK 21256.3
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.8.5** — *Battery Save Fixes and ROM Information Functions: Fixed critical battery save functionality + 5 new ROM info functions (getromhash, getinesheader, getregion, getrompath, getsavepath) + all prior features from v0.8.4–v0.6.1*
+* Current release: **v0.8.6** � *Game Genie Support Returns: Toggle an Xbox keyboard prompt before launch, enter one or more codes, and watch them decode, activate, and save automatically just like the original hardware magic.*
 
 ---
 
@@ -19,6 +20,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.8.6 - Game Genie Support Returns](#whats-new-v086)
   - [v0.8.5 - Battery Save Fixes and ROM Information Functions](#whats-new-v085)
   - [v0.8.4 - Enhanced Input Recording Functions](#whats-new-v084)
   - [v0.8.3 - Input Recording Save/Load API](#whats-new-v083)
@@ -93,7 +95,20 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 ## What's New
 
-*Current release: **v0.8.5** — Battery Save Fixes and ROM Information Functions: Fixed critical battery save functionality + 5 new ROM info functions (getromhash, getinesheader, getregion, getrompath, getsavepath) + all prior features from v0.8.4–v0.6.1*
+*Current release: **v0.8.6** Game Genie Support Returns: Flip on the keyboard prompt, punch in classic codes, and they fire instantly just like the cartridge add-on.*
+
+---
+
+## What's new (v0.8.6)
+
+* **Game Genie is officially back on Xbox 360**
+  * Enable `[cheat]` -> `enable=1` in `game:\fceui.ini` to light up the new pre-launch keyboard prompt.
+  * Mash in your favorite NES-era codes before the ROM even boots�cancel or submit nothing if you just want a vanilla launch.
+
+* **Stack codes, hit start, and everything just works**
+  * Feed the prompt multiple 6- or 8-character codes separated by spaces, commas, or hyphen chains like `YSAOPE-YEAOZA-YEAPYA`.
+  * Every valid entry is decoded through the built-in Game Genie interpreter, activated on the fly, and saved into the per-ROM `.cht` so they persist just like native cheats.
+  * Empty input skips the feature for that launch, and bad characters trigger a friendly OSD toast instead of blowing up the emulator.
 
 ---
 
@@ -202,35 +217,6 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
   * All v0.7.8 features: Audio API Functions and Screenshot Performance Fix
   * All v0.7.7 features: State Management and Xbox 360 Input Lua API Functions
   * All prior features from v0.7.6–v0.6.1
-
----
-
-## What's new (v0.5.1)
-
-* **Recent Games List:** Automatically tracks the last 15 played ROMs and displays them at the top of the ROM browser with a `[Recent]` prefix. Recent games persist across sessions and are saved to `fceui.ini`. A visual separator (`---`) distinguishes recent games from the full ROM list. Recent games are included in search results and the list automatically refreshes when returning to the ROM browser.
-
-![Recent Games List](img/recentGames.jpeg)
-
----
-
-## What's new (v0.5.0)
-
-* **ROM Search:** Press **Y button** in the ROM browser to open the Xbox 360 on-screen keyboard. Enter a game name to filter the ROM list in real-time with case-insensitive partial matching. Empty search shows all ROMs.
-
-![ROM Search](img/searchRoms.jpeg)
-
----
-
-## What's new (v0.2)
-
-* **Time-based acceleration on Right Stick (RS):** Start precise, then ramp speed the longer you hold in one direction. Deflection magnitude also scales step size; hard caps prevent runaway scroll on huge libraries.
-* **Held paging (LB/RB):** Hold a shoulder button to page up/down at a steady cadence.
-* **Sane UX guards:** Minimum dwell to prevent double-steps, direction/neutral resets, and a deadzone so tiny bumps don't spam moves.
-* **Precision preserved:** D-pad / Left Stick keep XUI's native single-step behavior for fine selection.
-
-📹 **[Watch Fast Scrolling Demo](https://github.com/frankischilling/fce360-enhanced/raw/main/img/fastScrolling.mp4)** (MP4 video)
-
-*Fast scrolling demonstration*
 
 ---
 
@@ -409,3 +395,4 @@ FCEUX360-<version>-xex.zip
 * **Empty ROM list:** Place `.nes`/`.zip` files under `roms\`.
 * **Screenshots not saving:** Ensure you're pressing LEFT_THUMB (stick click, not movement) + LT trigger simultaneously. Verify `game:\snaps\` directory exists and has write permissions.
 * **Post-build copy error:** Expected without Neighborhood; deploy via FTP manually.
+* **Game Genie codes:** Add a `[cheat]` section to `game:\fceui.ini` and set `enable=1`. With the toggle on, launching a ROM opens the Xbox keyboard before the game starts so you can enter one or more 6- or 8-character Game Genie codes (hyphens optional, case-insensitive). Separate multiple codes with spaces, commas, or by finishing a code and typing another hyphen (e.g. `YSAOPE-YEAOZA-YEAPYA`). Every valid code is decoded, applied immediately, and saved into the per-ROM `.cht` file alongside your normal cheats. Submit an empty entry to skip cheats for that launch.
