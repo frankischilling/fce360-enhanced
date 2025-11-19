@@ -12,7 +12,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Also builds on Xbox 360 SDK 21256.3
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.8.6** � *Game Genie Support Returns: Toggle an Xbox keyboard prompt before launch, enter one or more codes, and watch them decode, activate, and save automatically just like the original hardware magic.*
+* Current release: **v0.8.6** *Game Genie Support Returns: Toggle an Xbox keyboard prompt before launch, enter one or more codes, and watch them decode, activate, and save automatically just like the original hardware magic.*
 
 ---
 
