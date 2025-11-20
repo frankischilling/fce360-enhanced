@@ -93,6 +93,10 @@ extern "C" {
 #endif
 uint32 FCEU_GetFrameCycles(void);
 uint32 FCEU_GetLastFrameCycles(void);
+uint32 FCEU_GetPPUCycles(void);
+uint32 FCEU_GetLastPPUCycles(void);
+uint32 FCEU_GetAPUCycles(void);
+uint32 FCEU_GetLastAPUCycles(void);
 void FCEU_LatchFrameCycles(void);
 #ifdef __cplusplus
 }

@@ -56,6 +56,28 @@ uint32 FCEU_GetLastFrameCycles(void)
 	return s_lastFrameCycles;
 }
 
+// Derived PPU cycle helpers (3 PPU cycles for each CPU cycle)
+uint32 FCEU_GetPPUCycles(void)
+{
+	return timestamp * 3;
+}
+
+uint32 FCEU_GetLastPPUCycles(void)
+{
+	return s_lastFrameCycles * 3;
+}
+
+// APU operates on the CPU clock, so reuse CPU counts
+uint32 FCEU_GetAPUCycles(void)
+{
+	return timestamp;
+}
+
+uint32 FCEU_GetLastAPUCycles(void)
+{
+	return s_lastFrameCycles;
+}
+
 // Latch the current frame cycles (call before resetting timestamp)
 void FCEU_LatchFrameCycles(void)
 {
