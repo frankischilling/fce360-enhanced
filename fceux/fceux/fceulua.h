@@ -191,6 +191,7 @@ int lua_getbuttonheldms(lua_State *L);
  int  FCEU_IsLuaConsoleVisible(void);
  void FCEU_ToggleLuaConsole(void);
  void FCEU_LuaLogAppend(const char* msg);
+void LuaConsolePushLine(const char* msg);
  
  #endif // USE_LUA
  
