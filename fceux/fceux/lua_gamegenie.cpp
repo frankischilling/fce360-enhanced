@@ -95,7 +95,7 @@ static int lua_decodegamegenie(lua_State* L)
 {
 	// Get code string parameter
 	int n = lua_gettop(L);
-	const char* codeStr = luaL_checkstring(L, 1);
+	const char* codeStr = LuaCheckString(L, 1, "decodegamegenie");
 	if (!codeStr) {
 		return LuaArgCountError(L, "decodegamegenie", 1, 1, n);
 	}

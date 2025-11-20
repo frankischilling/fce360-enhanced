@@ -109,6 +109,13 @@ int LuaArgTypeError(lua_State* L, const char* funcName, int arg, const char* exp
 // Report argument range/bounds error
 int LuaBoundsError(lua_State* L, const char* funcName, const char* paramName, int value, int min, int max);
 
+// Check number (double) is within range [min, max] (inclusive)
+// Returns the value if valid, throws error otherwise
+double LuaCheckNumberRange(lua_State* L, int arg, double min, double max, const char* funcName, const char* paramName);
+
+// Bounds error for double values
+int LuaBoundsErrorDouble(lua_State* L, const char* funcName, const char* paramName, double value, double min, double max);
+
 // Report generic argument error with custom message
 int LuaArgError(lua_State* L, const char* funcName, int arg, const char* message);
 

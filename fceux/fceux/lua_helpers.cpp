@@ -165,6 +165,19 @@ int LuaBoundsError(lua_State* L, const char* funcName, const char* paramName, in
 	return luaL_error(L, "%s: %s must be in range %d-%d (got %d)", funcName, paramName, min, max, value);
 }
 
+double LuaCheckNumberRange(lua_State* L, int arg, double min, double max, const char* funcName, const char* paramName) {
+	double value = LuaCheckNumber(L, arg, funcName);
+	if (value < min || value > max) {
+		LuaBoundsErrorDouble(L, funcName, paramName, value, min, max);
+		return 0.0; // Won't reach here, but satisfies compiler
+	}
+	return value;
+}
+
+int LuaBoundsErrorDouble(lua_State* L, const char* funcName, const char* paramName, double value, double min, double max) {
+	return luaL_error(L, "%s: %s must be in range %.2f-%.2f (got %.2f)", funcName, paramName, min, max, value);
+}
+
 int LuaArgError(lua_State* L, const char* funcName, int arg, const char* message) {
 	return luaL_error(L, "%s: argument %d: %s", funcName, arg, message);
 }

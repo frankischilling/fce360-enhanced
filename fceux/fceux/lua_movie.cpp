@@ -175,12 +175,11 @@ static int lua_stopinputrecording(lua_State* L)
 
 static int lua_playinputrecording(lua_State* L)
 {
-	if (lua_gettop(L) < 1) {
-		return luaL_error(L, "playinputrecording(data) requires 1 argument");
+	int n = lua_gettop(L);
+	if (n < 1) {
+		return LuaArgCountError(L, "playinputrecording", 1, 1, n);
 	}
-	if (!lua_istable(L, 1)) {
-		return luaL_error(L, "playinputrecording: data must be a table");
-	}
+	LuaCheckTable(L, 1, "playinputrecording");
 
 	s_inputPlayback = false;
 	s_playbackFrame = 0;
@@ -677,10 +676,7 @@ static int lua_loadstate(lua_State *L)
 {
 	int slot = 0;
 	if (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) {
-		slot = (int)luaL_checkinteger(L, 1);
-	}
-	if (slot < 0 || slot > 9) {
-		return luaL_error(L, "loadstate(slot) failed: slot must be 0-9, got %d", slot);
+		slot = LuaCheckRange(L, 1, 0, 9, "loadstate", "slot");
 	}
 
 	extern std::string FCEU_MakeFName(int type, int id1, const char *cd1);
@@ -707,10 +703,7 @@ static int lua_hasstate(lua_State *L)
 {
 	int slot = 0;
 	if (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) {
-		slot = (int)luaL_checkinteger(L, 1);
-	}
-	if (slot < 0 || slot > 9) {
-		return luaL_error(L, "hasstate(slot) failed: slot must be 0-9, got %d", slot);
+		slot = LuaCheckRange(L, 1, 0, 9, "hasstate", "slot");
 	}
 
 	extern std::string FCEU_MakeFName(int type, int id1, const char *cd1);

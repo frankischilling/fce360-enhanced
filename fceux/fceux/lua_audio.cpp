@@ -255,7 +255,7 @@ static int lua_getaudiochannel(lua_State* L)
 {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "getaudiochannel(channel) requires 1 argument");
+		return LuaArgCountError(L, "getaudiochannel", 1, 1, n);
 	}
 	
 	int channel = LuaCheckRange(L, 1, 0, 4, "getaudiochannel", "channel");
@@ -901,7 +901,7 @@ static int lua_setaudiofilter(lua_State* L)
 {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "setaudiofilter(enabled, [filterType], [cutoff], [q]) requires at least 1 argument");
+		return LuaArgCountError(L, "setaudiofilter", 1, 4, n);
 	}
 	
 	bool enabled = lua_toboolean(L, 1) != 0;

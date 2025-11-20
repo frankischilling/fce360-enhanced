@@ -64,19 +64,8 @@ int lua_readbytes(lua_State* L) {
 		return LuaArgCountError(L, "readbytes", 2, 2, n);
 	}
 	
-	unsigned int address = (unsigned int)LuaCheckInt(L, 1, "readbytes");
-	int count = LuaCheckPositive(L, 2, "readbytes", "count");
-
-	if (address > 0xFFFF) {
-		return luaL_error(L, "readbytes: address must be in range 0x0000-0xFFFF");
-	}
-
-	if (count < 1) {
-		return luaL_error(L, "readbytes: count must be at least 1");
-	}
-	if (count > 256) {
-		return luaL_error(L, "readbytes: count cannot exceed 256");
-	}
+	unsigned int address = (unsigned int)LuaCheckRange(L, 1, 0, 0xFFFF, "readbytes", "address");
+	int count = LuaCheckRange(L, 2, 1, 256, "readbytes", "count");
 
 	if (address + count > 0x10000) {
 		count = 0x10000 - address;
@@ -102,19 +91,8 @@ int lua_readram(lua_State* L) {
 		return LuaArgCountError(L, "readram", 2, 2, n);
 	}
 	
-	unsigned int startAddr = (unsigned int)LuaCheckInt(L, 1, "readram");
-	int count = LuaCheckPositive(L, 2, "readram", "count");
-
-	if (startAddr > 0x1FFF) {
-		return luaL_error(L, "readram: startAddr must be in RAM range 0x0000-0x1FFF");
-	}
-
-	if (count < 1) {
-		return luaL_error(L, "readram: count must be at least 1");
-	}
-	if (count > 256) {
-		return luaL_error(L, "readram: count cannot exceed 256");
-	}
+	unsigned int startAddr = (unsigned int)LuaCheckRange(L, 1, 0, 0x1FFF, "readram", "startAddr");
+	int count = LuaCheckRange(L, 2, 1, 256, "readram", "count");
 
 	if (startAddr + count > 0x2000) {
 		count = 0x2000 - startAddr;
@@ -139,15 +117,9 @@ int lua_scanbyte(lua_State* L) {
 	if (n < 3) {
 		return LuaArgCountError(L, "scanbyte", 3, 3, n);
 	}
-	int value = LuaCheckInt(L, 1, "scanbyte");
-	unsigned int startAddr = (unsigned int)LuaCheckInt(L, 2, "scanbyte");
-	unsigned int endAddr = (unsigned int)LuaCheckInt(L, 3, "scanbyte");
-	if (value < 0 || value > 255) {
-		return luaL_error(L, "scanbyte: value must be in range 0-255");
-	}
-	if (startAddr > 0xFFFF || endAddr > 0xFFFF) {
-		return luaL_error(L, "scanbyte: addresses must be in range 0x0000-0xFFFF");
-	}
+	int value = LuaCheckRange(L, 1, 0, 255, "scanbyte", "value");
+	unsigned int startAddr = (unsigned int)LuaCheckRange(L, 2, 0, 0xFFFF, "scanbyte", "startAddr");
+	unsigned int endAddr = (unsigned int)LuaCheckRange(L, 3, 0, 0xFFFF, "scanbyte", "endAddr");
 	if (startAddr > endAddr) { unsigned int t = startAddr; startAddr = endAddr; endAddr = t; }
 	lua_createtable(L, 0, 0);
 	int resultIndex = 1;
@@ -168,15 +140,9 @@ int lua_scanword(lua_State* L) {
 	if (n < 3) {
 		return LuaArgCountError(L, "scanword", 3, 3, n);
 	}
-	int value = LuaCheckInt(L, 1, "scanword");
-	unsigned int startAddr = (unsigned int)LuaCheckInt(L, 2, "scanword");
-	unsigned int endAddr = (unsigned int)LuaCheckInt(L, 3, "scanword");
-	if (value < 0 || value > 65535) {
-		return luaL_error(L, "scanword: value must be in range 0-65535");
-	}
-	if (startAddr > 0xFFFF || endAddr > 0xFFFF) {
-		return luaL_error(L, "scanword: addresses must be in range 0x0000-0xFFFF");
-	}
+	int value = LuaCheckRange(L, 1, 0, 65535, "scanword", "value");
+	unsigned int startAddr = (unsigned int)LuaCheckRange(L, 2, 0, 0xFFFF, "scanword", "startAddr");
+	unsigned int endAddr = (unsigned int)LuaCheckRange(L, 3, 0, 0xFFFF, "scanword", "endAddr");
 	if (startAddr > endAddr) { unsigned int t = startAddr; startAddr = endAddr; endAddr = t; }
 	lua_createtable(L, 0, 0);
 	int outIndex = 1;
@@ -463,7 +429,7 @@ int lua_scanchanged(lua_State* L) {
 int lua_watchbyte(lua_State* L) {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "watchbyte(address) requires 1 argument");
+		return LuaArgCountError(L, "watchbyte", 1, 1, n);
 	}
 
 	unsigned int address = (unsigned int)LuaCheckRange(L, 1, 0, 0xFFFF, "watchbyte", "address");
@@ -569,7 +535,7 @@ int lua_togglebit(lua_State* L) {
 int lua_testbit(lua_State* L) {
 	int n = lua_gettop(L);
 	if (n < 2) {
-		return luaL_error(L, "testbit(address, bit) requires 2 arguments");
+		return LuaArgCountError(L, "testbit", 2, 2, n);
 	}
 
 	unsigned int address = (unsigned int)LuaCheckRange(L, 1, 0, 0xFFFF, "testbit", "address");
@@ -647,7 +613,7 @@ int lua_writebytes(lua_State* L) {
 int lua_writeprg(lua_State* L) {
 	int n = lua_gettop(L);
 	if (n < 2) {
-		return luaL_error(L, "writeprg(address, value) requires 2 arguments");
+		return LuaArgCountError(L, "writeprg", 2, 2, n);
 	}
 
 	unsigned int address = (unsigned int)LuaCheckRange(L, 1, 0x8000, 0xFFFF, "writeprg", "address");
@@ -666,7 +632,7 @@ int lua_writeprg(lua_State* L) {
 int lua_fillbytes(lua_State* L) {
 	int n = lua_gettop(L);
 	if (n < 3) {
-		return luaL_error(L, "fillbytes(address, count, value) requires 3 arguments");
+		return LuaArgCountError(L, "fillbytes", 3, 3, n);
 	}
 
 	unsigned int address = (unsigned int)LuaCheckRange(L, 1, 0, 0xFFFF, "fillbytes", "address");
@@ -816,9 +782,7 @@ int lua_restorebytes(lua_State* L) {
 
 	unsigned int address = (unsigned int)LuaCheckRange(L, 1, 0, 0xFFFF, "restorebytes", "address");
 
-	if (!lua_istable(L, 2)) {
-		return luaL_error(L, "restorebytes: data must be a table (from backupbytes)");
-	}
+	LuaCheckTable(L, 2, "restorebytes");
 
 	int count = 0;
 	for (int i = 1; i <= 256; ++i) {
@@ -854,14 +818,10 @@ int lua_restorebytes(lua_State* L) {
 int lua_getmemorytype(lua_State* L) {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "getmemorytype(address) requires 1 argument");
+		return LuaArgCountError(L, "getmemorytype", 1, 1, n);
 	}
 
-	unsigned int address = (unsigned int)luaL_checkinteger(L, 1);
-
-	if (address > 0xFFFF) {
-		return luaL_error(L, "getmemorytype: address must be in range 0x0000-0xFFFF");
-	}
+	unsigned int address = (unsigned int)LuaCheckRange(L, 1, 0, 0xFFFF, "getmemorytype", "address");
 
 	const char* memType;
 	if (address <= 0x1FFF) {
@@ -883,14 +843,10 @@ int lua_getmemorytype(lua_State* L) {
 int lua_ismemorywritable(lua_State* L) {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "ismemorywritable(address) requires 1 argument");
+		return LuaArgCountError(L, "ismemorywritable", 1, 1, n);
 	}
 
-	unsigned int address = (unsigned int)luaL_checkinteger(L, 1);
-
-	if (address > 0xFFFF) {
-		return luaL_error(L, "ismemorywritable: address must be in range 0x0000-0xFFFF");
-	}
+	unsigned int address = (unsigned int)LuaCheckRange(L, 1, 0, 0xFFFF, "ismemorywritable", "address");
 
 	int isWritable;
 	if (address <= 0x1FFF) {

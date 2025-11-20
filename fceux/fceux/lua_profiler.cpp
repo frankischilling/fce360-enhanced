@@ -152,7 +152,7 @@ static int lua_beginprofile(lua_State* L)
 {
 	const char* rawTag = LuaCheckString(L, 1, "beginprofile");
 	if (!rawTag || !rawTag[0])
-		return luaL_error(L, "beginprofile(tag) requires a non-empty tag string");
+		return LuaArgError(L, "beginprofile", 1, "requires a non-empty tag string");
 
 	std::string tag(rawTag);
 	s_luaProfileStartTimes[tag] = GetTickCount();
@@ -167,7 +167,7 @@ static int lua_endprofile(lua_State* L)
 {
 	const char* rawTag = LuaCheckString(L, 1, "endprofile");
 	if (!rawTag || !rawTag[0])
-		return luaL_error(L, "endprofile(tag) requires a non-empty tag string");
+		return LuaArgError(L, "endprofile", 1, "requires a non-empty tag string");
 
 	std::string tag(rawTag);
 	std::map<std::string, DWORD>::iterator it = s_luaProfileStartTimes.find(tag);
@@ -201,18 +201,12 @@ static int lua_endprofile(lua_State* L)
 static int lua_sleepframes(lua_State* L)
 {
 	// Get number of frames to sleep
-	if (lua_gettop(L) < 1) {
-		return luaL_error(L, "sleepframes() requires 1 argument (frames)");
+	int n = lua_gettop(L);
+	if (n < 1) {
+		return LuaArgCountError(L, "sleepframes", 1, 1, n);
 	}
 	
-	if (!lua_isnumber(L, 1)) {
-		return luaL_error(L, "sleepframes() argument must be a number");
-	}
-	
-	lua_Integer frames = lua_tointeger(L, 1);
-	if (frames < 0) {
-		return luaL_error(L, "sleepframes() frames must be >= 0");
-	}
+	int frames = LuaCheckNonNegative(L, 1, "sleepframes", "frames");
 	
 	// Calculate sleep duration in milliseconds using standard NTSC timing
 	DWORD sleepDurationMs = (DWORD)(frames * kIdealFrameMs);

@@ -81,10 +81,10 @@ static int lua_readfile(lua_State* L)
 {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "readfile(filename) requires 1 argument");
+		return LuaArgCountError(L, "readfile", 1, 1, n);
 	}
 	
-	const char* filename = luaL_checkstring(L, 1);
+	const char* filename = LuaCheckPath(L, 1, "readfile");
 	if (!filename || strlen(filename) == 0) {
 		lua_pushnil(L);
 		return 1;
@@ -596,7 +596,7 @@ static int lua_rmdir(lua_State* L)
 {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "rmdir(path) requires 1 argument");
+		return LuaArgCountError(L, "rmdir", 1, 1, n);
 	}
 	
 	const char* path = LuaCheckPath(L, 1, "rmdir");
@@ -664,7 +664,7 @@ static int lua_writefile(lua_State* L)
 {
 	int n = lua_gettop(L);
 	if (n < 2) {
-		return luaL_error(L, "writefile(filename, data) requires 2 arguments");
+		return LuaArgCountError(L, "writefile", 2, 2, n);
 	}
 	
 	const char* filename = LuaCheckPath(L, 1, "writefile");

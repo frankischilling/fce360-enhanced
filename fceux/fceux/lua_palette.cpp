@@ -317,15 +317,10 @@ static int lua_getnescolor(lua_State* L)
 {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "getnescolor(index) requires 1 argument");
+		return LuaArgCountError(L, "getnescolor", 1, 1, n);
 	}
 	
 	int index = LuaCheckPaletteIndex(L, 1, 63, "getnescolor");
-	
-	// Validate palette index range (0-63)
-	if (index < 0 || index > 63) {
-		return luaL_error(L, "getnescolor: index must be in range 0-63");
-	}
 	
 	// Get RGB values from palette
 	// Palette colors are stored at indices 128-191 (0x80-0xBF), not 0-63
@@ -344,22 +339,12 @@ static int lua_blendcolors(lua_State* L)
 {
 	int n = lua_gettop(L);
 	if (n < 3) {
-		return luaL_error(L, "blendcolors(color1, color2, ratio) requires 3 arguments");
+		return LuaArgCountError(L, "blendcolors", 3, 3, n);
 	}
 	
 	int color1 = LuaCheckPaletteIndex(L, 1, 63, "blendcolors");
 	int color2 = LuaCheckPaletteIndex(L, 2, 63, "blendcolors");
-	double ratio = LuaCheckNumber(L, 3, "blendcolors");
-	
-	// Validate ratio (0.0-1.0)
-	if (ratio < 0.0 || ratio > 1.0) {
-		return luaL_error(L, "blendcolors: ratio must be in range 0.0-1.0");
-	}
-	
-	// Validate ratio (0.0-1.0)
-	if (ratio < 0.0 || ratio > 1.0) {
-		return luaL_error(L, "blendcolors: ratio must be in range 0.0-1.0");
-	}
+	double ratio = LuaCheckNumberRange(L, 3, 0.0, 1.0, "blendcolors", "ratio");
 	
 	// Get RGB values for both colors
 	uint8 r1, g1, b1, r2, g2, b2;

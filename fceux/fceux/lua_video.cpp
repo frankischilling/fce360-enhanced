@@ -1067,7 +1067,7 @@ void DrawLuaConsole(uint8* buf) {
  {
 	 int n = lua_gettop(L);
 	 if(n < 5)
-		 return luaL_error(L, "drawtextrotated(x, y, text, color, angle) requires 5 arguments");
+		 return LuaArgCountError(L, "drawtextrotated", 5, 5, n);
 
 	 int x = LuaCheckInt(L, 1, "drawtextrotated");
 	 int y = LuaCheckInt(L, 2, "drawtextrotated");
@@ -1564,7 +1564,7 @@ void DrawLuaConsole(uint8* buf) {
  int lua_drawpolygon(lua_State *L) {
 	 int n = lua_gettop(L);
 	 if (n < 4 || (n % 2) == 0) {
-		 return luaL_error(L, "drawpolygon(x1, y1, x2, y2, ..., color) requires at least 4 arguments (pairs of x,y coordinates plus color)");
+		 return LuaArgError(L, "drawpolygon", 0, "requires at least 4 arguments (pairs of x,y coordinates plus color)");
 	 }
 	 
 	 if (!currentXBuf) return 0;
@@ -1576,7 +1576,7 @@ void DrawLuaConsole(uint8* buf) {
 	 // Number of points (excluding color)
 	 int pointCount = (n - 1) / 2;
 	 if (pointCount < 2) {
-		 return luaL_error(L, "drawpolygon requires at least 2 points");
+		 return LuaArgError(L, "drawpolygon", 0, "requires at least 2 points");
 	 }
 	 
 	 bool drewSomething = false;
@@ -1671,7 +1671,7 @@ void DrawLuaConsole(uint8* buf) {
  int lua_drawpolyline(lua_State *L) {
 	 int n = lua_gettop(L);
 	 if (n < 4 || (n % 2) == 0) {
-		 return luaL_error(L, "drawpolyline(x1, y1, x2, y2, ..., color) requires at least 4 arguments (pairs of x,y coordinates plus color)");
+		 return LuaArgError(L, "drawpolyline", 0, "requires at least 4 arguments (pairs of x,y coordinates plus color)");
 	 }
 	 
 	 if (!currentXBuf) return 0;
@@ -1683,7 +1683,7 @@ void DrawLuaConsole(uint8* buf) {
 	 // Number of points (excluding color)
 	 int pointCount = (n - 1) / 2;
 	 if (pointCount < 2) {
-		 return luaL_error(L, "drawpolyline requires at least 2 points");
+		 return LuaArgError(L, "drawpolyline", 0, "requires at least 2 points");
 	 }
 	 
 	 bool drewSomething = false;
@@ -1779,7 +1779,7 @@ void DrawLuaConsole(uint8* buf) {
  int lua_fillpolygon(lua_State *L) {
 	 int n = lua_gettop(L);
 	 if (n < 4 || (n % 2) == 0) {
-		 return luaL_error(L, "fillpolygon(x1, y1, x2, y2, ..., color) requires at least 4 arguments (pairs of x,y coordinates plus color)");
+		 return LuaArgError(L, "fillpolygon", 0, "requires at least 4 arguments (pairs of x,y coordinates plus color)");
 	 }
 	 
 	 if (!currentXBuf) return 0;
@@ -1791,7 +1791,7 @@ void DrawLuaConsole(uint8* buf) {
 	 // Number of points (excluding color)
 	 int pointCount = (n - 1) / 2;
 	 if (pointCount < 3) {
-		 return luaL_error(L, "fillpolygon requires at least 3 points");
+		 return LuaArgError(L, "fillpolygon", 0, "requires at least 3 points");
 	 }
 	 
 	 // Collect and clamp all vertices
@@ -2294,7 +2294,7 @@ int lua_screenshot(lua_State *L) {
 int lua_screenshotregion(lua_State *L) {
 	int n = lua_gettop(L);
 	if (n < 5) {
-		return luaL_error(L, "screenshotregion(x, y, w, h, path) requires 5 arguments");
+		return LuaArgCountError(L, "screenshotregion", 5, 5, n);
 	}
 	
 	int x = LuaCheckInt(L, 1, "screenshotregion");
@@ -2660,21 +2660,17 @@ int lua_drawimageindexed(lua_State *L) {
 int lua_drawimageex(lua_State *L) {
 	int n = lua_gettop(L);
 	if (n < 4) {
-		return luaL_error(L, "drawimageex(img, x, y, options) requires at least 4 arguments");
+		return LuaArgCountError(L, "drawimageex", 4, 4, n);
 	}
 	
 	// Check if imageData is a table
-	if (!lua_istable(L, 1)) {
-		return luaL_error(L, "drawimageex: img (1st argument) must be a table");
-	}
+	LuaCheckTable(L, 1, "drawimageex");
 	
-	int x = (int)luaL_checkinteger(L, 2);
-	int y = (int)luaL_checkinteger(L, 3);
+	int x = LuaCheckInt(L, 2, "drawimageex");
+	int y = LuaCheckInt(L, 3, "drawimageex");
 	
 	// Check if options is a table
-	if (!lua_istable(L, 4)) {
-		return luaL_error(L, "drawimageex: options (4th argument) must be a table");
-	}
+	LuaCheckTable(L, 4, "drawimageex");
 	
 	if (!currentXBuf) return 0;
 	
@@ -2747,9 +2743,7 @@ int lua_drawimageex(lua_State *L) {
 	// Get tint color (optional)
 	lua_getfield(L, 4, "tint");
 	if (lua_isnumber(L, -1)) {
-		tintColor = (int)luaL_checkinteger(L, -1);
-		if (tintColor < 0) tintColor = 0;
-		if (tintColor > 0x3F) tintColor = 0x3F;
+		tintColor = LuaClampNESColor((int)luaL_checkinteger(L, -1));
 	}
 	lua_pop(L, 1);
 	
@@ -2771,10 +2765,9 @@ int lua_drawimageex(lua_State *L) {
 		lua_pop(L, 1);
 		
 		// Clamp color value to valid range (0x00-0x3F)
-		if (colorValue < 0) colorValue = 0;
-		if (colorValue > 0x3F) colorValue = 0x3F;
+		uint8 clampedColor = LuaClampNESColor(colorValue);
 		
-		imageData.push_back((uint8)(colorValue & 0xFF));
+		imageData.push_back(clampedColor);
 		dataCount++;
 	}
 	
@@ -2876,13 +2869,13 @@ int lua_drawimageex(lua_State *L) {
 int lua_drawtile(lua_State *L) {
 	 int n = lua_gettop(L);
 	 if (n < 4) {
-		 return luaL_error(L, "drawtile(x, y, tileIndex, paletteIndex) requires 4 arguments");
+		 return LuaArgCountError(L, "drawtile", 4, 4, n);
 	 }
 	 
-	 int x = (int)luaL_checkinteger(L, 1);
-	 int y = (int)luaL_checkinteger(L, 2);
-	 int tileIndex = (int)luaL_checkinteger(L, 3);
-	 int paletteIndex = (int)luaL_checkinteger(L, 4);
+	 int x = LuaCheckInt(L, 1, "drawtile");
+	 int y = LuaCheckInt(L, 2, "drawtile");
+	 int tileIndex = LuaCheckInt(L, 3, "drawtile");
+	 int paletteIndex = LuaCheckInt(L, 4, "drawtile");
 	 
 	 if (!currentXBuf) return 0;
 	 
@@ -3085,14 +3078,10 @@ int lua_drawchrtile(lua_State *L) {
 int lua_setdrawmode(lua_State *L) {
 	 int n = lua_gettop(L);
 	 if (n < 1) {
-		 return luaL_error(L, "setdrawmode(mode) requires 1 argument");
+		 return LuaArgCountError(L, "setdrawmode", 1, 1, n);
 	 }
 	 
-	 if (!lua_isstring(L, 1)) {
-		 return luaL_error(L, "setdrawmode: mode must be a string");
-	 }
-	 
-	 const char* modeStr = lua_tostring(L, 1);
+	 const char* modeStr = LuaCheckString(L, 1, "setdrawmode");
 	 
 	 if (strcmp(modeStr, "normal") == 0) {
 		 s_drawMode = DRAW_MODE_NORMAL;
@@ -3115,13 +3104,13 @@ int lua_setdrawmode(lua_State *L) {
 int lua_setclipregion(lua_State *L) {
 	int n = lua_gettop(L);
 	if (n < 4) {
-		return luaL_error(L, "setclipregion(x, y, width, height) requires 4 arguments");
+		return LuaArgCountError(L, "setclipregion", 4, 4, n);
 	}
 	
-	int x = (int)luaL_checkinteger(L, 1);
-	int y = (int)luaL_checkinteger(L, 2);
-	int width = (int)luaL_checkinteger(L, 3);
-	int height = (int)luaL_checkinteger(L, 4);
+	int x = LuaCheckInt(L, 1, "setclipregion");
+	int y = LuaCheckInt(L, 2, "setclipregion");
+	int width = LuaCheckInt(L, 3, "setclipregion");
+	int height = LuaCheckInt(L, 4, "setclipregion");
 	
 	// Validate and clamp clipping region
 	if (width <= 0 || height <= 0) {
@@ -3244,14 +3233,14 @@ int lua_popdrawstate(lua_State *L) {
 int lua_settransform(lua_State *L) {
 	int n = lua_gettop(L);
 	if (n < 5) {
-		return luaL_error(L, "settransform(tx, ty, sx, sy, rot) requires 5 arguments");
+		return LuaArgCountError(L, "settransform", 5, 5, n);
 	}
 	
-	float tx = (float)luaL_checknumber(L, 1);
-	float ty = (float)luaL_checknumber(L, 2);
-	float sx = (float)luaL_checknumber(L, 3);
-	float sy = (float)luaL_checknumber(L, 4);
-	float rot = (float)luaL_checknumber(L, 5);
+	float tx = (float)LuaCheckNumber(L, 1, "settransform");
+	float ty = (float)LuaCheckNumber(L, 2, "settransform");
+	float sx = (float)LuaCheckNumber(L, 3, "settransform");
+	float sy = (float)LuaCheckNumber(L, 4, "settransform");
+	float rot = (float)LuaCheckNumber(L, 5, "settransform");
 	
 	// Set transform values
 	s_transformTX = tx;
@@ -3307,14 +3296,10 @@ int lua_endbatch(lua_State *L) {
 int lua_setimagescale(lua_State *L) {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "setimagescale(mode) requires 1 argument");
+		return LuaArgCountError(L, "setimagescale", 1, 1, n);
 	}
 	
-	if (!lua_isstring(L, 1)) {
-		return luaL_error(L, "setimagescale: mode must be a string");
-	}
-	
-	const char* modeStr = lua_tostring(L, 1);
+	const char* modeStr = LuaCheckString(L, 1, "setimagescale");
 	
 	if (strcmp(modeStr, "nearest") == 0) {
 		s_imageScaleMode = IMAGE_SCALE_NEAREST;
@@ -3338,16 +3323,11 @@ int lua_getimagescale(lua_State *L) {
 int lua_createcanvas(lua_State *L) {
 	int n = lua_gettop(L);
 	if (n < 2) {
-		return luaL_error(L, "createcanvas(w, h) requires 2 arguments");
+		return LuaArgCountError(L, "createcanvas", 2, 2, n);
 	}
 	
-	int width = (int)luaL_checkinteger(L, 1);
-	int height = (int)luaL_checkinteger(L, 2);
-	
-	// Validate dimensions
-	if (width <= 0 || height <= 0) {
-		return luaL_error(L, "createcanvas: width and height must be positive");
-	}
+	int width = LuaCheckPositive(L, 1, "createcanvas", "width");
+	int height = LuaCheckPositive(L, 2, "createcanvas", "height");
 	
 	// Limit maximum size to prevent excessive memory usage
 	const int MAX_CANVAS_SIZE = 1024;
@@ -3403,12 +3383,7 @@ int lua_setrendertarget(lua_State *L) {
 	}
 	
 	// Get canvas handle
-	int canvasHandle = (int)luaL_checkinteger(L, 1);
-	
-	// Validate handle is positive (0 is invalid)
-	if (canvasHandle <= 0) {
-		return luaL_error(L, "setrendertarget: canvas handle must be positive (got %d)", canvasHandle);
-	}
+	int canvasHandle = LuaCheckPositive(L, 1, "setrendertarget", "canvasHandle");
 	
 	// Look up canvas
 	std::map<int, Canvas*>::iterator it = s_canvases.find(canvasHandle);
@@ -3470,13 +3445,13 @@ int lua_setrendertarget(lua_State *L) {
 int lua_blit(lua_State *L) {
 	int n = lua_gettop(L);
 	if (n < 3) {
-		return luaL_error(L, "blit(canvas, x, y) requires 3 arguments");
+		return LuaArgCountError(L, "blit", 3, 3, n);
 	}
 	
 	// Get canvas handle
-	int canvasHandle = (int)luaL_checkinteger(L, 1);
-	int x = (int)luaL_checkinteger(L, 2);
-	int y = (int)luaL_checkinteger(L, 3);
+	int canvasHandle = LuaCheckInt(L, 1, "blit");
+	int x = LuaCheckInt(L, 2, "blit");
+	int y = LuaCheckInt(L, 3, "blit");
 	
 	// Validate handle is positive
 	if (canvasHandle <= 0) {
@@ -3593,14 +3568,14 @@ int lua_lineargradient(lua_State *L) {
 	// Table mode: 5 args (x1, y1, x2, y2, stops_table)
 	// Simple/variable mode: 6+ args (x1, y1, x2, y2, color1, color2, ...)
 	if (n < 5) {
-		return luaL_error(L, "lineargradient(x1, y1, x2, y2, ...) requires at least 5 arguments");
+		return LuaArgCountError(L, "lineargradient", 5, 5, n);
 	}
 	
 	// Get start and end points
-	float x1 = (float)luaL_checknumber(L, 1);
-	float y1 = (float)luaL_checknumber(L, 2);
-	float x2 = (float)luaL_checknumber(L, 3);
-	float y2 = (float)luaL_checknumber(L, 4);
+	float x1 = (float)LuaCheckNumber(L, 1, "lineargradient");
+	float y1 = (float)LuaCheckNumber(L, 2, "lineargradient");
+	float x2 = (float)LuaCheckNumber(L, 3, "lineargradient");
+	float y2 = (float)LuaCheckNumber(L, 4, "lineargradient");
 	
 	// Check if points are the same (invalid gradient)
 	if (x1 == x2 && y1 == y2) {
@@ -3659,8 +3634,7 @@ int lua_lineargradient(lua_State *L) {
 			if (pos > 1.0f) pos = 1.0f;
 			
 			// Clamp color to valid range
-			if (color < 0) color = 0;
-			if (color > 0x3F) color = 0x3F;
+			color = LuaClampNESColor(color);
 			
 			gradient->stops.push_back(GradientStop(pos, color));
 			stopCount++;
@@ -3685,14 +3659,8 @@ int lua_lineargradient(lua_State *L) {
 		}
 	} else if (n == 6) {
 		// Simple two-color gradient
-		int color1 = (int)luaL_checkinteger(L, 5);
-		int color2 = (int)luaL_checkinteger(L, 6);
-		
-		// Clamp colors to valid range
-		if (color1 < 0) color1 = 0;
-		if (color1 > 0x3F) color1 = 0x3F;
-		if (color2 < 0) color2 = 0;
-		if (color2 > 0x3F) color2 = 0x3F;
+		int color1 = LuaClampNESColor((int)luaL_checkinteger(L, 5));
+		int color2 = LuaClampNESColor((int)luaL_checkinteger(L, 6));
 		
 		gradient->stops.push_back(GradientStop(0.0f, color1));
 		gradient->stops.push_back(GradientStop(1.0f, color2));
@@ -3734,8 +3702,7 @@ int lua_lineargradient(lua_State *L) {
 			if (pos > 1.0f) pos = 1.0f;
 			
 			// Clamp color to valid range
-			if (color < 0) color = 0;
-			if (color > 0x3F) color = 0x3F;
+			color = LuaClampNESColor(color);
 			
 			gradient->stops.push_back(GradientStop(pos, color));
 			stopCount++;
@@ -3764,15 +3731,11 @@ int lua_lineargradient(lua_State *L) {
 		int colorCount = n - 4;
 		if (colorCount < 2) {
 			delete gradient;
-			return luaL_error(L, "lineargradient: requires at least 2 colors");
+			return LuaArgError(L, "lineargradient", 0, "requires at least 2 colors");
 		}
 		
 		for (int i = 0; i < colorCount; ++i) {
-			int color = (int)luaL_checkinteger(L, 5 + i);
-			
-			// Clamp color to valid range
-			if (color < 0) color = 0;
-			if (color > 0x3F) color = 0x3F;
+			int color = LuaClampNESColor((int)luaL_checkinteger(L, 5 + i));
 			
 			float pos = (colorCount > 1) ? ((float)i / (float)(colorCount - 1)) : 0.0f;
 			gradient->stops.push_back(GradientStop(pos, color));
@@ -3782,7 +3745,7 @@ int lua_lineargradient(lua_State *L) {
 	// Ensure we have at least 2 stops
 	if (gradient->stops.size() < 2) {
 		delete gradient;
-		return luaL_error(L, "lineargradient: requires at least 2 color stops");
+		return LuaArgError(L, "lineargradient", 0, "requires at least 2 color stops");
 	}
 	
 	// Store gradient in map
@@ -3841,10 +3804,7 @@ static int get_gradient_color(LinearGradient* gradient, float px, float py) {
 			int result = (int)(color0 + (color1 - color0) * localT + 0.5f);
 			
 			// Clamp to valid range
-			if (result < 0) result = 0;
-			if (result > 0x3F) result = 0x3F;
-			
-			return result;
+			return LuaClampNESColor(result);
 		}
 	}
 	
@@ -3998,13 +3958,13 @@ int lua_radialgradient(lua_State *L) {
 	// Table mode: 4 args (cx, cy, radius, stops_table)
 	// Simple/variable mode: 5+ args (cx, cy, radius, color1, color2, ...)
 	if (n < 4) {
-		return luaL_error(L, "radialgradient(cx, cy, radius, ...) requires at least 4 arguments");
+		return LuaArgCountError(L, "radialgradient", 4, 4, n);
 	}
 	
 	// Get center and radius
-	float cx = (float)luaL_checknumber(L, 1);
-	float cy = (float)luaL_checknumber(L, 2);
-	float radius = (float)luaL_checknumber(L, 3);
+	float cx = (float)LuaCheckNumber(L, 1, "radialgradient");
+	float cy = (float)LuaCheckNumber(L, 2, "radialgradient");
+	float radius = (float)LuaCheckNumber(L, 3, "radialgradient");
 	
 	// Check if radius is valid
 	if (radius <= 0.0f) {
@@ -4062,8 +4022,7 @@ int lua_radialgradient(lua_State *L) {
 			if (pos > 1.0f) pos = 1.0f;
 			
 			// Clamp color to valid range
-			if (color < 0) color = 0;
-			if (color > 0x3F) color = 0x3F;
+			color = LuaClampNESColor(color);
 			
 			gradient->stops.push_back(GradientStop(pos, color));
 			stopCount++;
@@ -4088,14 +4047,8 @@ int lua_radialgradient(lua_State *L) {
 		}
 	} else if (n == 5) {
 		// Simple two-color gradient
-		int color1 = (int)luaL_checkinteger(L, 4);
-		int color2 = (int)luaL_checkinteger(L, 5);
-		
-		// Clamp colors to valid range
-		if (color1 < 0) color1 = 0;
-		if (color1 > 0x3F) color1 = 0x3F;
-		if (color2 < 0) color2 = 0;
-		if (color2 > 0x3F) color2 = 0x3F;
+		int color1 = LuaClampNESColor((int)luaL_checkinteger(L, 4));
+		int color2 = LuaClampNESColor((int)luaL_checkinteger(L, 5));
 		
 		gradient->stops.push_back(GradientStop(0.0f, color1));  // Center color
 		gradient->stops.push_back(GradientStop(1.0f, color2));  // Edge color
@@ -4105,15 +4058,11 @@ int lua_radialgradient(lua_State *L) {
 		int colorCount = n - 3;
 		if (colorCount < 2) {
 			delete gradient;
-			return luaL_error(L, "radialgradient: requires at least 2 colors");
+			return LuaArgError(L, "radialgradient", 0, "requires at least 2 colors");
 		}
 		
 		for (int i = 0; i < colorCount; ++i) {
-			int color = (int)luaL_checkinteger(L, 4 + i);
-			
-			// Clamp color to valid range
-			if (color < 0) color = 0;
-			if (color > 0x3F) color = 0x3F;
+			int color = LuaClampNESColor((int)luaL_checkinteger(L, 4 + i));
 			
 			float pos = (colorCount > 1) ? ((float)i / (float)(colorCount - 1)) : 0.0f;
 			gradient->stops.push_back(GradientStop(pos, color));
@@ -4123,7 +4072,7 @@ int lua_radialgradient(lua_State *L) {
 	// Ensure we have at least 2 stops
 	if (gradient->stops.size() < 2) {
 		delete gradient;
-		return luaL_error(L, "radialgradient: requires at least 2 color stops");
+		return LuaArgError(L, "radialgradient", 0, "requires at least 2 color stops");
 	}
 	
 	// Store gradient in map
@@ -4139,13 +4088,11 @@ int lua_radialgradient(lua_State *L) {
 int lua_textstyle(lua_State *L) {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "textstyle(options) requires 1 argument");
+		return LuaArgCountError(L, "textstyle", 1, 1, n);
 	}
 	
 	// Check if options is a table
-	if (!lua_istable(L, 1)) {
-		return luaL_error(L, "textstyle: options (1st argument) must be a table");
-	}
+	LuaCheckTable(L, 1, "textstyle");
 	
 	// Parse options table
 	// font (optional)
@@ -4235,11 +4182,11 @@ int lua_textstyle(lua_State *L) {
 int lua_measuretextblock(lua_State *L) {
 	int n = lua_gettop(L);
 	if (n < 2) {
-		return luaL_error(L, "measuretextblock(text, width) requires 2 arguments");
+		return LuaArgCountError(L, "measuretextblock", 2, 2, n);
 	}
 	
-	const char* text = luaL_checkstring(L, 1);
-	int wrapWidth = (int)luaL_checkinteger(L, 2);
+	const char* text = LuaCheckString(L, 1, "measuretextblock");
+	int wrapWidth = LuaCheckInt(L, 2, "measuretextblock");
 	
 	if (!text || wrapWidth <= 0) {
 		// Return empty result for invalid input
@@ -5236,15 +5183,15 @@ static void draw_rounded_corner(uint8* buf, int cx, int cy, int radius, int star
 int lua_drawroundrect(lua_State *L) {
 	int n = lua_gettop(L);
 	if (n < 6) {
-		return luaL_error(L, "drawroundrect(x, y, w, h, radius, color) requires 6 arguments");
+		return LuaArgCountError(L, "drawroundrect", 6, 6, n);
 	}
 	
-	int x = (int)luaL_checkinteger(L, 1);
-	int y = (int)luaL_checkinteger(L, 2);
-	int w = (int)luaL_checkinteger(L, 3);
-	int h = (int)luaL_checkinteger(L, 4);
-	int radius = (int)luaL_checkinteger(L, 5);
-	int color = (int)luaL_checkinteger(L, 6);
+	int x = LuaCheckInt(L, 1, "drawroundrect");
+	int y = LuaCheckInt(L, 2, "drawroundrect");
+	int w = LuaCheckInt(L, 3, "drawroundrect");
+	int h = LuaCheckInt(L, 4, "drawroundrect");
+	int radius = LuaCheckInt(L, 5, "drawroundrect");
+	int color = LuaCheckInt(L, 6, "drawroundrect");
 	
 	if (!currentXBuf) return 0;
 	
