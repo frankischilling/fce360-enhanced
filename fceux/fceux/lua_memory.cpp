@@ -3,7 +3,8 @@
 #ifdef USE_LUA
 
 #include "lua_memory.h"
-
+#include "types.h"  // Must include types.h before fceu.h
+#include "fceu.h"  // For ARead and BWrite
 #include "fceulua.h"
 #include "x6502.h"
 

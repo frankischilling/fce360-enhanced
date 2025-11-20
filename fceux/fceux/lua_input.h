@@ -2,8 +2,8 @@
 
 #ifdef USE_LUA
 
-#include "lua.h"
-#include "types.h" // For uint8, uint32_t
+struct lua_State;
+#include "types.h" // For uint8
 
 #ifdef __cplusplus
 extern "C" {
@@ -21,20 +21,23 @@ void Lua_InputCleanup(lua_State* L);  // Cleanup Lua refs before lua_close
 void Lua_InputProcessJoypad(void);
 
 // Getter functions for input state (used by FCEU_LuaJoypadApply)
-uint8_t Lua_InputGetHardwareJoypad(int player);
-uint8_t Lua_InputGetLuaJoypadValue(int player);
-uint8_t Lua_InputGetLuaJoypadMask(int player);
-uint8_t Lua_InputGetLuaJoypadLatched(int player);
-uint8_t Lua_InputGetOneFramePress(int player);
-uint8_t Lua_InputGetOneFrameRelease(int player);
+uint8 Lua_InputGetHardwareJoypad(int player);
+uint8 Lua_InputGetLuaJoypadValue(int player);
+uint8 Lua_InputGetLuaJoypadMask(int player);
+uint8 Lua_InputGetLuaJoypadLatched(int player);
+uint8 Lua_InputGetOneFramePress(int player);
+uint8 Lua_InputGetOneFrameRelease(int player);
 
 // Setter functions for input state
-void Lua_InputSetHardwareJoypad(int player, uint8_t value);
-void Lua_InputSetLuaJoypadValue(int player, uint8_t value);
-void Lua_InputSetLuaJoypadMask(int player, uint8_t value);
-void Lua_InputSetLuaJoypadLatched(int player, uint8_t value);
-void Lua_InputSetOneFramePress(int player, uint8_t value);
-void Lua_InputSetOneFrameRelease(int player, uint8_t value);
+void Lua_InputSetHardwareJoypad(int player, uint8 value);
+void Lua_InputSetLuaJoypadValue(int player, uint8 value);
+void Lua_InputSetLuaJoypadMask(int player, uint8 value);
+void Lua_InputSetLuaJoypadLatched(int player, uint8 value);
+void Lua_InputSetOneFramePress(int player, uint8 value);
+void Lua_InputSetOneFrameRelease(int player, uint8 value);
+
+// Rumble state management (used by FCEU_LuaGui)
+void Lua_InputUpdateRumble(DWORD currentTime);
 
 #ifdef __cplusplus
 }

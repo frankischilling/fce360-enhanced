@@ -2,7 +2,7 @@
 
 #ifdef USE_LUA
 
-#include "lua.h"
+struct lua_State;
 #include "types.h" // For uint8, uint16, int32
 
 #ifdef __cplusplus

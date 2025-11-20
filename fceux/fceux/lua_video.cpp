@@ -1,8 +1,44 @@
+#include "../stdafx.h"
+
+#ifdef USE_LUA
+
+#include "lua_video.h"
+#include "drawing.h"
+#include "types.h"
+#include "fceu.h"  // Must include before cart.h
+#include "ppu.h"  // For PPU
+#include "cart.h"  // For VPage, CHRptr
+
+// Extern PALRAM from ppu.cpp
+extern uint8 PALRAM[0x20];
+
+#include <stdio.h>
+#include <string.h>
+#include <math.h>
+#include <stdlib.h>
+#include <vector>
+#include <map>
+#include <string>
+
+extern "C" {
+#include "../xbox/lua/src/lua.h"
+#include "../xbox/lua/src/lauxlib.h"
+#include "../xbox/lua/src/lualib.h"
+}
+
+// Extern font data from drawing.cpp
+extern uint8 Font6x7[792];
+extern int FixJoedChar(uint8 ch);
+extern int JoedCharWidth(uint8 ch);
+
+// Overlay dimensions
+enum { OVL_W = 256, OVL_H = 240, GLYPH_H = 8 };
+
 // Double-buffered overlay for Lua-drawn content (updated at 30Hz, composited at 60Hz to prevent flicker)
- // Front buffer: currently displayed (what we composite)
- // Back buffer: where Lua draws next frame (only published on success)
- static uint8* s_overlay_front = NULL; // currently displayed
- static uint8* s_overlay_back  = NULL; // where Lua draws next
+// Front buffer: currently displayed (what we composite)
+// Back buffer: where Lua draws next frame (only published on success)
+static uint8* s_overlay_front = NULL; // currently displayed
+static uint8* s_overlay_back  = NULL; // where Lua draws next
  
  void EnsureOverlay() {
 	 if (!s_overlay_front) {
@@ -93,12 +129,15 @@ void FCEU_SetLuaConsoleVisible(int visible) {
 }
 int  FCEU_IsLuaConsoleVisible(void) { return s_consoleVisible ? 1 : 0; }
 
-extern "C" void FCEU_SetLuaConsoleLineGap(int px) {
+static int s_consoleLineGap = 2; // pixels of extra leading between lines
+static inline int CON_LINE_ADV(void) { return GLYPH_H + s_consoleLineGap; }
+
+void FCEU_SetLuaConsoleLineGap(int px) {
 	if (px < 0) px = 0;
 	if (px > 8) px = 8;
 	s_consoleLineGap = px;
 }
-extern "C" int FCEU_GetLuaConsoleLineGap(void) { return s_consoleLineGap; }
+int FCEU_GetLuaConsoleLineGap(void) { return s_consoleLineGap; }
 
 void FCEU_ToggleLuaConsole(void) { 
 	s_consoleVisible = !s_consoleVisible;
@@ -107,6 +146,21 @@ void FCEU_ToggleLuaConsole(void) {
 		s_consoleScrollOffsetH = 0; // Reset horizontal scroll when console is hidden
 	}
 }
+
+// Accessor functions for scroll offsets (used by fceulua.cpp for input handling)
+int FCEU_GetLuaConsoleScrollOffset(void) { return s_consoleScrollOffset; }
+void FCEU_SetLuaConsoleScrollOffset(int offset) { s_consoleScrollOffset = offset; }
+int FCEU_GetLuaConsoleScrollOffsetH(void) { return s_consoleScrollOffsetH; }
+void FCEU_SetLuaConsoleScrollOffsetH(int offset) { s_consoleScrollOffsetH = offset; }
+int FCEU_GetLuaConsoleCount(void) { return s_luaConsoleCount; }
+
+// Accessor functions for scroll state (used by fceulua.cpp for input handling)
+bool* FCEU_GetLuaConsoleDpadUpLast(void) { return &s_consoleDpadUpLast; }
+bool* FCEU_GetLuaConsoleDpadDownLast(void) { return &s_consoleDpadDownLast; }
+bool* FCEU_GetLuaConsoleDpadLeftLast(void) { return &s_consoleDpadLeftLast; }
+bool* FCEU_GetLuaConsoleDpadRightLast(void) { return &s_consoleDpadRightLast; }
+int* FCEU_GetLuaConsoleScrollHoldFrames(void) { return &s_consoleScrollHoldFrames; }
+int* FCEU_GetLuaConsoleScrollHoldFramesH(void) { return &s_consoleScrollHoldFramesH; }
 
  // Helper: Clear a rectangle in the overlay buffer with bounds checking
  static inline void clear_rect(uint8* buf, int x, int y, int w, int h) {
@@ -369,7 +423,7 @@ static TextStyle s_textStyle;  // Current text style
  }
  
  // Utility: Check if overlay actually changed (fast path with stripes, then full compare)
- static inline bool overlay_has_changes(const uint8* a, const uint8* b) {
+ bool overlay_has_changes(const uint8* a, const uint8* b) {
 	 if (!a || !b) return true;  // If either is NULL, consider it changed
 	 // Scan a few stripes first (fast path), then fall back to full compare
 	 const int pitch = OVL_W, h = OVL_H;
@@ -379,9 +433,25 @@ static TextStyle s_textStyle;  // Current text style
 	 return memcmp(a, b, OVL_W*OVL_H) != 0;
  }
  
- // Dirty flag: tracks if anything was actually drawn to the overlay
- // Only publish new overlay if Lua succeeded AND drew something
+// Dirty flag: tracks if anything was actually drawn to the overlay
+// Only publish new overlay if Lua succeeded AND drew something
 static bool g_overlayDirty = false;
+
+// Accessor functions for overlay dirty flag
+bool Lua_VideoGetOverlayDirty(void) {
+	return g_overlayDirty;
+}
+
+void Lua_VideoSetOverlayDirty(bool dirty) {
+	g_overlayDirty = dirty;
+}
+
+// Reset render target to screen (used by FCEU_LuaGui)
+void Lua_VideoResetRenderTarget(void) {
+	s_currentRenderTarget = NULL;
+	s_renderTargetWidth = OVL_W;
+	s_renderTargetHeight = OVL_H;
+}
  
  // Performance: Disable printf spam in retail builds
  #if !defined(DEBUG) && !defined(_DEBUG)
@@ -412,12 +482,12 @@ static bool g_overlayDirty = false;
  // Lua headers
  extern "C" {
  #include "../xbox/lua/src/lua.h"
- #include "../xbox/lua/src/lauxlib.h"
- #include "../xbox/lua/src/lualib.h"
- }
- 
- lua_State* luaState = NULL;
- static bool luaInitialized = false;
+#include "../xbox/lua/src/lauxlib.h"
+#include "../xbox/lua/src/lualib.h"
+}
+
+extern lua_State* luaState;
+extern bool luaInitialized;
  
  // FPS tracking
  static DWORD lastFPSUpdate = 0;
@@ -5596,10 +5666,6 @@ int lua_fillroundrect(lua_State *L) {
 // Module Registrar and Lifecycle Hooks
 // ============================================================================
 
-#ifdef USE_LUA
-
-#include "lua_video.h"
-
 void Lua_RegisterVideo(lua_State* L) {
 	if (!L) {
 		return;
@@ -5611,9 +5677,9 @@ void Lua_RegisterVideo(lua_State* L) {
 	lua_register(L, "drawtextscaled", lua_drawtextscaled);
 	lua_register(L, "drawtextrotated", lua_drawtextrotated);
 	lua_pushcfunction(L, lua_gettextwidth);
-	lua_setglobal(L, "gettextwidth", lua_gettextwidth);
+	lua_setglobal(L, "gettextwidth");
 	lua_pushcfunction(L, lua_gettextheight);
-	lua_setglobal(L, "gettextheight", lua_gettextheight);
+	lua_setglobal(L, "gettextheight");
 	lua_register(L, "drawtextbox", lua_drawtextbox);
 	lua_register(L, "setconsolespacing", lua_setconsolespacing);
 

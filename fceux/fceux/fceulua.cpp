@@ -77,11 +77,14 @@ extern uint8 joy[4];
 // Extern powerpadbuf from Cemulator.cpp (Xbox input buffer)
 extern uint32 powerpadbuf;
 
+// Extern Gamepads from input system
+extern GAMEPAD Gamepads[];
+
 // --- Overlay geometry and font metrics ---
 enum { OVL_W = 256, OVL_H = 240, GLYPH_H = 8 };
 
-static int s_consoleLineGap = 2; // pixels of extra leading between lines
-static inline int CON_LINE_ADV(void) { return GLYPH_H + s_consoleLineGap; }
+// Console line gap is managed in lua_video.cpp - use accessor function
+static inline int CON_LINE_ADV(void) { return GLYPH_H + FCEU_GetLuaConsoleLineGap(); }
 
 // Minimal Lua API forward declarations (avoid changing symbol mappings)
 extern "C" {
@@ -228,64 +231,11 @@ extern "C" void FCEU_SetPendingLua(int mode, const char* scriptUtf8OrNull)
  }
  
 // ---------------- Lua Console (logs + on-screen panel) ----------------
-static bool s_consoleVisible = false;
-static const int LUA_CONSOLE_X       = 0;
-static const int LUA_CONSOLE_Y       = 8;      // wherever you draw the console
-static const int LUA_CONSOLE_W_PX    = 256;    // use full width of the overlay
-static const int LUA_CONSOLE_MAX_LINES = 256; // Increased to support more console lines
-static const int LUA_CONSOLE_LINE_CHARS = 256; // storage capacity per line (chars)
-static char s_luaConsoleLines[LUA_CONSOLE_MAX_LINES][LUA_CONSOLE_LINE_CHARS];
-static int s_luaConsoleCount = 0;
-static int s_consoleScrollOffset = 0; // Scroll offset for console (0 = show most recent)
-static int s_consoleScrollOffsetH = 0; // Horizontal scroll offset for console (in pixels, 0 = leftmost)
-static bool s_consoleDpadUpLast = false;
-static bool s_consoleDpadDownLast = false;
-static bool s_consoleDpadLeftLast = false;
-static bool s_consoleDpadRightLast = false;
-static int s_consoleScrollHoldFrames = 0; // Frame counter for continuous scrolling
-static int s_consoleScrollHoldFramesH = 0; // Frame counter for continuous horizontal scrolling
-
-void LuaConsolePushLine(const char* msg) {
-     if (!msg || !msg[0]) return;
-     if (s_luaConsoleCount < LUA_CONSOLE_MAX_LINES) {
-         strncpy(s_luaConsoleLines[s_luaConsoleCount], msg, LUA_CONSOLE_LINE_CHARS - 1);
-         s_luaConsoleLines[s_luaConsoleCount][LUA_CONSOLE_LINE_CHARS - 1] = '\0';
-         s_luaConsoleCount++;
-     } else {
-         for (int i = 1; i < LUA_CONSOLE_MAX_LINES; ++i) {
-             memcpy(s_luaConsoleLines[i - 1], s_luaConsoleLines[i], LUA_CONSOLE_LINE_CHARS);
-         }
-         strncpy(s_luaConsoleLines[LUA_CONSOLE_MAX_LINES - 1], msg, LUA_CONSOLE_LINE_CHARS - 1);
-         s_luaConsoleLines[LUA_CONSOLE_MAX_LINES - 1][LUA_CONSOLE_LINE_CHARS - 1] = '\0';
-     }
-}
-
-void FCEU_SetLuaConsoleVisible(int visible) { 
-	s_consoleVisible = (visible != 0);
-	if (!s_consoleVisible) {
-		s_consoleScrollOffset = 0; // Reset scroll when console is hidden
-		s_consoleScrollOffsetH = 0; // Reset horizontal scroll when console is hidden
-	}
-}
-int  FCEU_IsLuaConsoleVisible(void) { return s_consoleVisible ? 1 : 0; }
-
-extern "C" void FCEU_SetLuaConsoleLineGap(int px) {
-	if (px < 0) px = 0;
-	if (px > 8) px = 8;
-	s_consoleLineGap = px;
-}
-extern "C" int FCEU_GetLuaConsoleLineGap(void) { return s_consoleLineGap; }
-
-void FCEU_ToggleLuaConsole(void) { 
-	s_consoleVisible = !s_consoleVisible;
-	if (!s_consoleVisible) {
-		s_consoleScrollOffset = 0; // Reset scroll when console is hidden
-		s_consoleScrollOffsetH = 0; // Reset horizontal scroll when console is hidden
-	}
-}
+// Console state is now managed in lua_video.cpp - use accessor functions to access it
+// Console functions moved to lua_video.cpp (they're used by DrawLuaConsole)
 
 // Runtime management functions moved to lua_runtime.cpp
-
+ 
  // Performance: Disable printf spam in retail builds
  #if !defined(DEBUG) && !defined(_DEBUG)
  #undef printf
@@ -320,7 +270,7 @@ void FCEU_ToggleLuaConsole(void) {
  }
  
  lua_State* luaState = NULL;
- static bool luaInitialized = false;
+bool luaInitialized = false;  // Non-static so other modules can access it
  
 // FPS tracking moved to lua_emulator.cpp
  
@@ -330,1094 +280,8 @@ void FCEU_ToggleLuaConsole(void) {
  static uint8* s_frameXBuf = NULL;
  // Pre-initialize screenshot directory path to avoid lag on first screenshot
  static bool s_screenshotDirInitialized = false;
-
-// playinputrecording(data) -> nothing
- // Plays back recorded input from a table
- // data: table from stopinputrecording() with keys "player0", "player1", "player2", "player3"
- static int lua_playinputrecording(lua_State* L)
- {
-	 if (lua_gettop(L) < 1) {
-		 return luaL_error(L, "playinputrecording(data) requires 1 argument");
-	 }
-	 
-	 if (!lua_istable(L, 1)) {
-		 return luaL_error(L, "playinputrecording: data must be a table");
-	 }
-	 
-	 // Stop any current playback
-	 s_inputPlayback = false;
-	 s_playbackFrame = 0;
-	 
-	 // Clear playback data
-	 for (int p = 0; p < 4; ++p) {
-		 s_playbackInput[p].clear();
-	 }
-	 
-	 // Read data from Lua table
-	 for (int p = 0; p < 4; ++p) {
-		 char key[16];
-		 snprintf(key, sizeof(key), "player%d", p);
-		 
-		 // Get player's table
-		 lua_getfield(L, 1, key);
-		 if (lua_istable(L, -1)) {
-			 // Read all entries from the table (1-indexed)
-			 int i = 1;
-			 while (true) {
-				 lua_rawgeti(L, -1, i);
-				 if (!lua_isnumber(L, -1)) {
-					 lua_pop(L, 1);
-					 break;  // End of table
-				 }
-				 int value = (int)luaL_checkinteger(L, -1);
-				 lua_pop(L, 1);
-				 
-				 // Clamp to valid range
-				 if (value < 0) value = 0;
-				 if (value > 0xFF) value = 0xFF;
-				 
-				 s_playbackInput[p].push_back((uint8)(value & 0xFF));
-				 ++i;
-			 }
-		 }
-		 lua_pop(L, 1);  // Pop player table
-	 }
-	 
-	 // Start playback
-	 s_inputPlayback = true;
-	 s_playbackFrame = 0;
-	 s_playbackPosition = 0.0;
-	 
-	 return 0;
- }
-
-
- // saveinputrecording(path) -> boolean
- // Saves input recording to file
- // Parameters: path (file path string)
- // Returns: Boolean (success)
- // Use case: Save TAS inputs
- static int lua_saveinputrecording(lua_State* L)
- {
-	 int n = lua_gettop(L);
-	 if (n < 1) {
-		 return luaL_error(L, "saveinputrecording(path) requires 1 argument");
-	 }
-	 
-	 const char* filename = luaL_checkstring(L, 1);
-	 if (!filename || strlen(filename) == 0) {
-		 lua_pushboolean(L, 0);
-		 return 1;
-	 }
-	 
-	 // Check if there's any recorded data
-	 bool hasData = false;
-	 size_t maxFrames = 0;
-	 for (int p = 0; p < 4; ++p) {
-		 if (s_recordedInput[p].size() > 0) {
-			 hasData = true;
-			 if (s_recordedInput[p].size() > maxFrames) {
-				 maxFrames = s_recordedInput[p].size();
-			 }
-		 }
-	 }
-	 
-	 if (!hasData) {
-		 lua_pushboolean(L, 0);
-		 return 1;
-	 }
-	 
-	 // Build full path
-	 char fullpath[512];
-	 
-	 // If filename already contains a drive/path, use it as-is
-	 if (strchr(filename, ':') || filename[0] == '\\' || filename[0] == '/') {
-		 strncpy(fullpath, filename, sizeof(fullpath) - 1);
-		 fullpath[sizeof(fullpath) - 1] = '\0';
-	 } else {
-		 // Relative to writable directory (try hdd1: first as it's always writable)
-		 // Save in "recordings" subfolder within lua directory
-		 const char* baseDir = "hdd1:\\fce360-enhanced\\lua\\recordings\\";
-		 snprintf(fullpath, sizeof(fullpath), "%s%s", baseDir, filename);
-	 }
-	 
-	 // Normalize path separators (convert / to \)
-	 for (int i = 0; fullpath[i] != '\0'; i++) {
-		 if (fullpath[i] == '/') {
-			 fullpath[i] = '\\';
-		 }
-	 }
-	 
-	 // Create all parent directories recursively
-	 Lua_FileIOCreateParentDirectories(fullpath);
-	 
-	 // Use Win32 API for file writing (better compatibility with Xbox 360 paths like hdd1:)
-	 HANDLE hFile = CreateFileA(fullpath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-	 if (hFile == INVALID_HANDLE_VALUE) {
-		 // If hdd1: failed and path was relative, try game: directory
-		 if (!strchr(filename, ':') && filename[0] != '\\' && filename[0] != '/') {
-			 // Save in "recordings" subfolder within lua directory
-			 const char* gameDir = "game:\\lua\\recordings\\";
-			 snprintf(fullpath, sizeof(fullpath), "%s%s", gameDir, filename);
-			 
-			 // Normalize path separators
-			 for (int i = 0; fullpath[i] != '\0'; i++) {
-				 if (fullpath[i] == '/') {
-					 fullpath[i] = '\\';
-				 }
-			 }
-			 
-			 // Create all parent directories recursively
-			 Lua_FileIOCreateParentDirectories(fullpath);
-			 
-			 hFile = CreateFileA(fullpath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-		 }
-		 
-		 if (hFile == INVALID_HANDLE_VALUE) {
-			 // Failed to open file for writing
-			 lua_pushboolean(L, 0);
-			 return 1;
-		 }
-	 }
-	 
-	 // Write data to file
-	 // Format: one frame per line, comma-separated button masks for each player
-	 // Example: "0,0,0,0\n" for frame 0 (all players no buttons)
-	 bool writeSuccess = true;
-	 DWORD bytesWritten = 0;
-	 
-	 for (size_t frame = 0; frame < maxFrames; ++frame) {
-		 char line[64];
-		 int len = 0;
-		 
-		 // Write button masks for each player (comma-separated)
-		 for (int p = 0; p < 4; ++p) {
-			 uint8 buttonMask = 0;
-			 if (frame < s_recordedInput[p].size()) {
-				 buttonMask = s_recordedInput[p][frame];
-			 }
-			 
-			 if (p > 0) {
-				 line[len++] = ',';
-			 }
-			 
-			 // Write button mask as decimal number
-			 len += snprintf(line + len, sizeof(line) - len, "%d", (int)buttonMask);
-		 }
-		 
-		 line[len++] = '\n';
-		 line[len] = '\0';
-		 
-		 BOOL result = WriteFile(hFile, line, (DWORD)len, &bytesWritten, NULL);
-		 if (!result || bytesWritten != (DWORD)len) {
-			 writeSuccess = false;
-			 break;
-		 }
-	 }
-	 
-	 CloseHandle(hFile);
-	 
-	 lua_pushboolean(L, writeSuccess ? 1 : 0);
-	 return 1;
- }
-
- // loadinputrecording(path) -> boolean
- // Loads input recording from file and starts playback
- // Parameters: path (file path string)
- // Returns: Boolean (success)
- // Use case: Playback TAS inputs
- static int lua_loadinputrecording(lua_State* L)
- {
-	 int n = lua_gettop(L);
-	 if (n < 1) {
-		 return luaL_error(L, "loadinputrecording(path) requires 1 argument");
-	 }
-	 
-	 const char* filename = luaL_checkstring(L, 1);
-	 if (!filename || strlen(filename) == 0) {
-		 lua_pushboolean(L, 0);
-		 return 1;
-	 }
-	 
-	 // Build full path
-	 char fullpath[512];
-	 
-	 // If filename already contains a drive/path, use it as-is
-	 if (strchr(filename, ':') || filename[0] == '\\' || filename[0] == '/') {
-		 strncpy(fullpath, filename, sizeof(fullpath) - 1);
-		 fullpath[sizeof(fullpath) - 1] = '\0';
-	 } else {
-		 // Try recordings directory first (where saveinputrecording saves)
-		 const char* baseDir = "hdd1:\\fce360-enhanced\\lua\\recordings\\";
-		 snprintf(fullpath, sizeof(fullpath), "%s%s", baseDir, filename);
-	 }
-	 
-	 // Normalize path separators (convert / to \)
-	 for (int i = 0; fullpath[i] != '\0'; i++) {
-		 if (fullpath[i] == '/') {
-			 fullpath[i] = '\\';
-		 }
-	 }
-	 
-	 // Try to open file
-	 FILE* file = fopen(fullpath, "rb");
-	 if (!file) {
-		 // Try alternative paths if initial path fails
-		 const char* altPaths[] = {
-			 "game:\\lua\\recordings\\%s",
-			 "hdd1:\\fce360-enhanced\\lua\\recordings\\%s",
-			 "game:\\lua\\%s",
-			 "hdd1:\\fce360-enhanced\\lua\\%s",
-			 "game:\\%s"
-		 };
-		 
-		 bool found = false;
-		 for (int i = 0; i < (int)(sizeof(altPaths) / sizeof(altPaths[0])); i++) {
-			 char altPath[512];
-			 snprintf(altPath, sizeof(altPath), altPaths[i], filename);
-			 
-			 // Normalize path separators
-			 for (int j = 0; altPath[j] != '\0'; j++) {
-				 if (altPath[j] == '/') {
-					 altPath[j] = '\\';
-				 }
-			 }
-			 
-			 file = fopen(altPath, "rb");
-			 if (file) {
-				 strncpy(fullpath, altPath, sizeof(fullpath) - 1);
-				 fullpath[sizeof(fullpath) - 1] = '\0';
-				 found = true;
-				 break;
-			 }
-		 }
-		 
-		 if (!found) {
-			 // File not found
-			 lua_pushboolean(L, 0);
-			 return 1;
-		 }
-	 }
-	 
-	 // Get file size
-	 fseek(file, 0, SEEK_END);
-	 long fileSize = ftell(file);
-	 fseek(file, 0, SEEK_SET);
-	 
-	 if (fileSize < 0) {
-		 fclose(file);
-		 lua_pushboolean(L, 0);
-		 return 1;
-	 }
-	 
-	 if (fileSize == 0) {
-		 // Empty file
-		 fclose(file);
-		 lua_pushboolean(L, 0);
-		 return 1;
-	 }
-	 
-	 // Allocate buffer for file contents
-	 char* buffer = (char*)malloc(fileSize + 1);
-	 if (!buffer) {
-		 fclose(file);
-		 lua_pushboolean(L, 0);
-		 return 1;
-	 }
-	 
-	 // Read file
-	 size_t bytesRead = fread(buffer, 1, fileSize, file);
-	 fclose(file);
-	 
-	 if (bytesRead != (size_t)fileSize) {
-		 free(buffer);
-		 lua_pushboolean(L, 0);
-		 return 1;
-	 }
-	 
-	 // Null-terminate
-	 buffer[fileSize] = '\0';
-	 
-	 // Stop any current playback
-	 s_inputPlayback = false;
-	 s_playbackFrame = 0;
-	 s_playbackPosition = 0.0;
-	 
-	 // Clear playback data
-	 for (int p = 0; p < 4; ++p) {
-		 s_playbackInput[p].clear();
-	 }
-
-	 // Parse file contents
-	 // Format: one frame per line, comma-separated button masks for each player
-	 // Example: "0,0,0,0\n" for frame 0 (all players no buttons)
-	 char* lineStart = buffer;
-	 
-	 while (lineStart < buffer + fileSize) {
-		 // Find end of line
-		 char* lineEnd = strchr(lineStart, '\n');
-		 if (!lineEnd) {
-			 lineEnd = buffer + fileSize;
-		 }
-		 
-		 // Null-terminate line for parsing
-		 char savedChar = *lineEnd;
-		 *lineEnd = '\0';
-		 
-		 // Skip empty lines
-		 if (lineStart == lineEnd || (*lineStart == '\r' && lineStart + 1 == lineEnd)) {
-			 *lineEnd = savedChar;
-			 lineStart = lineEnd + 1;
-			 continue;
-		 }
-		 
-		 // Parse comma-separated values for 4 players
-		 int values[4] = {0, 0, 0, 0};
-		 int valueIndex = 0;
-		 char* token = lineStart;
-		 
-		 while (token < lineEnd && valueIndex < 4) {
-			 // Skip whitespace
-			 while (*token == ' ' || *token == '\t' || *token == '\r') {
-				 token++;
-			 }
-			 
-			 if (token >= lineEnd) break;
-			 
-			 // Find comma or end of line
-			 char* comma = strchr(token, ',');
-			 if (!comma || comma > lineEnd) {
-				 comma = lineEnd;
-			 }
-			 
-			 // Parse number
-			 char savedComma = *comma;
-			 *comma = '\0';
-			 
-			 int value = atoi(token);
-			 if (value < 0) value = 0;
-			 if (value > 0xFF) value = 0xFF;
-			 values[valueIndex] = value;
-			 
-			 *comma = savedComma;
-			 
-			 valueIndex++;
-			 token = comma + 1;
-		 }
-		 
-		 // Restore line end character
-		 *lineEnd = savedChar;
-		 
-		 // Add frame data for each player
-		 for (int p = 0; p < 4; ++p) {
-			 s_playbackInput[p].push_back((uint8)(values[p] & 0xFF));
-		 }
-		 
-		 // Move to next line
-		 lineStart = lineEnd + 1;
-	 }
-	 
-	 free(buffer);
-	 
-	 // Check if we loaded any data
-	 bool hasData = false;
-	 for (int p = 0; p < 4; ++p) {
-		 if (s_playbackInput[p].size() > 0) {
-			 hasData = true;
-			 break;
-		 }
-	 }
-	 
-	 if (!hasData) {
-		 lua_pushboolean(L, 0);
-		 return 1;
-	 }
-	 
-	 // Start playback
-	 s_inputPlayback = true;
-	 s_playbackFrame = 0;
-	 
-	 lua_pushboolean(L, 1);
-	 return 1;
- }
-
- // setrecordingmarker(name) -> nothing
- // Sets a marker at the current frame in the recording
- // Parameters: name (marker name string)
- // Returns: Nothing
- // Use case: Bookmark positions in recording
- static int lua_setrecordingmarker(lua_State* L)
- {
-	 int n = lua_gettop(L);
-	 if (n < 1) {
-		 return luaL_error(L, "setrecordingmarker(name) requires 1 argument");
-	 }
-
-	 const char* name = luaL_checkstring(L, 1);
-	 if (!name || strlen(name) == 0) {
-		 return 0;  // Empty name, do nothing
-	 }
-
-	 // Check if recording is active
-	 if (!s_inputRecording) {
-		 return 0;  // Not recording, do nothing
-	 }
-
-	 // Get current frame number (use player 0's size as frame count)
-	 // The size represents the number of frames recorded so far
-	 // Since setrecordingmarker() is called from beforeframe() callback,
-	 // the current frame hasn't been recorded yet - it will be recorded at the end of the frame
-	 // So we mark the frame at index = size (the next frame to be recorded)
-	 // Example: If 10 frames are recorded (indices 0-9), size=10, we mark frame 10
-	 int currentFrame = (int)s_recordedInput[0].size();
-
-	 // Store marker
-	 s_recordingMarkers[std::string(name)] = currentFrame;
-
-	 return 0;
- }
-
- // jumptorecordingmarker(name) -> boolean
- // Jumps to marker in recording during playback
- // Parameters: name (marker name string)
- // Returns: Boolean (success)
- // Use case: Navigate recording
- static int lua_jumptorecordingmarker(lua_State* L)
- {
-	 int n = lua_gettop(L);
-	 if (n < 1) {
-		 return luaL_error(L, "jumptorecordingmarker(name) requires 1 argument");
-	 }
-
-	 const char* name = luaL_checkstring(L, 1);
-	 if (!name || strlen(name) == 0) {
-		 lua_pushboolean(L, 0);
-		 return 1;
-	 }
-
-	 // Check if playback is active
-	 if (!s_inputPlayback) {
-		 lua_pushboolean(L, 0);
-		 return 1;
-	 }
-
-	 // Look up marker
-	 std::map<std::string, int>::iterator it = s_recordingMarkers.find(std::string(name));
-	 if (it == s_recordingMarkers.end()) {
-		 // Marker not found
-		 lua_pushboolean(L, 0);
-		 return 1;
-	 }
-
-	 int markerFrame = it->second;
-
-	 // Check if marker frame is within bounds of playback data
-	 // Find the maximum frame count across all players
-	 int maxFrames = 0;
-	 for (int p = 0; p < 4; ++p) {
-		 if ((int)s_playbackInput[p].size() > maxFrames) {
-			 maxFrames = (int)s_playbackInput[p].size();
-		 }
-	 }
-
-	 // Validate marker frame is within bounds
-	 // Note: markerFrame is 0-indexed, so valid range is 0 to maxFrames-1
-	 // However, if markerFrame equals maxFrames (one past the end), clamp it to maxFrames-1
-	 if (markerFrame < 0) {
-		 lua_pushboolean(L, 0);
-		 return 1;
-	 }
-	 if (markerFrame >= maxFrames) {
-		 // Clamp to last valid frame if marker is out of bounds
-		 if (maxFrames > 0) {
-			 markerFrame = maxFrames - 1;
-		 } else {
-			 lua_pushboolean(L, 0);
-			 return 1;
-		 }
-	 }
-
-	 // Jump to marker frame
-	 s_playbackFrame = markerFrame;
-	 s_playbackPosition = (double)markerFrame;
-
-	 lua_pushboolean(L, 1);
-	 return 1;
- }
-
- // setplaybackspeed(mult) -> nothing
- // Sets playback speed multiplier
- // Parameters: mult (number: 0.5, 1.0, 2.0, etc.)
- // Returns: Nothing
- // Use case: Slow/fast motion playback
- static int lua_setplaybackspeed(lua_State* L)
- {
-	 int n = lua_gettop(L);
-	 if (n < 1) {
-		 return luaL_error(L, "setplaybackspeed(mult) requires 1 argument");
-	 }
-
-	 double mult = luaL_checknumber(L, 1);
-	 
-	 // Clamp speed to reasonable range (0.1 to 10.0)
-	 if (mult < 0.1) mult = 0.1;
-	 if (mult > 10.0) mult = 10.0;
-
-	 // Set playback speed
-	 s_playbackSpeed = mult;
-
-	 return 0;
- }
-
- // trimrecording(startFrame, endFrame) -> boolean
- // Trims recording to frame range
- // Parameters: startFrame, endFrame (frame numbers)
- // Returns: Boolean (success)
- // Use case: Edit recordings
-static int lua_trimrecording(lua_State* L)
- {
-	 int n = lua_gettop(L);
-	 if (n < 2) {
-		 return luaL_error(L, "trimrecording(startFrame, endFrame) requires 2 arguments");
-	 }
-
-	 int startFrame = (int)luaL_checkinteger(L, 1);
-	 int endFrame = (int)luaL_checkinteger(L, 2);
-
-	 // Check if recording is active
-	 if (!s_inputRecording) {
-		 lua_pushboolean(L, 0);
-		 return 1;
-	 }
-
-	 // Validate frame range
-	 if (startFrame < 0 || endFrame < 0) {
-		 lua_pushboolean(L, 0);
-		 return 1;
-	 }
-
-	 if (startFrame > endFrame) {
-		 lua_pushboolean(L, 0);
-		 return 1;
-	 }
-
-	 // Find the maximum frame count across all players
-	 int maxFrames = 0;
-	 for (int p = 0; p < 4; ++p) {
-		 if ((int)s_recordedInput[p].size() > maxFrames) {
-			 maxFrames = (int)s_recordedInput[p].size();
-		 }
-	 }
-
-	 // Check if frame range is valid
-	 if (startFrame >= maxFrames || endFrame >= maxFrames) {
-		 lua_pushboolean(L, 0);
-		 return 1;
-	 }
-
-	 // Trim all player vectors to the specified range
-	 // Keep frames from startFrame to endFrame (inclusive)
-	 for (int p = 0; p < 4; ++p) {
-		 if ((int)s_recordedInput[p].size() > 0) {
-			 // Create new vector with trimmed range
-			 std::vector<uint8> trimmed;
-			 trimmed.reserve(endFrame - startFrame + 1);
-			 
-			 for (int i = startFrame; i <= endFrame; ++i) {
-				 if (i < (int)s_recordedInput[p].size()) {
-					 trimmed.push_back(s_recordedInput[p][i]);
-				 } else {
-					 // If this player has fewer frames, pad with 0
-					 trimmed.push_back(0);
-				 }
-			 }
-			 
-			 // Replace original with trimmed version
-			 s_recordedInput[p] = trimmed;
-		 }
-	 }
-
-	 // Update markers: remove markers outside the trimmed range, adjust others
-	 std::map<std::string, int> newMarkers;
-	 for (std::map<std::string, int>::iterator it = s_recordingMarkers.begin(); it != s_recordingMarkers.end(); ++it) {
-		 int markerFrame = it->second;
-		 if (markerFrame >= startFrame && markerFrame <= endFrame) {
-			 // Marker is within range, adjust its position (subtract startFrame)
-			 newMarkers[it->first] = markerFrame - startFrame;
-		 }
-		 // Markers outside the range are discarded
-	 }
-	 s_recordingMarkers = newMarkers;
-
-	 lua_pushboolean(L, 1);
-	 return 1;
- }
-
-#endif // movie functions migrated
-
-// ROM functions moved to lua_rom.cpp
-
-// Emulation state functions moved to lua_emulator.cpp
-
-// Game Genie functions moved to lua_gamegenie.cpp
-
-// Emulation state and timing functions moved to lua_emulator.cpp
-
-// Audio functions moved to lua_audio.cpp
-// Profiler, timing, and cadence management functions moved to lua_profiler.cpp
-
- // File I/O functions moved to lua_fileio.cpp
-
- // Palette functions moved to lua_palette.cpp
-
- // File I/O functions moved to lua_fileio.cpp
-
- // Palette functions moved to lua_palette.cpp
- // Audio functions moved to lua_audio.cpp
- // Profiler, timing, and cadence management functions moved to lua_profiler.cpp
-
-// Runtime management functions moved to lua_runtime.cpp
-
-// Mapper functions moved to lua_rom.cpp
-
- // getbuttonmask(buttonName) -> integer bitmask
-	 
-	 // Get last frame time from Lua registry
-	 lua_pushstring(L, "FCEU_LAST_FRAME_TIME");
-	 lua_gettable(L, LUA_REGISTRYINDEX);
-	 
-	 if (lua_isnil(L, -1)) {
-		 // First call - no previous frame time, return 0.0
-		 lua_pop(L, 1);
-		 
-		 // Store current time for next call
-		 lua_pushstring(L, "FCEU_LAST_FRAME_TIME");
-		 lua_pushinteger(L, (lua_Integer)currentTime);
-		 lua_settable(L, LUA_REGISTRYINDEX);
-		 
-		 lua_pushnumber(L, 0.0);
-		 return 1;
-	 }
-	 
-	 // Get last frame time
-	 lua_Integer lastFrameTime = lua_tointeger(L, -1);
-	 lua_pop(L, 1);
-	 
-	 // Calculate delta in milliseconds
-	 DWORD deltaMs = currentTime - (DWORD)lastFrameTime;
-	 
-	 // Convert to seconds (float)
-	 double deltaSeconds = (double)deltaMs / 1000.0;
-	 
-	 // Update last frame time for next call
-	 lua_pushstring(L, "FCEU_LAST_FRAME_TIME");
-	 lua_pushinteger(L, (lua_Integer)currentTime);
-	 lua_settable(L, LUA_REGISTRYINDEX);
-	 
-	 lua_pushnumber(L, deltaSeconds);
-	 return 1;
- }
-
-// Runtime management functions moved to lua_runtime.cpp
-
- // getmapper() -> integer
- {
-	 // Check if sleep is active
-	 lua_pushstring(L, "FCEU_SLEEP_START_TIME");
-	 lua_gettable(L, LUA_REGISTRYINDEX);
-	 
-	 if (lua_isnil(L, -1)) {
-		 // No sleep state - not sleeping
-		 lua_pop(L, 1);
-		 return false;
-	 }
-	 
-	 // Get sleep start time and duration
-	 lua_Integer sleepStartTime = lua_tointeger(L, -1);
-	 lua_pop(L, 1);
-	 
-	 lua_pushstring(L, "FCEU_SLEEP_DURATION_MS");
-	 lua_gettable(L, LUA_REGISTRYINDEX);
-	 lua_Integer sleepDurationMs = lua_tointeger(L, -1);
-	 lua_pop(L, 1);
-	 
-	 // Get original pause state
-	 lua_pushstring(L, "FCEU_SLEEP_WAS_PAUSED");
-	 lua_gettable(L, LUA_REGISTRYINDEX);
-	 int wasPaused = lua_toboolean(L, -1);
-	 lua_pop(L, 1);
-	 
-	 // Check if sleep duration has elapsed
-	 DWORD currentTime = GetTickCount();
-	 DWORD elapsed = currentTime - (DWORD)sleepStartTime;
-	 
-	 if (elapsed >= (DWORD)sleepDurationMs) {
-		 // Sleep complete - clear sleep state and restore pause state
-		 lua_pushstring(L, "FCEU_SLEEP_START_TIME");
-		 lua_pushnil(L);
-		 lua_settable(L, LUA_REGISTRYINDEX);
-		 
-		 lua_pushstring(L, "FCEU_SLEEP_DURATION_MS");
-		 lua_pushnil(L);
-		 lua_settable(L, LUA_REGISTRYINDEX);
-		 
-		 lua_pushstring(L, "FCEU_SLEEP_WAS_PAUSED");
-		 lua_pushnil(L);
-		 lua_settable(L, LUA_REGISTRYINDEX);
-		 
-		 // Restore original pause state
-		 extern void FCEUI_SetEmulationPaused(int val);
-		 FCEUI_SetEmulationPaused(wasPaused ? 1 : 0);
-		 
-		 return false; // Sleep complete
-	 }
-	 
-	 // Still sleeping - ensure emulation is paused
-	 extern void FCEUI_SetEmulationPaused(int val);
-	 FCEUI_SetEmulationPaused(1);
-	 
-	 return true; // Still sleeping
- }
-
-// Mapper functions moved to lua_rom.cpp
-
- // getbuttonmask(buttonName) -> integer bitmask
- // Converts button name to bitmask
- // Button names: "A", "B", "SELECT", "START", "UP", "DOWN", "LEFT", "RIGHT" (case-insensitive)
- static int lua_getbuttonmask(lua_State* L)
- {
-	 const char* buttonName = luaL_checkstring(L, 1);
-	 
-	 if (!buttonName || !buttonName[0]) {
-		 return luaL_error(L, "getbuttonmask: button name cannot be empty");
-	 }
-	 
-	 // Map button name to bitmask (case-insensitive)
-	 // FCEUX bit order: A=0x01, B=0x02, Select=0x04, Start=0x08, Up=0x10, Down=0x20, Left=0x40, Right=0x80
-	 uint8 buttonMask = 0;
-	 
-	 // Convert to uppercase for case-insensitive comparison
-	 char upperButton[16];
-	 int i = 0;
-	 for (; buttonName[i] && i < 15; ++i) {
-		 char c = buttonName[i];
-		 if (c >= 'a' && c <= 'z') {
-			 upperButton[i] = c - 'a' + 'A';
-		 } else {
-			 upperButton[i] = c;
-		 }
-	 }
-	 upperButton[i] = '\0';
-	 
-	 // Map button name to bitmask
-	 if (strcmp(upperButton, "A") == 0) {
-		 buttonMask = 0x01;
-	 } else if (strcmp(upperButton, "B") == 0) {
-		 buttonMask = 0x02;
-	 } else if (strcmp(upperButton, "SELECT") == 0) {
-		 buttonMask = 0x04;
-	 } else if (strcmp(upperButton, "START") == 0) {
-		 buttonMask = 0x08;
-	 } else if (strcmp(upperButton, "UP") == 0) {
-		 buttonMask = 0x10;
-	 } else if (strcmp(upperButton, "DOWN") == 0) {
-		 buttonMask = 0x20;
-	 } else if (strcmp(upperButton, "LEFT") == 0) {
-		 buttonMask = 0x40;
-	 } else if (strcmp(upperButton, "RIGHT") == 0) {
-		 buttonMask = 0x80;
-	 } else {
-		 return luaL_error(L, "getbuttonmask: invalid button name '%s'. Valid buttons: A, B, SELECT, START, UP, DOWN, LEFT, RIGHT", buttonName);
-	 }
-	 
-	 // Return the bitmask
-	 lua_pushinteger(L, (int)buttonMask);
-	 return 1;
- }
-
- // drawtextbox(x, y, width, height, text, color, bgColor, borderColor)
- // Draws text in a bordered box with background
- // bgColor and borderColor are optional (nil or -1 for no background/border)
- static int lua_drawtextbox(lua_State* L)
- {
-	 int n = lua_gettop(L);
-	 if (n < 6) {
-		 return luaL_error(L, "drawtextbox(x, y, width, height, text, color [, bgColor, borderColor]) requires at least 6 arguments");
-	 }
-
-	 int x = (int)luaL_checkinteger(L, 1);
-	 int y = (int)luaL_checkinteger(L, 2);
-	 int width = (int)luaL_checkinteger(L, 3);
-	 int height = (int)luaL_checkinteger(L, 4);
-	 const char* text = luaL_checkstring(L, 5);
-	 int color = (int)luaL_checkinteger(L, 6);
-	 
-	 // Optional parameters
-	 int bgColor = -1;
-	 int borderColor = -1;
-	 if (n >= 7 && !lua_isnil(L, 7)) {
-		 bgColor = (int)luaL_checkinteger(L, 7);
-	 }
-	 if (n >= 8 && !lua_isnil(L, 8)) {
-		 borderColor = (int)luaL_checkinteger(L, 8);
-	 }
-
-	 if (!currentXBuf || !text) return 0;
-
-	 // Clamp dimensions
-	 if (width <= 0 || height <= 0) return 0;
-	 if (x < 0) x = 0;
-	 if (y < 0) y = 0;
-	 if (x + width > OVL_W) width = OVL_W - x;
-	 if (y + height > OVL_H) height = OVL_H - y;
-	 if (width <= 0 || height <= 0) return 0;
-
-	 // Border thickness (3 pixels as requested for testing)
-	 const int borderThickness = 3;
-
-	 // Calculate inner area (accounting for border)
-	 int innerX = x;
-	 int innerY = y;
-	 int innerW = width;
-	 int innerH = height;
-	 
-	 if (borderColor >= 0) {
-		 innerX += borderThickness;
-		 innerY += borderThickness;
-		 innerW -= borderThickness * 2;
-		 innerH -= borderThickness * 2;
-		 
-		 // Ensure inner area is valid
-		 if (innerW <= 0 || innerH <= 0) {
-			 // Box too small for border, just draw border
-			 innerW = 0;
-			 innerH = 0;
-		 }
-	 }
-
-	 // Draw background (if specified)
-	 if (bgColor >= 0 && innerW > 0 && innerH > 0) {
-		 uint8 mappedBg = map_overlay_color(bgColor);
-		 for (int py = innerY; py < innerY + innerH && py < OVL_H; ++py) {
-			 if (py < 0) continue;
-			 for (int px = innerX; px < innerX + innerW && px < OVL_W; ++px) {
-				 if (px < 0) continue;
-				 if (!is_point_clipped(px, py)) {
-					 uint8* dest = currentXBuf + py * OVL_W + px;
-					 *dest = apply_blend_mode(*dest, mappedBg);
-				 }
-			 }
-		 }
-	 }
-
-	 // Draw border (if specified) - 3 pixel thick border
-	 if (borderColor >= 0) {
-		 uint8 mappedBorder = map_overlay_color(borderColor);
-		 
-		 // Draw border as filled rectangles on each side
-		 // Top border
-		 for (int by = 0; by < borderThickness && by < height; ++by) {
-			 int py = y + by;
-			 if (py >= 0 && py < OVL_H) {
-				 for (int px = x; px < x + width && px < OVL_W; ++px) {
-					 if (px >= 0 && !is_point_clipped(px, py)) {
-						 uint8* dest = currentXBuf + py * OVL_W + px;
-						 *dest = apply_blend_mode(*dest, mappedBorder);
-					 }
-				 }
-			 }
-		 }
-		 
-		 // Bottom border
-		 for (int by = height - borderThickness; by < height; ++by) {
-			 int py = y + by;
-			 if (py >= 0 && py < OVL_H) {
-				 for (int px = x; px < x + width && px < OVL_W; ++px) {
-					 if (px >= 0 && !is_point_clipped(px, py)) {
-						 uint8* dest = currentXBuf + py * OVL_W + px;
-						 *dest = apply_blend_mode(*dest, mappedBorder);
-					 }
-				 }
-			 }
-		 }
-		 
-		 // Left border
-		 for (int bx = 0; bx < borderThickness && bx < width; ++bx) {
-			 int px = x + bx;
-			 if (px >= 0 && px < OVL_W) {
-				 for (int py = y; py < y + height && py < OVL_H; ++py) {
-					 if (py >= 0 && !is_point_clipped(px, py)) {
-						 uint8* dest = currentXBuf + py * OVL_W + px;
-						 *dest = apply_blend_mode(*dest, mappedBorder);
-					 }
-				 }
-			 }
-		 }
-		 
-		 // Right border
-		 for (int bx = width - borderThickness; bx < width; ++bx) {
-			 int px = x + bx;
-			 if (px >= 0 && px < OVL_W) {
-				 for (int py = y; py < y + height && py < OVL_H; ++py) {
-					 if (py >= 0 && !is_point_clipped(px, py)) {
-						 uint8* dest = currentXBuf + py * OVL_W + px;
-						 *dest = apply_blend_mode(*dest, mappedBorder);
-					 }
-				 }
-			 }
-		 }
-	 }
-
-	 // Draw text inside the box (with padding)
-	 if (innerW > 0 && innerH > 0 && text && *text) {
-		 int textX = innerX + 2;  // 2 pixel padding
-		 int textY = innerY + 2;  // 2 pixel padding
-		 int textW = innerW - 4;  // Account for padding on both sides
-		 int textH = innerH - 4;  // Account for padding on both sides
-		 
-		 if (textW > 0 && textH > 0 && textX >= 0 && textY >= 0 && textX < OVL_W && textY < OVL_H) {
-			 uint8 mapped = map_overlay_color(color);
-			 uint8* dest = currentXBuf + textY * OVL_W + textX;
-			 
-			 // Use DrawTextTransWH with border=0 (no text border, we have box border)
-			 DrawTextTransWH(dest, OVL_W, (uint8*)text, mapped, textW, textH, 0);
-		 }
-	 }
-
-	 g_overlayDirty = true;
-	 return 0;
- }
-
- // Lua drawing function - allows scripts to draw a single pixel
- int lua_drawpixel(lua_State *L) {
-	 int n = lua_gettop(L);
-	 if (n < 3) {
-		 return luaL_error(L, "drawpixel(x, y, color) requires 3 arguments");
-	 }
-	 
-	 float x = (float)luaL_checknumber(L, 1);
-	 float y = (float)luaL_checknumber(L, 2);
-	 int color = (int)luaL_checkinteger(L, 3);
-	 
-	 if (!currentXBuf) return 0;
-	 
-	 // Apply transform
-	 float tx, ty;
-	 transform_point(x, y, tx, ty);
-	 
-	 // Convert to integer coordinates
-	 int ix = (int)(tx + 0.5f);  // Round to nearest
-	 int iy = (int)(ty + 0.5f);
-	 
-	 // Early return if completely off-screen (better performance and safety)
-	 if (ix < 0 || ix >= OVL_W || iy < 0 || iy >= OVL_H) return 0;
-	 
-	 // Draw pixel on the current frame buffer (set by FCEU_LuaGui)
-	 // Additional defensive check on buffer pointer
-	 if (iy * OVL_W + ix < 0 || iy * OVL_W + ix >= OVL_W * OVL_H) return 0;
-	 
-	 // Check clipping
-	 if (is_point_clipped(ix, iy)) return 0;
-	 
-	 uint8 *dest = currentXBuf + iy * OVL_W + ix;
-	 uint8 srcColor = map_overlay_color(color);
-	 *dest = apply_blend_mode(*dest, srcColor);
-	 g_overlayDirty = true;  // Mark that something was drawn
-	 
-	 return 0;
- }
-
- // Lua drawing function - allows scripts to draw a line between two points
- int lua_drawline(lua_State *L) {
-	 int n = lua_gettop(L);
-	 if (n < 5) {
-		 return luaL_error(L, "drawline(x1, y1, x2, y2, color) requires 5 arguments");
-	 }
-	 
-	 int x1 = (int)luaL_checkinteger(L, 1);
-	 int y1 = (int)luaL_checkinteger(L, 2);
-	 int x2 = (int)luaL_checkinteger(L, 3);
-	 int y2 = (int)luaL_checkinteger(L, 4);
-	 int color = (int)luaL_checkinteger(L, 5);
-	 
-	 if (!currentXBuf) return 0;
-	 
-	 // Early return if both points are completely off-screen
-	 if ((x1 < 0 || x1 >= OVL_W || y1 < 0 || y1 >= OVL_H) &&
-	     (x2 < 0 || x2 >= OVL_W || y2 < 0 || y2 >= OVL_H)) {
-		 return 0; // Both points off-screen, skip drawing
-	 }
-	 
-	 // Clamp coordinates to safe bounds (for line algorithm, we'll check bounds in the loop)
-	 // But we still need to clamp to prevent integer overflow in calculations
-	 if (x1 < -OVL_W) x1 = -OVL_W;
-	 if (x1 > OVL_W * 2) x1 = OVL_W * 2;
-	 if (x2 < -OVL_W) x2 = -OVL_W;
-	 if (x2 > OVL_W * 2) x2 = OVL_W * 2;
-	 if (y1 < -OVL_H) y1 = -OVL_H;
-	 if (y1 > OVL_H * 2) y1 = OVL_H * 2;
-	 if (y2 < -OVL_H) y2 = -OVL_H;
-	 if (y2 > OVL_H * 2) y2 = OVL_H * 2;
-	 
-	 // Use Bresenham's line algorithm to draw the line
-	 int dx = (x2 > x1) ? (x2 - x1) : (x1 - x2);
-	 int dy = (y2 > y1) ? (y2 - y1) : (y1 - y2);
-	 int sx = (x1 < x2) ? 1 : -1;
-	 int sy = (y1 < y2) ? 1 : -1;
-	 int err = dx - dy;
-	 
-	 int x = x1;
-	 int y = y1;
-	 bool drewSomething = false;
-	 
-	 // Safety limit to prevent infinite loops (max pixels we could draw)
-	 int maxIterations = (OVL_W + OVL_H) * 2;
-	 int iterations = 0;
-	 
-	 while (iterations < maxIterations) {
-		 iterations++;
-		 
-		 // Check bounds and draw pixel
-			 if (x >= 0 && x < OVL_W && y >= 0 && y < OVL_H) {
-				 // Additional defensive check on buffer pointer
-				 if (y * OVL_W + x >= 0 && y * OVL_W + x < OVL_W * OVL_H) {
-					 // Check clipping
-					 if (!is_point_clipped(x, y)) {
-						 uint8 *dest = currentXBuf + y * OVL_W + x;
-						 uint8 srcColor = map_overlay_color(color);
-						 *dest = apply_blend_mode(*dest, srcColor);
-						 drewSomething = true;
-					 }
-				 }
-			 }
-		 
-		 // Check if we've reached the end point
-		 if (x == x2 && y == y2) break;
-		 
-		 int e2 = 2 * err;
-		 
-		 if (e2 > -dy) {
-			 err -= dy;
-			 x += sx;
-		 }
-		 
-		 if (e2 < dx) {
-			 err += dx;
-			 y += sy;
-		 }
-	 }
-	 
-	 if (drewSomething) {
-		 g_overlayDirty = true;  // Mark that something was drawn
-	 }
-	 
-	 return 0;
- }
-
-
-// FPS function moved to lua_emulator.cpp
-
-// Initialize Lua (original version - checks disabled state)
+ 
+ // Initialize Lua (original version - checks disabled state)
  static void InitLua() {
 	 // CRITICAL: Check disabled state BEFORE initializing Lua
 	 if (s_luaDisabled) {
@@ -1600,59 +464,6 @@ static bool file_existsA(const char* path) {
 	return (a != INVALID_FILE_ATTRIBUTES) && !(a & FILE_ATTRIBUTE_DIRECTORY);
 }
 
-int lua_togglebit(lua_State *L) {
-	 int n = lua_gettop(L);
-	 if (n < 2) {
-		 return luaL_error(L, "togglebit(address, bit) requires 2 arguments");
-	 }
-	 
-	 unsigned int address = (unsigned int)luaL_checkinteger(L, 1);
-	 int bit = (int)luaL_checkinteger(L, 2);
-	 
-	 // Validate address range (NES address space is 0x0000-0xFFFF)
-	 if (address > 0xFFFF) {
-		 return luaL_error(L, "togglebit: address must be in range 0x0000-0xFFFF");
-	 }
-	 
-	 // Validate bit range (must be 0-7)
-	 if (bit < 0 || bit > 7) {
-		 return luaL_error(L, "togglebit: bit must be in range 0-7");
-	 }
-	 
-	 // Read current byte value
-	 uint8 currentValue = ARead[address](address);
-	 
-	 // Toggle the specified bit using XOR
-	 uint8 newValue = currentValue ^ (1 << bit);
-	 
-	 // Write back using BWrite which handles all memory mapping correctly
-	 BWrite[address](address, newValue);
-	 
-	 return 0;
-}
-
-int lua_testbit(lua_State *L) {
-	 int n = lua_gettop(L);
-	 if (n < 2) {
-		 return luaL_error(L, "testbit(address, bit) requires 2 arguments");
-	 }
-
-	 unsigned int address = (unsigned int)luaL_checkinteger(L, 1);
-	 int bit = (int)luaL_checkinteger(L, 2);
-
-	 if (address > 0xFFFF) {
-		 return luaL_error(L, "testbit: address must be in range 0x0000-0xFFFF");
-	 }
-	 if (bit < 0 || bit > 7) {
-		 return luaL_error(L, "testbit: bit must be in range 0-7");
-	 }
-
-	 uint8 value = ARead[address](address);
-	 int mask = (1 << bit);
-	 int isSet = ((value & mask) != 0) ? 1 : 0;
-	 lua_pushboolean(L, isSet);
-	 return 1;
-}
 
 // Helper: Try to run a script in a specific directory
 static int try_run_in(const char* dir, const char* file) {
@@ -2086,21 +897,8 @@ void FCEU_ReloadLuaCode(void) {
 	 Lua_MemoryOnFrame(luaState);
 	 
 	 // Update rumble state - check if rumble duration has expired
-	 for (int player = 0; player < 4; ++player) {
-		 if (s_rumbleState[player].active) {
-			 DWORD elapsed = currentTime - s_rumbleState[player].startTime;
-			 if (elapsed >= s_rumbleState[player].duration) {
-				 // Rumble duration expired - stop rumble
-				 s_rumbleState[player].active = false;
-				 if (Gamepads[player].bConnected) {
-					 XINPUT_VIBRATION vibration;
-					 vibration.wLeftMotorSpeed = 0;
-					 vibration.wRightMotorSpeed = 0;
-					 XInputSetState(player, &vibration);
-				 }
-			 }
-		 }
-	 }
+	 DWORD currentTime = GetTickCount();
+	 Lua_InputUpdateRumble(currentTime);
 	 
 	 // Call "beforeframe" function if it exists - this runs BEFORE input polling
 	 // This allows scripts to set joypad state before FCEU_UpdateInput() is called
@@ -2158,7 +956,7 @@ void FCEU_ReloadLuaCode(void) {
 	 
 	 // If console is visible, we need to draw it even when Lua is disabled
 	 // Otherwise, if Lua is disabled, clear overlays and return early
-	 if (s_luaDisabled && !s_consoleVisible) {
+	 if (s_luaDisabled && !FCEU_IsLuaConsoleVisible()) {
 		 ClearOverlaysIfAny();
 		 // Keep s_frameXBuf set even when Lua is disabled, so screenshots can work
 		 return; // no composite, no "LUA OFF" banner, truly silent
@@ -2170,7 +968,7 @@ void FCEU_ReloadLuaCode(void) {
      DWORD step = Lua_RuntimeGetScriptInterval(); // script()-cadence (default 33ms)
 	 
 	 // Check if console visibility changed - if so, force an update immediately
-	 bool consoleVisibilityChanged = (s_consoleVisible != prevConsoleVisible);
+	 bool consoleVisibilityChanged = (FCEU_IsLuaConsoleVisible() != prevConsoleVisible);
 	 
 	 // Update overlay contents at ~30Hz (only when Lua needs to run)
 	 // Also update immediately if console visibility changed
@@ -2197,7 +995,7 @@ void FCEU_ReloadLuaCode(void) {
 		 }
 		 
          // Suppress status banner while console is visible to avoid duplicate text
-         if (s_overlay_back && !s_consoleVisible) {
+         if (s_overlay_back && !FCEU_IsLuaConsoleVisible()) {
 			 // Status message is drawn at y=20 (below "LUA ON" at y=4), x=4
 			 const int statusY = 20;
 			 
@@ -2215,7 +1013,7 @@ void FCEU_ReloadLuaCode(void) {
 		 }
 		 
 		 bool ok = false;  // Track if Lua succeeded
-		 g_overlayDirty = false;  // Reset before calling Lua
+		 Lua_VideoSetOverlayDirty(false);  // Reset before calling Lua
 		 
 		 // Only run Lua scripts if Lua is enabled and initialized
 		 if (!s_luaDisabled && luaInitialized && luaState != NULL) {
@@ -2223,9 +1021,7 @@ void FCEU_ReloadLuaCode(void) {
 			 if (!Lua_IsSleeping(luaState)) {
 				 // Always reset render target to screen at start of each frame
 				 // This ensures we don't leave currentXBuf pointing to a canvas from previous frame
-				 s_currentRenderTarget = NULL;
-				 s_renderTargetWidth = OVL_W;
-				 s_renderTargetHeight = OVL_H;
+				 Lua_VideoResetRenderTarget();
 				 
 				 // Point Lua draw calls at the back buffer, not the front buffer
 				 currentXBuf = s_overlay_back;
@@ -2248,7 +1044,7 @@ void FCEU_ReloadLuaCode(void) {
 					 // Draw error indicator on screen so failures are visible
 					 if (s_overlay_back) {
 						 DrawTextTrans(s_overlay_back + 10*OVL_W + 10, OVL_W, (uint8*)"LUA ERR", 0x0F | 0x80);
-						 g_overlayDirty = true;  // Error marker counts as drawing
+						 Lua_VideoSetOverlayDirty(true);  // Error marker counts as drawing
 					 }
 					 lua_pop(luaState, 1);
 					 // Leave g_overlayDirty as-is (true if error marker drawn)
@@ -2258,7 +1054,7 @@ void FCEU_ReloadLuaCode(void) {
 				 lua_pop(luaState, 1);
 				 if (s_overlay_back) {
 				 DrawTextTrans(s_overlay_back + 10*OVL_W + 10, OVL_W, (uint8*)"NO script()", 0x0F | 0x80);
-					 g_overlayDirty = true;  // Error indicator counts as drawing
+					 Lua_VideoSetOverlayDirty(true);  // Error indicator counts as drawing
 				 }
 			 }
 			 
@@ -2268,105 +1064,121 @@ void FCEU_ReloadLuaCode(void) {
 			 // Lua not initialized
 			 if (s_overlay_back) {
 				 DrawTextTrans(s_overlay_back + 10*OVL_W + 10, OVL_W, (uint8*)"LUA OFF", 0x0F | 0x80);
-				 g_overlayDirty = true;  // Status indicator counts as drawing
+				 Lua_VideoSetOverlayDirty(true);  // Status indicator counts as drawing
 			 }
 		 }
 		 
          // If console visible, draw it now onto back buffer and mark dirty
-		 if (s_consoleVisible && s_overlay_back) {
+		 if (FCEU_IsLuaConsoleVisible() && s_overlay_back) {
 			 // Handle D-pad scrolling (vertical)
 			 bool dpadUp = (Gamepads[0].wButtons & XINPUT_GAMEPAD_DPAD_UP) != 0;
 			 bool dpadDown = (Gamepads[0].wButtons & XINPUT_GAMEPAD_DPAD_DOWN) != 0;
 			 
+			 // Get pointers to scroll state variables
+			 bool* s_consoleDpadUpLast = FCEU_GetLuaConsoleDpadUpLast();
+			 bool* s_consoleDpadDownLast = FCEU_GetLuaConsoleDpadDownLast();
+			 int* s_consoleScrollHoldFrames = FCEU_GetLuaConsoleScrollHoldFrames();
+			 
 			 // Scroll on button press (immediate) or hold (throttled)
 			 if (dpadUp) {
-				 if (!s_consoleDpadUpLast) {
+				 if (!*s_consoleDpadUpLast) {
 					 // First press - scroll immediately
-					 s_consoleScrollOffset++;
-					 s_consoleScrollHoldFrames = 0;
+					 FCEU_SetLuaConsoleScrollOffset(FCEU_GetLuaConsoleScrollOffset() + 1);
+					 *s_consoleScrollHoldFrames = 0;
 				 } else {
 					 // Holding - scroll every 3 frames for smooth but controlled speed
-					 s_consoleScrollHoldFrames++;
-					 if (s_consoleScrollHoldFrames >= 3) {
-						 s_consoleScrollOffset++;
-						 s_consoleScrollHoldFrames = 0;
+					 (*s_consoleScrollHoldFrames)++;
+					 if (*s_consoleScrollHoldFrames >= 3) {
+						 FCEU_SetLuaConsoleScrollOffset(FCEU_GetLuaConsoleScrollOffset() + 1);
+						 *s_consoleScrollHoldFrames = 0;
 					 }
 				 }
 			 }
 			 if (dpadDown) {
-				 if (!s_consoleDpadDownLast) {
+				 if (!*s_consoleDpadDownLast) {
 					 // First press - scroll immediately
-				 if (s_consoleScrollOffset > 0) {
-					 s_consoleScrollOffset--;
+				 int offset = FCEU_GetLuaConsoleScrollOffset();
+				 if (offset > 0) {
+					 FCEU_SetLuaConsoleScrollOffset(offset - 1);
 				 }
-					 s_consoleScrollHoldFrames = 0;
+					 *s_consoleScrollHoldFrames = 0;
 				 } else {
 					 // Holding - scroll every 3 frames for smooth but controlled speed
-					 s_consoleScrollHoldFrames++;
-					 if (s_consoleScrollHoldFrames >= 3) {
-						 if (s_consoleScrollOffset > 0) {
-							 s_consoleScrollOffset--;
+					 (*s_consoleScrollHoldFrames)++;
+					 if (*s_consoleScrollHoldFrames >= 3) {
+						 int offset = FCEU_GetLuaConsoleScrollOffset();
+						 if (offset > 0) {
+							 FCEU_SetLuaConsoleScrollOffset(offset - 1);
 						 }
-						 s_consoleScrollHoldFrames = 0;
+						 *s_consoleScrollHoldFrames = 0;
 					 }
 				 }
 			 }
 			 
 			 // Reset hold counter when button is released
 			 if (!dpadUp && !dpadDown) {
-				 s_consoleScrollHoldFrames = 0;
+				 *s_consoleScrollHoldFrames = 0;
 			 }
 			 
-			 s_consoleDpadUpLast = dpadUp;
-			 s_consoleDpadDownLast = dpadDown;
+			 *s_consoleDpadUpLast = dpadUp;
+			 *s_consoleDpadDownLast = dpadDown;
 			 
 			 // Handle D-pad scrolling (horizontal)
 			 bool dpadLeft = (Gamepads[0].wButtons & XINPUT_GAMEPAD_DPAD_LEFT) != 0;
 			 bool dpadRight = (Gamepads[0].wButtons & XINPUT_GAMEPAD_DPAD_RIGHT) != 0;
 			 
+			 // Get pointers to horizontal scroll state variables
+			 bool* s_consoleDpadLeftLast = FCEU_GetLuaConsoleDpadLeftLast();
+			 bool* s_consoleDpadRightLast = FCEU_GetLuaConsoleDpadRightLast();
+			 int* s_consoleScrollHoldFramesH = FCEU_GetLuaConsoleScrollHoldFramesH();
+			 
 			 // Scroll horizontally on button press (immediate) or hold (throttled)
 			 if (dpadLeft) {
-				 if (!s_consoleDpadLeftLast) {
+				 if (!*s_consoleDpadLeftLast) {
 					 // First press - scroll immediately (scroll left = decrease offset)
-					 if (s_consoleScrollOffsetH > 0) {
-						 s_consoleScrollOffsetH -= 8; // Scroll by ~1 character width
-						 if (s_consoleScrollOffsetH < 0) s_consoleScrollOffsetH = 0;
+					 int offsetH = FCEU_GetLuaConsoleScrollOffsetH();
+					 if (offsetH > 0) {
+						 offsetH -= 8; // Scroll by ~1 character width
+						 if (offsetH < 0) offsetH = 0;
+						 FCEU_SetLuaConsoleScrollOffsetH(offsetH);
 					 }
-					 s_consoleScrollHoldFramesH = 0;
+					 *s_consoleScrollHoldFramesH = 0;
 				 } else {
 					 // Holding - scroll every 3 frames for smooth but controlled speed
-					 s_consoleScrollHoldFramesH++;
-					 if (s_consoleScrollHoldFramesH >= 3) {
-						 if (s_consoleScrollOffsetH > 0) {
-							 s_consoleScrollOffsetH -= 8;
-							 if (s_consoleScrollOffsetH < 0) s_consoleScrollOffsetH = 0;
+					 (*s_consoleScrollHoldFramesH)++;
+					 if (*s_consoleScrollHoldFramesH >= 3) {
+						 int offsetH = FCEU_GetLuaConsoleScrollOffsetH();
+						 if (offsetH > 0) {
+							 offsetH -= 8;
+							 if (offsetH < 0) offsetH = 0;
+							 FCEU_SetLuaConsoleScrollOffsetH(offsetH);
 						 }
-						 s_consoleScrollHoldFramesH = 0;
+						 *s_consoleScrollHoldFramesH = 0;
 					 }
 				 }
 			 }
 			 if (dpadRight) {
-				 if (!s_consoleDpadRightLast) {
+				 if (!*s_consoleDpadRightLast) {
 					 // First press - scroll immediately (scroll right = increase offset)
-					 s_consoleScrollOffsetH += 8; // Scroll by ~1 character width
-					 s_consoleScrollHoldFramesH = 0;
+					 FCEU_SetLuaConsoleScrollOffsetH(FCEU_GetLuaConsoleScrollOffsetH() + 8); // Scroll by ~1 character width
+					 *s_consoleScrollHoldFramesH = 0;
 				 } else {
 					 // Holding - scroll every 3 frames for smooth but controlled speed
-					 s_consoleScrollHoldFramesH++;
-					 if (s_consoleScrollHoldFramesH >= 3) {
-						 s_consoleScrollOffsetH += 8;
-						 s_consoleScrollHoldFramesH = 0;
+					 (*s_consoleScrollHoldFramesH)++;
+					 if (*s_consoleScrollHoldFramesH >= 3) {
+						 FCEU_SetLuaConsoleScrollOffsetH(FCEU_GetLuaConsoleScrollOffsetH() + 8);
+						 *s_consoleScrollHoldFramesH = 0;
 					 }
 				 }
 			 }
 			 
 			 // Reset hold counter when button is released
 			 if (!dpadLeft && !dpadRight) {
-				 s_consoleScrollHoldFramesH = 0;
+				 *s_consoleScrollHoldFramesH = 0;
 			 }
 			 
-			 s_consoleDpadLeftLast = dpadLeft;
-			 s_consoleDpadRightLast = dpadRight;
+			 *s_consoleDpadLeftLast = dpadLeft;
+			 *s_consoleDpadRightLast = dpadRight;
 			 
 			 const int cx = 4, cy = 40;
 			 int maxX = 4 + 248 - 1; if (maxX > OVL_W - 1) maxX = OVL_W - 1;
@@ -2387,16 +1199,18 @@ void FCEU_ReloadLuaCode(void) {
 			 if (maxLines < 1) maxLines = 1;
 			 // Allow scrolling to see all lines, including the oldest (line 0)
 			 // maxScroll should allow viewing from line 0 to line (count - maxLines)
-			 int maxScroll = (s_luaConsoleCount > maxLines) ? (s_luaConsoleCount - maxLines) : 0;
-			 if (s_consoleScrollOffset > maxScroll) s_consoleScrollOffset = maxScroll;
-			 if (s_consoleScrollOffset < 0) s_consoleScrollOffset = 0;
+			 int consoleCount = FCEU_GetLuaConsoleCount();
+			 int maxScroll = (consoleCount > maxLines) ? (consoleCount - maxLines) : 0;
+			 int scrollOffset = FCEU_GetLuaConsoleScrollOffset();
+			 if (scrollOffset > maxScroll) FCEU_SetLuaConsoleScrollOffset(maxScroll);
+			 if (scrollOffset < 0) FCEU_SetLuaConsoleScrollOffset(0);
 			 
-			 g_overlayDirty = true;
+			 Lua_VideoSetOverlayDirty(true);
 			 ok = true; // force publish when console drew
-         } else if (!s_consoleVisible && prevConsoleVisible && s_overlay_back) {
+         } else if (!FCEU_IsLuaConsoleVisible() && prevConsoleVisible && s_overlay_back) {
              // Console just turned off: push a cleared overlay once to remove it immediately
              memset(s_overlay_back, 0, 256 * 240);
-             g_overlayDirty = true;
+             Lua_VideoSetOverlayDirty(true);
              ok = true;
 		 }
 		 
@@ -2404,14 +1218,14 @@ void FCEU_ReloadLuaCode(void) {
 		 DrawLuaConsole(s_overlay_back);
 		 
 		 // Only publish the new overlay if something was drawn
-         if (g_overlayDirty) {
+         if (Lua_VideoGetOverlayDirty()) {
 			 // Only publish if the back buffer actually differs from the front
 			 // This prevents unnecessary swaps when content hasn't changed
 			 if (!s_overlay_front || overlay_has_changes(s_overlay_back, s_overlay_front)) {
 				 SwapOverlays();
 			 }
 		 }
-         prevConsoleVisible = (s_consoleVisible != 0);
+         prevConsoleVisible = (FCEU_IsLuaConsoleVisible() != 0);
 	 }
 	 
 	 // ALWAYS composite the last published overlay every frame (prevents flicker when Lua runs at 30Hz)
@@ -2568,10 +1382,10 @@ extern "C" void FCEU_LuaJoypadApply(void)
 	Lua_InputProcessJoypad();
 	
 	// Now apply movie processing to joy[] array (after input overrides)
-	for (int p = 0; p < 4; ++p) {
+		for (int p = 0; p < 4; ++p) {
 		joy[p] = Lua_MovieProcessJoypad(p, joy[p]);
-	}
-	
+		}
+		
 	// Advance movie playback
 	Lua_MovieAdvancePlayback();
 }
@@ -2592,4 +1406,4 @@ extern "C" void FCEU_LuaJoypadClear(int player)
 	// leave s_luaJoypadValue as-is; it won't be applied while latched==0
  }
   
- #endif // USE_LUA	
+ #endif // USE_LUA

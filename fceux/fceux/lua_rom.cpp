@@ -6,6 +6,7 @@
 #include "fceu.h"
 #include "cart.h"
 #include "file.h"
+#include "driver.h"  // For FCEUD_UTF8fopen
 #include "ines.h"
 #include "types.h"
 

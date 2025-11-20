@@ -2,7 +2,7 @@
 
 #ifdef USE_LUA
 
-#include "lua.h"
+struct lua_State;
 
 #ifdef __cplusplus
 extern "C" {

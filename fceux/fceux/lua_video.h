@@ -2,8 +2,12 @@
 
 #ifdef USE_LUA
 
-#include "lua.h"
+struct lua_State;
 #include "types.h" // For uint8
+
+// Console functions (declared in fceulua.h, defined in lua_video.cpp)
+// Forward declaration for modules that need LuaConsolePushLine
+void LuaConsolePushLine(const char* msg);
 
 #ifdef __cplusplus
 extern "C" {
@@ -16,17 +20,6 @@ void Lua_RegisterVideo(lua_State* L);
 void Lua_VideoReset(void);
 void Lua_VideoOnFrame(lua_State* L);
 
-// Main GUI callback - called every frame to composite overlay
-void FCEU_LuaGui(uint8* XBuf);
-
-// Console functions
-void LuaConsolePushLine(const char* msg);
-void FCEU_SetLuaConsoleVisible(int visible);
-int  FCEU_IsLuaConsoleVisible(void);
-void FCEU_ToggleLuaConsole(void);
-void FCEU_SetLuaConsoleLineGap(int px);
-int  FCEU_GetLuaConsoleLineGap(void);
-
 // Internal overlay management (used by FCEU_LuaGui)
 void Lua_VideoSetRenderTarget(uint8* buffer);
 uint8* Lua_VideoGetOverlayBack(void);
@@ -36,6 +29,16 @@ void CompositeOverlay(uint8* XBuf);
 void SwapOverlays(void);
 void ClearOverlaysIfAny(void);
 void DrawLuaConsole(uint8* buf);
+
+// Accessor for overlay dirty flag (used by FCEU_LuaGui)
+bool Lua_VideoGetOverlayDirty(void);
+void Lua_VideoSetOverlayDirty(bool dirty);
+
+// Check if overlay has changes (used by FCEU_LuaGui)
+bool overlay_has_changes(const uint8* a, const uint8* b);
+
+// Accessors for render target state (used by FCEU_LuaGui)
+void Lua_VideoResetRenderTarget(void);
 
 #ifdef __cplusplus
 }

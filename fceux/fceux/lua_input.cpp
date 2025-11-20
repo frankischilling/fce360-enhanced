@@ -6,6 +6,7 @@
 #include "fceulua.h"
 #include "fceu.h"
 #include "types.h"
+#include "../xbox/input.h"  // For GAMEPAD
 
 #include <map>
 #include <vector>
@@ -345,15 +346,15 @@ static bool MapXboxButtonName(const char* buttonName, WORD& buttonMask, const ch
 static void TriggerButtonCallback(const ButtonCallbackInfo& info, int player)
 {
 	extern lua_State* luaState;
-	extern int s_luaDisabled;
-	extern int luaInitialized;
+	extern bool luaInitialized;
 	extern void LuaConsolePushLine(const char* msg);
+	extern int FCEU_LuaIsDisabled(void);
 
 	if (info.luaRef < 0) {
 		return;
 	}
 
-	if (s_luaDisabled || !luaInitialized || luaState == NULL) {
+	if (FCEU_LuaIsDisabled() || !luaInitialized || luaState == NULL) {
 		return;
 	}
 
@@ -1195,11 +1196,11 @@ void Lua_InputOnFrame(lua_State* L)
 	bool havePressCallbacks = !s_buttonPressCallbacks.empty();
 	bool haveReleaseCallbacks = !s_buttonReleaseCallbacks.empty();
 	
-	extern int s_luaDisabled;
-	extern int luaInitialized;
+	extern bool luaInitialized;
+	extern int FCEU_LuaIsDisabled(void);
 	
 	if (havePressCallbacks || haveReleaseCallbacks) {
-		if (!s_luaDisabled && luaInitialized && L != NULL) {
+		if (!FCEU_LuaIsDisabled() && luaInitialized && L != NULL) {
 			for (int p = 0; p < 4; ++p) {
 				WORD currentButtons = Gamepads[p].wButtons;
 				if (!Gamepads[p].bConnected) {
@@ -1349,65 +1350,85 @@ void Lua_InputProcessJoypad(void)
 }
 
 // Getter functions for input state
-uint8_t Lua_InputGetHardwareJoypad(int player) {
+uint8 Lua_InputGetHardwareJoypad(int player) {
 	if (player < 0 || player >= 4) return 0;
 	return s_hardwareJoypad[player];
 }
 
-uint8_t Lua_InputGetLuaJoypadValue(int player) {
+uint8 Lua_InputGetLuaJoypadValue(int player) {
 	if (player < 0 || player >= 4) return 0;
 	return s_luaJoypadValue[player];
 }
 
-uint8_t Lua_InputGetLuaJoypadMask(int player) {
+uint8 Lua_InputGetLuaJoypadMask(int player) {
 	if (player < 0 || player >= 4) return 0;
 	return s_luaJoypadMask[player];
 }
 
-uint8_t Lua_InputGetLuaJoypadLatched(int player) {
+uint8 Lua_InputGetLuaJoypadLatched(int player) {
 	if (player < 0 || player >= 4) return 0;
 	return s_luaJoypadLatched[player];
 }
 
-uint8_t Lua_InputGetOneFramePress(int player) {
+uint8 Lua_InputGetOneFramePress(int player) {
 	if (player < 0 || player >= 4) return 0;
 	return s_oneFramePress[player];
 }
 
-uint8_t Lua_InputGetOneFrameRelease(int player) {
+uint8 Lua_InputGetOneFrameRelease(int player) {
 	if (player < 0 || player >= 4) return 0;
 	return s_oneFrameRelease[player];
 }
 
 // Setter functions for input state
-void Lua_InputSetHardwareJoypad(int player, uint8_t value) {
+void Lua_InputSetHardwareJoypad(int player, uint8 value) {
 	if (player < 0 || player >= 4) return;
 	s_hardwareJoypad[player] = value;
 }
 
-void Lua_InputSetLuaJoypadValue(int player, uint8_t value) {
+void Lua_InputSetLuaJoypadValue(int player, uint8 value) {
 	if (player < 0 || player >= 4) return;
 	s_luaJoypadValue[player] = value;
 }
 
-void Lua_InputSetLuaJoypadMask(int player, uint8_t value) {
+void Lua_InputSetLuaJoypadMask(int player, uint8 value) {
 	if (player < 0 || player >= 4) return;
 	s_luaJoypadMask[player] = value;
 }
 
-void Lua_InputSetLuaJoypadLatched(int player, uint8_t value) {
+void Lua_InputSetLuaJoypadLatched(int player, uint8 value) {
 	if (player < 0 || player >= 4) return;
 	s_luaJoypadLatched[player] = value;
 }
 
-void Lua_InputSetOneFramePress(int player, uint8_t value) {
+void Lua_InputSetOneFramePress(int player, uint8 value) {
 	if (player < 0 || player >= 4) return;
 	s_oneFramePress[player] = value;
 }
 
-void Lua_InputSetOneFrameRelease(int player, uint8_t value) {
+void Lua_InputSetOneFrameRelease(int player, uint8 value) {
 	if (player < 0 || player >= 4) return;
 	s_oneFrameRelease[player] = value;
+}
+
+// Update rumble state - check if rumble duration has expired
+void Lua_InputUpdateRumble(DWORD currentTime) {
+	extern GAMEPAD Gamepads[];
+	for (int player = 0; player < 4; ++player) {
+		if (s_rumbleState[player].active) {
+			DWORD elapsed = currentTime - s_rumbleState[player].startTime;
+			if (elapsed >= s_rumbleState[player].duration) {
+				// Rumble duration expired - stop rumble
+				s_rumbleState[player].active = false;
+				if (Gamepads[player].bConnected) {
+					XINPUT_VIBRATION vibration;
+					vibration.wLeftMotorSpeed = 0;
+					vibration.wRightMotorSpeed = 0;
+					XInputSetState(player, &vibration);
+				}
+			}
+		}
+	}
 }
 
 #endif // USE_LUA
