@@ -3,6 +3,7 @@
 #ifdef USE_LUA
 
 #include "lua_palette.h"
+#include "lua_helpers.h"
 #include "fceulua.h"
 #include "fceu.h"
 #include "types.h"
@@ -35,15 +36,10 @@ static int lua_getcolorrgb(lua_State* L)
 {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "getcolorrgb(paletteIndex) requires 1 argument");
+		return LuaArgCountError(L, "getcolorrgb", 1, 1, n);
 	}
 	
-	int paletteIndex = (int)luaL_checkinteger(L, 1);
-	
-	// Validate palette index range (0-63)
-	if (paletteIndex < 0 || paletteIndex > 63) {
-		return luaL_error(L, "getcolorrgb: paletteIndex must be in range 0-63");
-	}
+	int paletteIndex = LuaCheckPaletteIndex(L, 1, 63, "getcolorrgb");
 	
 	// Get RGB values from palette
 	// Palette colors are stored at indices 128-191 (0x80-0xBF), not 0-63
@@ -71,15 +67,10 @@ static int lua_getpalettecolor(lua_State* L)
 {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "getpalettecolor(index) requires 1 argument");
+		return LuaArgCountError(L, "getpalettecolor", 1, 1, n);
 	}
 	
-	int index = (int)luaL_checkinteger(L, 1);
-	
-	// Validate palette index range (0-31)
-	if (index < 0 || index > 31) {
-		return luaL_error(L, "getpalettecolor: index must be in range 0-31");
-	}
+	int index = LuaCheckPaletteIndex(L, 1, 31, "getpalettecolor");
 	
 	// Read palette color from PALRAM
 	uint8 colorValue = PALRAM[index] & 0x3F;  // Mask to 6 bits (0-63)
@@ -117,24 +108,12 @@ static int lua_setpalettecolor(lua_State* L)
 {
 	int n = lua_gettop(L);
 	if (n < 2) {
-		return luaL_error(L, "setpalettecolor(index, color) requires 2 arguments");
+		return LuaArgCountError(L, "setpalettecolor", 2, 2, n);
 	}
 	
-	int index = (int)luaL_checkinteger(L, 1);
-	int color = (int)luaL_checkinteger(L, 2);
-	
-	// Validate palette index range (0-31)
-	if (index < 0 || index > 31) {
-		return luaL_error(L, "setpalettecolor: index must be in range 0-31");
-	}
-	
-	// Validate color range (0-63)
-	if (color < 0 || color > 63) {
-		return luaL_error(L, "setpalettecolor: color must be in range 0-63");
-	}
-	
-	// Mask color to 6 bits (0x3F)
-	uint8 colorValue = (uint8)(color & 0x3F);
+	int index = LuaCheckPaletteIndex(L, 1, 31, "setpalettecolor");
+	int validatedColor = LuaCheckNESColor(L, 2, "setpalettecolor", 1); // strict validation
+	uint8 colorValue = (uint8)(validatedColor & 0x3F);
 	
 	// Write to PALRAM
 	PALRAM[index] = colorValue;
@@ -161,13 +140,11 @@ static int lua_setpalette(lua_State* L)
 {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "setpalette(paletteTable) requires 1 argument");
+		return LuaArgCountError(L, "setpalette", 1, 1, n);
 	}
 	
 	// Check if paletteTable is a table
-	if (!lua_istable(L, 1)) {
-		return luaL_error(L, "setpalette: paletteTable must be a table");
-	}
+	LuaCheckTable(L, 1, "setpalette");
 	
 	// Track which indices we've set to handle universal color mirroring
 	bool setUniversalBg = false;
@@ -181,8 +158,8 @@ static int lua_setpalette(lua_State* L)
 	while (lua_next(L, 1) != 0) {
 		// Key is at index -2, value is at index -1
 		if (lua_isnumber(L, -2) && lua_isnumber(L, -1)) {
-			int key = (int)luaL_checkinteger(L, -2);
-			int color = (int)luaL_checkinteger(L, -1);
+			int key = (int)luaL_checkinteger(L, -2); // Key from lua_next, can't use helper
+			int color = (int)luaL_checkinteger(L, -1); // Value from lua_next, can't use helper
 			
 			// Convert 1-indexed array to 0-indexed palette index
 			int index = key;
@@ -244,10 +221,10 @@ static int lua_loadpalette(lua_State* L)
 {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "loadpalette(path) requires 1 argument");
+		return LuaArgCountError(L, "loadpalette", 1, 1, n);
 	}
 	
-	const char* path = luaL_checkstring(L, 1);
+	const char* path = LuaCheckPath(L, 1, "loadpalette");
 	if (!path || strlen(path) == 0) {
 		lua_pushboolean(L, 0);
 		return 1;
@@ -343,7 +320,7 @@ static int lua_getnescolor(lua_State* L)
 		return luaL_error(L, "getnescolor(index) requires 1 argument");
 	}
 	
-	int index = (int)luaL_checkinteger(L, 1);
+	int index = LuaCheckPaletteIndex(L, 1, 63, "getnescolor");
 	
 	// Validate palette index range (0-63)
 	if (index < 0 || index > 63) {
@@ -370,16 +347,13 @@ static int lua_blendcolors(lua_State* L)
 		return luaL_error(L, "blendcolors(color1, color2, ratio) requires 3 arguments");
 	}
 	
-	int color1 = (int)luaL_checkinteger(L, 1);
-	int color2 = (int)luaL_checkinteger(L, 2);
-	double ratio = luaL_checknumber(L, 3);
+	int color1 = LuaCheckPaletteIndex(L, 1, 63, "blendcolors");
+	int color2 = LuaCheckPaletteIndex(L, 2, 63, "blendcolors");
+	double ratio = LuaCheckNumber(L, 3, "blendcolors");
 	
-	// Validate color indices (0-63)
-	if (color1 < 0 || color1 > 63) {
-		return luaL_error(L, "blendcolors: color1 must be in range 0-63");
-	}
-	if (color2 < 0 || color2 > 63) {
-		return luaL_error(L, "blendcolors: color2 must be in range 0-63");
+	// Validate ratio (0.0-1.0)
+	if (ratio < 0.0 || ratio > 1.0) {
+		return luaL_error(L, "blendcolors: ratio must be in range 0.0-1.0");
 	}
 	
 	// Validate ratio (0.0-1.0)

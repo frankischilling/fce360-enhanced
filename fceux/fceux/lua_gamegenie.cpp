@@ -3,6 +3,7 @@
 #ifdef USE_LUA
 
 #include "lua_gamegenie.h"
+#include "lua_helpers.h"
 #include "types.h"
 
 #include <stdio.h>
@@ -25,29 +26,20 @@ static int lua_getgamegeniecode(lua_State* L)
 	// Get parameters
 	int n = lua_gettop(L);
 	if (n < 2 || n > 3) {
-		return luaL_error(L, "getgamegeniecode() requires 2 or 3 parameters: address, value, [compare]");
+		return LuaArgCountError(L, "getgamegeniecode", 2, 3, n);
 	}
 	
 	// Validate and get address (must be 0x8000-0xFFFF)
-	int address = (int)luaL_checkinteger(L, 1);
-	if (address < 0x8000 || address > 0xFFFF) {
-		return luaL_error(L, "getgamegeniecode() address must be between 0x8000 and 0xFFFF");
-	}
+	int address = LuaCheckRange(L, 1, 0x8000, 0xFFFF, "getgamegeniecode", "address");
 	
 	// Validate and get value (0-255)
-	int value = (int)luaL_checkinteger(L, 2);
-	if (value < 0 || value > 255) {
-		return luaL_error(L, "getgamegeniecode() value must be between 0 and 255");
-	}
+	int value = LuaCheckRange(L, 2, 0, 255, "getgamegeniecode", "value");
 	
 	// Optional compare value
 	bool hasCompare = (n >= 3 && !lua_isnil(L, 3));
 	int compare = 0;
 	if (hasCompare) {
-		compare = (int)luaL_checkinteger(L, 3);
-		if (compare < 0 || compare > 255) {
-			return luaL_error(L, "getgamegeniecode() compare must be between 0 and 255");
-		}
+		compare = LuaCheckRange(L, 3, 0, 255, "getgamegeniecode", "compare");
 	}
 	
 	// Game Genie character mapping
@@ -102,9 +94,10 @@ static int lua_getgamegeniecode(lua_State* L)
 static int lua_decodegamegenie(lua_State* L)
 {
 	// Get code string parameter
+	int n = lua_gettop(L);
 	const char* codeStr = luaL_checkstring(L, 1);
 	if (!codeStr) {
-		return luaL_error(L, "decodegamegenie() requires a string parameter");
+		return LuaArgCountError(L, "decodegamegenie", 1, 1, n);
 	}
 	
 	std::string code(codeStr);

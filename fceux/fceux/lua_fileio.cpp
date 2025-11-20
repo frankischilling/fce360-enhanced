@@ -3,6 +3,7 @@
 #ifdef USE_LUA
 
 #include "lua_fileio.h"
+#include "lua_helpers.h"
 #include "fceulua.h"
 #include "fceu.h"
 #include "types.h"
@@ -204,10 +205,10 @@ static int lua_fileexists(lua_State* L)
 {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "fileexists(filename) requires 1 argument");
+		return LuaArgCountError(L, "fileexists", 1, 1, n);
 	}
 	
-	const char* filename = luaL_checkstring(L, 1);
+	const char* filename = LuaCheckPath(L, 1, "fileexists");
 	if (!filename || strlen(filename) == 0) {
 		lua_pushboolean(L, 0);
 		return 1;
@@ -283,7 +284,7 @@ static int lua_listfiles(lua_State* L)
 	
 	// Get path parameter (optional, defaults to "game:\")
 	if (n >= 1) {
-		path = luaL_checkstring(L, 1);
+		path = LuaCheckPath(L, 1, "listdir");
 	}
 	
 	// Build full path
@@ -367,7 +368,7 @@ static int lua_listdir(lua_State* L)
 	
 	// Get path parameter (optional, defaults to "game:\")
 	if (n >= 1) {
-		path = luaL_checkstring(L, 1);
+		path = LuaCheckPath(L, 1, "listdir");
 	}
 	
 	// Build full path
@@ -448,10 +449,10 @@ static int lua_mkdir(lua_State* L)
 {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "mkdir(path) requires 1 argument");
+		return LuaArgCountError(L, "mkdir", 1, 1, n);
 	}
 	
-	const char* path = luaL_checkstring(L, 1);
+	const char* path = LuaCheckPath(L, 1, "mkdir");
 	if (!path || strlen(path) == 0) {
 		lua_pushboolean(L, 0);
 		return 1;
@@ -540,10 +541,10 @@ static int lua_rmfile(lua_State* L)
 {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "rmfile(filename) requires 1 argument");
+		return LuaArgCountError(L, "rmfile", 1, 1, n);
 	}
 	
-	const char* filename = luaL_checkstring(L, 1);
+	const char* filename = LuaCheckPath(L, 1, "rmfile");
 	if (!filename || strlen(filename) == 0) {
 		lua_pushboolean(L, 0);
 		return 1;
@@ -598,7 +599,7 @@ static int lua_rmdir(lua_State* L)
 		return luaL_error(L, "rmdir(path) requires 1 argument");
 	}
 	
-	const char* path = luaL_checkstring(L, 1);
+	const char* path = LuaCheckPath(L, 1, "rmdir");
 	if (!path || strlen(path) == 0) {
 		lua_pushboolean(L, 0);
 		return 1;
@@ -666,8 +667,8 @@ static int lua_writefile(lua_State* L)
 		return luaL_error(L, "writefile(filename, data) requires 2 arguments");
 	}
 	
-	const char* filename = luaL_checkstring(L, 1);
-	const char* data = luaL_checkstring(L, 2);
+	const char* filename = LuaCheckPath(L, 1, "writefile");
+	const char* data = LuaCheckString(L, 2, "writefile");
 	
 	if (!filename || strlen(filename) == 0) {
 		lua_pushboolean(L, 0);

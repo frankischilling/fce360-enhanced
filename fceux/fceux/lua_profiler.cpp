@@ -3,6 +3,7 @@
 #ifdef USE_LUA
 
 #include "lua_profiler.h"
+#include "lua_helpers.h"
 #include "lua_video.h" // For LuaConsolePushLine
 #include "fceu.h" // For FCEU_printf
 #include "types.h"
@@ -149,7 +150,7 @@ static int lua_getjitter_ms(lua_State* L)
 // Returns: Nothing
 static int lua_beginprofile(lua_State* L)
 {
-	const char* rawTag = luaL_checkstring(L, 1);
+	const char* rawTag = LuaCheckString(L, 1, "beginprofile");
 	if (!rawTag || !rawTag[0])
 		return luaL_error(L, "beginprofile(tag) requires a non-empty tag string");
 
@@ -164,7 +165,7 @@ static int lua_beginprofile(lua_State* L)
 // Returns: Nothing
 static int lua_endprofile(lua_State* L)
 {
-	const char* rawTag = luaL_checkstring(L, 1);
+	const char* rawTag = LuaCheckString(L, 1, "endprofile");
 	if (!rawTag || !rawTag[0])
 		return luaL_error(L, "endprofile(tag) requires a non-empty tag string");
 

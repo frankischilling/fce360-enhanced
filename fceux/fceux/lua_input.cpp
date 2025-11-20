@@ -3,6 +3,7 @@
 #ifdef USE_LUA
 
 #include "lua_input.h"
+#include "lua_helpers.h"
 #include "fceulua.h"
 #include "fceu.h"
 #include "types.h"
@@ -414,12 +415,7 @@ static const char* ResolveVirtualButton(lua_State* L, const char* virtualBtn)
 // getjoypad(player) -> integer bitmask
 static int lua_getjoypad(lua_State* L)
 {
-	int player = (int)luaL_checkinteger(L, 1);
-	
-	// Validate player number (0-3)
-	if (player < 0 || player > 3) {
-		return luaL_error(L, "getjoypad: player must be 0-3 (0=Player 1, 1=Player 2, 2=Player 3, 3=Player 4)");
-	}
+	int player = LuaCheckRange(L, 1, 0, 3, "getjoypad", "player");
 	
 	// Return current button state for the specified player
 	lua_pushinteger(L, (int)joy[player]);
@@ -429,12 +425,7 @@ static int lua_getjoypad(lua_State* L)
 // gethardwarejoypad(player) -> integer bitmask
 static int lua_gethardwarejoypad(lua_State* L)
 {
-	int player = (int)luaL_checkinteger(L, 1);
-	
-	// Validate player number (0-3)
-	if (player < 0 || player > 3) {
-		return luaL_error(L, "gethardwarejoypad: player must be 0-3 (0=Player 1, 1=Player 2, 2=Player 3, 3=Player 4)");
-	}
+	int player = LuaCheckRange(L, 1, 0, 3, "gethardwarejoypad", "player");
 	
 	// Return hardware button state (before Lua override)
 	lua_pushinteger(L, (int)s_hardwareJoypad[player]);
@@ -444,13 +435,8 @@ static int lua_gethardwarejoypad(lua_State* L)
 // isxboxbuttonpressed(player, button) -> boolean
 static int lua_isxboxbuttonpressed(lua_State* L)
 {
-	int player = (int)luaL_checkinteger(L, 1);
-	const char* buttonName = luaL_checkstring(L, 2);
-	
-	// Validate player number (0-3)
-	if (player < 0 || player > 3) {
-		return luaL_error(L, "isxboxbuttonpressed: player must be 0-3 (0=Player 1, 1=Player 2, 2=Player 3, 3=Player 4)");
-	}
+	int player = LuaCheckRange(L, 1, 0, 3, "isxboxbuttonpressed", "player");
+	const char* buttonName = LuaCheckString(L, 2, "isxboxbuttonpressed");
 	
 	if (!buttonName || !buttonName[0]) {
 		return luaL_error(L, "isxboxbuttonpressed: button name cannot be empty");
@@ -473,11 +459,12 @@ static int lua_isxboxbuttonpressed(lua_State* L)
 
 static int lua_onbuttonpress(lua_State* L)
 {
-	if (lua_gettop(L) < 2) {
-		return luaL_error(L, "onbuttonpress(btn, cb) requires 2 arguments");
+	int n = lua_gettop(L);
+	if (n < 2) {
+		return LuaArgCountError(L, "onbuttonpress", 2, 2, n);
 	}
-
-	const char* buttonName = luaL_checkstring(L, 1);
+	
+	const char* buttonName = LuaCheckString(L, 1, "onbuttonpress");
 	WORD buttonMask = 0;
 	const char* canonicalName = NULL;
 	if (!MapXboxButtonName(buttonName, buttonMask, canonicalName)) {
@@ -521,11 +508,12 @@ static int lua_onbuttonpress(lua_State* L)
 
 static int lua_onbuttonrelease(lua_State* L)
 {
-	if (lua_gettop(L) < 2) {
-		return luaL_error(L, "onbuttonrelease(btn, cb) requires 2 arguments");
+	int n = lua_gettop(L);
+	if (n < 2) {
+		return LuaArgCountError(L, "onbuttonrelease", 2, 2, n);
 	}
-
-	const char* buttonName = luaL_checkstring(L, 1);
+	
+	const char* buttonName = LuaCheckString(L, 1, "onbuttonrelease");
 	WORD buttonMask = 0;
 	const char* canonicalName = NULL;
 	if (!MapXboxButtonName(buttonName, buttonMask, canonicalName)) {
@@ -569,11 +557,12 @@ static int lua_onbuttonrelease(lua_State* L)
 
 static int lua_getbuttonheldms(lua_State* L)
 {
-	if (lua_gettop(L) < 1) {
-		return luaL_error(L, "getbuttonheldms(btn) requires 1 argument");
+	int n = lua_gettop(L);
+	if (n < 1) {
+		return LuaArgCountError(L, "getbuttonheldms", 1, 1, n);
 	}
-
-	const char* buttonName = luaL_checkstring(L, 1);
+	
+	const char* buttonName = LuaCheckString(L, 1, "getbuttonheldms");
 	WORD buttonMask = 0;
 	const char* canonicalName = NULL;
 	char upperButton[32];
@@ -630,13 +619,8 @@ static int lua_getbuttonheldms(lua_State* L)
 
 static int lua_isbuttonpressed(lua_State* L)
 {
-	int player = (int)luaL_checkinteger(L, 1);
-	const char* buttonName = luaL_checkstring(L, 2);
-	
-	// Validate player number (0-3)
-	if (player < 0 || player > 3) {
-		return luaL_error(L, "isbuttonpressed: player must be 0-3 (0=Player 1, 1=Player 2, 2=Player 3, 3=Player 4)");
-	}
+	int player = LuaCheckRange(L, 1, 0, 3, "isbuttonpressed", "player");
+	const char* buttonName = LuaCheckString(L, 2, "isbuttonpressed");
 	
 	if (!buttonName || !buttonName[0]) {
 		return luaL_error(L, "isbuttonpressed: button name cannot be empty");
@@ -711,12 +695,7 @@ static int lua_isbuttonpressed(lua_State* L)
 
 static int lua_getbuttonname(lua_State* L)
 {
-	int buttonMask = (int)luaL_checkinteger(L, 1);
-	
-	// Validate bitmask range
-	if (buttonMask < 0 || buttonMask > 0xFF) {
-		return luaL_error(L, "getbuttonname: buttonMask must be in range 0x00-0xFF");
-	}
+	int buttonMask = LuaCheckRange(L, 1, 0, 0xFF, "getbuttonname", "buttonMask");
 	
 	// Build comma-separated list of button names
 	char result[128];
@@ -770,7 +749,7 @@ static int lua_getbuttonname(lua_State* L)
 
 static int lua_getbuttonmask(lua_State* L)
 {
-	const char* buttonName = luaL_checkstring(L, 1);
+	const char* buttonName = LuaCheckString(L, 1, "getbuttonmask");
 	if (!buttonName || !buttonName[0]) {
 		return luaL_error(L, "getbuttonmask: button name cannot be empty");
 	}
@@ -816,12 +795,13 @@ static int lua_getbuttonmask(lua_State* L)
 
 static int lua_setjoypad(lua_State* L)
 {
-	if (lua_gettop(L) < 2) {
-		return luaL_error(L, "setjoypad(player, buttons) requires 2 arguments");
+	int n = lua_gettop(L);
+	if (n < 2) {
+		return LuaArgCountError(L, "setjoypad", 2, 2, n);
 	}
 	
-	int player  = (int)luaL_checkinteger(L, 1);
-	int buttons = (int)luaL_checkinteger(L, 2);
+	int player  = LuaCheckRange(L, 1, 0, 3, "setjoypad", "player");
+	int buttons = LuaCheckInt(L, 2, "setjoypad");
 	
 	if (player < 0 || player > 3) {
 		return luaL_error(L, "setjoypad: player must be 0..3");
@@ -843,11 +823,7 @@ static int lua_setjoypad(lua_State* L)
 
 static int lua_clearjoypad(lua_State* L)
 {
-	int player = (int)luaL_checkinteger(L, 1);
-	
-	if (player < -1 || player > 3) {
-		return luaL_error(L, "clearjoypad: player must be -1 (all) or 0..3");
-	}
+	int player = LuaCheckRange(L, 1, -1, 3, "clearjoypad", "player");
 	
 	if (player == -1) {
 		for (int p = 0; p < 4; ++p) {
@@ -864,12 +840,13 @@ static int lua_clearjoypad(lua_State* L)
 
 static int lua_pressbutton(lua_State* L)
 {
-	if (lua_gettop(L) < 2) {
-		return luaL_error(L, "pressbutton(player, button) requires 2 arguments");
+	int n = lua_gettop(L);
+	if (n < 2) {
+		return LuaArgCountError(L, "pressbutton", 2, 2, n);
 	}
 	
-	int player = (int)luaL_checkinteger(L, 1);
-	const char* buttonName = luaL_checkstring(L, 2);
+	int player = LuaCheckRange(L, 1, 0, 3, "pressbutton", "player");
+	const char* buttonName = LuaCheckString(L, 2, "pressbutton");
 	
 	if (player < 0 || player > 3) {
 		return luaL_error(L, "pressbutton: player must be 0..3");
@@ -924,12 +901,13 @@ static int lua_pressbutton(lua_State* L)
 
 static int lua_releasebutton(lua_State* L)
 {
-	if (lua_gettop(L) < 2) {
-		return luaL_error(L, "releasebutton(player, button) requires 2 arguments");
+	int n = lua_gettop(L);
+	if (n < 2) {
+		return LuaArgCountError(L, "releasebutton", 2, 2, n);
 	}
 	
-	int player = (int)luaL_checkinteger(L, 1);
-	const char* buttonName = luaL_checkstring(L, 2);
+	int player = LuaCheckRange(L, 1, 0, 3, "releasebutton", "player");
+	const char* buttonName = LuaCheckString(L, 2, "releasebutton");
 	
 	if (player < 0 || player > 3) {
 		return luaL_error(L, "releasebutton: player must be 0..3");
@@ -984,12 +962,13 @@ static int lua_releasebutton(lua_State* L)
 
 static int lua_setrumble(lua_State* L)
 {
-	if (lua_gettop(L) < 2) {
-		return luaL_error(L, "setrumble(ms, intensity) requires 2 arguments");
+	int n = lua_gettop(L);
+	if (n < 2) {
+		return LuaArgCountError(L, "setrumble", 2, 2, n);
 	}
 	
-	int ms = (int)luaL_checkinteger(L, 1);
-	double intensity = luaL_checknumber(L, 2);
+	int ms = LuaCheckNonNegative(L, 1, "setrumble", "ms");
+	double intensity = LuaCheckNumber(L, 2, "setrumble");
 	
 	// Validate parameters
 	if (ms < 0) {
@@ -1023,12 +1002,13 @@ static int lua_setrumble(lua_State* L)
 
 static int lua_mapinput(lua_State* L)
 {
-	if (lua_gettop(L) < 2) {
-		return luaL_error(L, "mapinput(virtualBtn, physicalSpec) requires 2 arguments");
+	int n = lua_gettop(L);
+	if (n < 2) {
+		return LuaArgCountError(L, "mapinput", 2, 2, n);
 	}
 	
-	const char* virtualBtn = luaL_checkstring(L, 1);
-	const char* physicalSpec = luaL_checkstring(L, 2);
+	const char* virtualBtn = LuaCheckString(L, 1, "mapinput");
+	const char* physicalSpec = LuaCheckString(L, 2, "mapinput");
 	
 	if (!virtualBtn || !virtualBtn[0]) {
 		return luaL_error(L, "mapinput: virtual button name cannot be empty");

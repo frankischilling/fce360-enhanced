@@ -2,6 +2,7 @@
 
 #ifdef USE_LUA
 
+#include "lua_helpers.h"  // Centralized helper utilities (must be included first)
 #include "lua_memory.h"
 #include "lua_movie.h"
 #include "lua_video.h"

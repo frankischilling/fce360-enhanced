@@ -81,8 +81,12 @@ struct FCEUFILE {
 
 	//guarantees that the file contains a memorystream, and returns it for your convenience
 	EMUFILE_MEMORY* EnsureMemorystream() {
-
+		// Suppress warning C4541: dynamic_cast used with /GR- (RTTI disabled)
+		// This is safe in practice as we check the result before using it
+		#pragma warning(push)
+		#pragma warning(disable: 4541)
 		EMUFILE_MEMORY* ret = dynamic_cast<EMUFILE_MEMORY*>(stream);
+		#pragma warning(pop)
 		if(ret) return ret;
 		
 		//nope, we need to create it: copy the contents 

@@ -3,6 +3,7 @@
 #ifdef USE_LUA
 
 #include "lua_runtime.h"
+#include "lua_helpers.h"
 #include "lua_video.h" // For LuaConsolePushLine
 #include "types.h"
 
@@ -59,9 +60,9 @@ static int lua_collectgarbage_now(lua_State* L)
 static int lua_setscriptinterval(lua_State* L) {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "setscriptinterval(ms) requires 1 argument");
+		return LuaArgCountError(L, "setscriptinterval", 1, 1, n);
 	}
-	int ms = (int)luaL_checkinteger(L, 1);
+	int ms = LuaCheckPositive(L, 1, "setscriptinterval", "ms");
 	if (ms < 16) ms = 16;
 	if (ms > 1000) ms = 1000;
 	s_scriptIntervalMs = (DWORD)ms;

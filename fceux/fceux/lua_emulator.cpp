@@ -3,6 +3,7 @@
 #ifdef USE_LUA
 
 #include "lua_emulator.h"
+#include "lua_helpers.h"
 #include "fceu.h"
 #include "x6502.h"
 #include "types.h"

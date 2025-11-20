@@ -86,21 +86,8 @@ enum { OVL_W = 256, OVL_H = 240, GLYPH_H = 8 };
 // Console line gap is managed in lua_video.cpp - use accessor function
 static inline int CON_LINE_ADV(void) { return GLYPH_H + FCEU_GetLuaConsoleLineGap(); }
 
-// Minimal Lua API forward declarations (avoid changing symbol mappings)
-extern "C" {
-struct lua_State;
-const char* lua_tolstring(lua_State* L, int idx, size_t* len);
-const char* lua_tostring(lua_State* L, int idx);
-int lua_gettop(lua_State* L);
-void lua_settop(lua_State* L, int idx);
-void lua_pushcfunction(lua_State* L, int (*fn)(lua_State*));
-void lua_setglobal(lua_State* L, const char* name);
-int luaL_error(lua_State* L, const char* fmt, ...);
-int luaL_checkinteger(lua_State* L, int idx);
-double luaL_checknumber(lua_State* L, int idx);
-const char* luaL_checkstring(lua_State* L, int idx);
-void lua_pushinteger(lua_State* L, int n);
-}
+// Lua API declarations are now provided by lua_helpers.h (included via lua_bindings.h)
+// No need for duplicate forward declarations here
  
 // On-screen status message for debugging (shows last load attempt)
 static char g_luaStatusMsg[128] = "Lua: disabled";

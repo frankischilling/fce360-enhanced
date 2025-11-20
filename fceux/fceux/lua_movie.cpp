@@ -3,6 +3,7 @@
 #ifdef USE_LUA
 
 #include "lua_movie.h"
+#include "lua_helpers.h"
 #include "lua_fileio.h"
 
 #include "fceulua.h"
@@ -220,11 +221,12 @@ static int lua_playinputrecording(lua_State* L)
 
 static int lua_saveinputrecording(lua_State* L)
 {
-	if (lua_gettop(L) < 1) {
-		return luaL_error(L, "saveinputrecording(path) requires 1 argument");
+	int n = lua_gettop(L);
+	if (n < 1) {
+		return LuaArgCountError(L, "saveinputrecording", 1, 1, n);
 	}
 
-	const char* filename = luaL_checkstring(L, 1);
+	const char* filename = LuaCheckPath(L, 1, "saveinputrecording");
 	if (!filename || strlen(filename) == 0) {
 		lua_pushboolean(L, 0);
 		return 1;
@@ -312,11 +314,12 @@ static int lua_saveinputrecording(lua_State* L)
 
 static int lua_loadinputrecording(lua_State* L)
 {
-	if (lua_gettop(L) < 1) {
-		return luaL_error(L, "loadinputrecording(path) requires 1 argument");
+	int n = lua_gettop(L);
+	if (n < 1) {
+		return LuaArgCountError(L, "loadinputrecording", 1, 1, n);
 	}
 
-	const char* filename = luaL_checkstring(L, 1);
+	const char* filename = LuaCheckPath(L, 1, "loadinputrecording");
 	if (!filename || strlen(filename) == 0) {
 		lua_pushboolean(L, 0);
 		return 1;
@@ -473,11 +476,12 @@ static int lua_loadinputrecording(lua_State* L)
 
 static int lua_setrecordingmarker(lua_State* L)
 {
-	if (lua_gettop(L) < 1) {
-		return luaL_error(L, "setrecordingmarker(name) requires 1 argument");
+	int n = lua_gettop(L);
+	if (n < 1) {
+		return LuaArgCountError(L, "setrecordingmarker", 1, 1, n);
 	}
-
-	const char* name = luaL_checkstring(L, 1);
+	
+	const char* name = LuaCheckString(L, 1, "setrecordingmarker");
 	if (!name || strlen(name) == 0) {
 		return 0;
 	}
@@ -492,11 +496,12 @@ static int lua_setrecordingmarker(lua_State* L)
 
 static int lua_jumptorecordingmarker(lua_State* L)
 {
-	if (lua_gettop(L) < 1) {
-		return luaL_error(L, "jumptorecordingmarker(name) requires 1 argument");
+	int n = lua_gettop(L);
+	if (n < 1) {
+		return LuaArgCountError(L, "jumptorecordingmarker", 1, 1, n);
 	}
-
-	const char* name = luaL_checkstring(L, 1);
+	
+	const char* name = LuaCheckString(L, 1, "jumptorecordingmarker");
 	if (!name || strlen(name) == 0) {
 		lua_pushboolean(L, 0);
 		return 1;
@@ -542,10 +547,11 @@ static int lua_jumptorecordingmarker(lua_State* L)
 
 static int lua_setplaybackspeed(lua_State* L)
 {
-	if (lua_gettop(L) < 1) {
-		return luaL_error(L, "setplaybackspeed(mult) requires 1 argument");
+	int n = lua_gettop(L);
+	if (n < 1) {
+		return LuaArgCountError(L, "setplaybackspeed", 1, 1, n);
 	}
-	double mult = luaL_checknumber(L, 1);
+	double mult = LuaCheckNumber(L, 1, "setplaybackspeed");
 	if (mult < 0.1) mult = 0.1;
 	if (mult > 10.0) mult = 10.0;
 	s_playbackSpeed = mult;
@@ -554,12 +560,13 @@ static int lua_setplaybackspeed(lua_State* L)
 
 static int lua_trimrecording(lua_State* L)
 {
-	if (lua_gettop(L) < 2) {
-		return luaL_error(L, "trimrecording(startFrame, endFrame) requires 2 arguments");
+	int n = lua_gettop(L);
+	if (n < 2) {
+		return LuaArgCountError(L, "trimrecording", 2, 2, n);
 	}
-
-	int startFrame = (int)luaL_checkinteger(L, 1);
-	int endFrame = (int)luaL_checkinteger(L, 2);
+	
+	int startFrame = LuaCheckNonNegative(L, 1, "trimrecording", "startFrame");
+	int endFrame = LuaCheckNonNegative(L, 2, "trimrecording", "endFrame");
 
 	if (!s_inputRecording) {
 		lua_pushboolean(L, 0);
@@ -614,10 +621,7 @@ static int lua_savestate(lua_State *L)
 {
 	int slot = 0;
 	if (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) {
-		slot = (int)luaL_checkinteger(L, 1);
-	}
-	if (slot < 0 || slot > 9) {
-		return luaL_error(L, "savestate(slot) failed: slot must be 0-9, got %d", slot);
+		slot = LuaCheckRange(L, 1, 0, 9, "savestate", "slot");
 	}
 
 	extern std::string FCEU_MakeFName(int type, int id1, const char *cd1);
@@ -724,7 +728,7 @@ static int lua_savestatefile(lua_State *L)
 		return luaL_error(L, "savestatefile(filename) failed: filename is required");
 	}
 
-	const char* customFilename = luaL_checkstring(L, 1);
+	const char* customFilename = LuaCheckPath(L, 1, "savestatefile");
 	if (!customFilename || strlen(customFilename) == 0) {
 		return luaL_error(L, "savestatefile(filename) failed: filename cannot be empty");
 	}
@@ -805,7 +809,7 @@ static int lua_loadstatefile(lua_State *L)
 		return luaL_error(L, "loadstatefile(filename) failed: filename is required");
 	}
 
-	const char* customFilename = luaL_checkstring(L, 1);
+	const char* customFilename = LuaCheckPath(L, 1, "loadstatefile");
 	if (!customFilename || strlen(customFilename) == 0) {
 		return luaL_error(L, "loadstatefile(filename) failed: filename cannot be empty");
 	}

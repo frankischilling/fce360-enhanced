@@ -3,6 +3,7 @@
 #ifdef USE_LUA
 
 #include "lua_rom.h"
+#include "lua_helpers.h"
 #include "fceu.h"
 #include "cart.h"
 #include "file.h"
@@ -154,7 +155,7 @@ static int lua_getromhash(lua_State* L)
 	}
 	
 	// Get algorithm parameter
-	const char* algorithm = luaL_checkstring(L, 1);
+	const char* algorithm = LuaCheckString(L, 1, "getromhash");
 	if (!algorithm || !algorithm[0]) {
 		return luaL_error(L, "getromhash: algorithm cannot be empty");
 	}

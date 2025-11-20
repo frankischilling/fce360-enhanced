@@ -3,6 +3,7 @@
 #ifdef USE_LUA
 
 #include "lua_audio.h"
+#include "lua_helpers.h"
 #include "fceulua.h"
 #include "fceu.h"
 #include "types.h"
@@ -257,9 +258,9 @@ static int lua_getaudiochannel(lua_State* L)
 		return luaL_error(L, "getaudiochannel(channel) requires 1 argument");
 	}
 	
-	int channel = (int)luaL_checkinteger(L, 1);
+	int channel = LuaCheckRange(L, 1, 0, 4, "getaudiochannel", "channel");
 	
-	// Validate channel number (0-4)
+	// Channel number validated
 	if (channel < 0 || channel > 4) {
 		return luaL_error(L, "getaudiochannel: channel must be 0-4 (0=Pulse1, 1=Pulse2, 2=Triangle, 3=Noise, 4=DMC)");
 	}
@@ -467,10 +468,10 @@ static int lua_getaudiochannelsample(lua_State* L)
 {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "getaudiochannelsample(channel) requires 1 argument");
+		return LuaArgCountError(L, "getaudiochannelsample", 1, 1, n);
 	}
 	
-	int channel = (int)luaL_checkinteger(L, 1);
+	int channel = LuaCheckInt(L, 1, "getaudiochannelsample");
 	
 	// Validate channel number (0-4)
 	if (channel < 0 || channel > 4) {
@@ -650,10 +651,10 @@ static int lua_getaudiochannelfft(lua_State* L)
 {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "getaudiochannelfft(channel, [size]) requires at least 1 argument");
+		return LuaArgCountError(L, "getaudiochannelfft", 1, 2, n);
 	}
 	
-	int channel = (int)luaL_checkinteger(L, 1);
+	int channel = LuaCheckInt(L, 1, "getaudiochannelfft");
 	
 	// Validate channel number (0-4)
 	if (channel < 0 || channel > 4) {
@@ -976,10 +977,10 @@ static int lua_audiosampletofloat(lua_State* L)
 {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "audiosampletofloat(sample) requires 1 argument");
+		return LuaArgCountError(L, "audiosampletofloat", 1, 1, n);
 	}
 	
-	int32 sample = (int32)luaL_checkinteger(L, 1);
+	int32 sample = (int32)LuaCheckInt(L, 1, "audiosampletofloat");
 	
 	// Normalize to -1.0 to 1.0 range (assuming 16-bit range)
 	double normalized = (double)sample / 32768.0;
@@ -997,10 +998,10 @@ static int lua_floattosample(lua_State* L)
 {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "floattosample(floatValue) requires 1 argument");
+		return LuaArgCountError(L, "floattosample", 1, 1, n);
 	}
 	
-	double floatValue = luaL_checknumber(L, 1);
+	double floatValue = LuaCheckNumber(L, 1, "floattosample");
 	
 	// Clamp to -1.0 to 1.0 range
 	if (floatValue > 1.0) floatValue = 1.0;
@@ -1022,10 +1023,10 @@ static int lua_audiosampletouint8(lua_State* L)
 {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "audiosampletouint8(sample) requires 1 argument");
+		return LuaArgCountError(L, "audiosampletouint8", 1, 1, n);
 	}
 	
-	int32 sample = (int32)luaL_checkinteger(L, 1);
+	int32 sample = (int32)LuaCheckInt(L, 1, "audiosampletouint8");
 	
 	// Convert signed 16-bit to unsigned 8-bit
 	// Shift and add 128 to convert from -128..127 to 0..255
@@ -1040,10 +1041,10 @@ static int lua_uint8tosample(lua_State* L)
 {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "uint8tosample(uint8Value) requires 1 argument");
+		return LuaArgCountError(L, "uint8tosample", 1, 1, n);
 	}
 	
-	int uint8Value = (int)luaL_checkinteger(L, 1);
+	int uint8Value = LuaCheckRange(L, 1, 0, 255, "uint8tosample", "uint8Value");
 	
 	// Clamp to 0-255 range
 	if (uint8Value < 0) uint8Value = 0;
@@ -1062,10 +1063,10 @@ static int lua_normalizeaudiosample(lua_State* L)
 {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "normalizeaudiosample(sample, [maxValue]) requires at least 1 argument");
+		return LuaArgCountError(L, "normalizeaudiosample", 1, 2, n);
 	}
 	
-	int32 sample = (int32)luaL_checkinteger(L, 1);
+	int32 sample = (int32)LuaCheckInt(L, 1, "normalizeaudiosample");
 	double maxValue = luaL_optnumber(L, 2, 32767.0);
 	
 	if (maxValue <= 0.0) {
@@ -1092,10 +1093,10 @@ static int lua_monotostereo(lua_State* L)
 {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "monotostereo(monoSample) requires 1 argument");
+		return LuaArgCountError(L, "monotostereo", 1, 1, n);
 	}
 	
-	int32 monoSample = (int32)luaL_checkinteger(L, 1);
+	int32 monoSample = (int32)LuaCheckInt(L, 1, "monotostereo");
 	
 	// Create result table with left and right channels (both same value)
 	lua_newtable(L);
@@ -1116,11 +1117,11 @@ static int lua_stereotomono(lua_State* L)
 {
 	int n = lua_gettop(L);
 	if (n < 2) {
-		return luaL_error(L, "stereotomono(leftSample, rightSample) requires 2 arguments");
+		return LuaArgCountError(L, "stereotomono", 2, 2, n);
 	}
 	
-	int32 leftSample = (int32)luaL_checkinteger(L, 1);
-	int32 rightSample = (int32)luaL_checkinteger(L, 2);
+	int32 leftSample = (int32)LuaCheckInt(L, 1, "stereotomono");
+	int32 rightSample = (int32)LuaCheckInt(L, 2, "stereotomono");
 	
 	// Average left and right channels
 	int32 monoSample = (leftSample + rightSample) / 2;

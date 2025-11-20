@@ -3,6 +3,7 @@
 #ifdef USE_LUA
 
 #include "lua_video.h"
+#include "lua_helpers.h"
 #include "drawing.h"
 #include "types.h"
 #include "fceu.h"  // Must include before cart.h
@@ -775,11 +776,11 @@ void DrawLuaConsole(uint8* buf) {
  int lua_drawtext(lua_State *L) {
 	 int n = lua_gettop(L);
 	 if (n < 3) {
-		 return luaL_error(L, "drawtext(x, y, text [, color]) requires at least 3 arguments");
+		 return LuaArgCountError(L, "drawtext", 3, 3, n);
 	 }
 	 
-	 int x = (int)luaL_checkinteger(L, 1);
-	 int y = (int)luaL_checkinteger(L, 2);
+	 int x = LuaCheckInt(L, 1, "drawtext");
+	 int y = LuaCheckInt(L, 2, "drawtext");
 	 
 	 // CRITICAL FIRST CHECK: If y is too large, text cannot fit - skip drawing immediately
 	 // This MUST be checked before any other processing to prevent crashes
@@ -793,8 +794,8 @@ void DrawLuaConsole(uint8* buf) {
 		 if (y + GLYPH_H > OVL_H) return 0;
 	 }
 	 
-	 const char* text = luaL_checkstring(L, 3);
-	 int color_in = (n >= 4) ? (int)luaL_optinteger(L, 4, 0x20) : 0x20;
+	 const char* text = LuaCheckString(L, 3, "drawtext");
+	 int color_in = LuaCheckIntOpt(L, 4, 0x20, "drawtext");
 	 
 	 if (!currentXBuf || !text || !*text) return 0;
 	 
@@ -927,7 +928,7 @@ void DrawLuaConsole(uint8* buf) {
 
  // Lua function to set console line spacing
  static int lua_setconsolespacing(lua_State* L) {
-	 int px = (int)luaL_checkinteger(L, 1);
+	 int px = LuaCheckInt(L, 1, "setconsolespacing");
 	 FCEU_SetLuaConsoleLineGap(px);
 	 return 0;
  }
@@ -936,16 +937,16 @@ void DrawLuaConsole(uint8* buf) {
  int lua_drawtextwh(lua_State *L) {
 	 int n = lua_gettop(L);
 	 if (n < 7) {
-		 return luaL_error(L, "drawtextwh(x, y, text, color, max_w, max_h, border) requires 7 arguments");
+		 return LuaArgCountError(L, "drawtextwh", 7, 7, n);
 	 }
 	 
-	 int x = (int)luaL_checkinteger(L, 1);
-	 int y = (int)luaL_checkinteger(L, 2);
-	 const char* text = luaL_checkstring(L, 3);
-	 int color = (int)luaL_checkinteger(L, 4);
-	 int max_w = (int)luaL_checkinteger(L, 5);
-	 int max_h = (int)luaL_checkinteger(L, 6);
-	 int border = (int)luaL_checkinteger(L, 7);
+	 int x = LuaCheckInt(L, 1, "drawtextwh");
+	 int y = LuaCheckInt(L, 2, "drawtextwh");
+	 const char* text = LuaCheckString(L, 3, "drawtextwh");
+	 int color = LuaCheckInt(L, 4, "drawtextwh");
+	 int max_w = LuaCheckInt(L, 5, "drawtextwh");
+	 int max_h = LuaCheckInt(L, 6, "drawtextwh");
+	 int border = LuaCheckInt(L, 7, "drawtextwh");
 	 
 	 if (!currentXBuf || !text || !*text) return 0;
 	 
@@ -1004,15 +1005,15 @@ void DrawLuaConsole(uint8* buf) {
  int lua_drawtextscaled(lua_State *L) {
 	 int n = lua_gettop(L);
 	 if (n < 6) {
-		 return luaL_error(L, "drawtextscaled(x, y, text, color, scaleX, scaleY) requires 6 arguments");
+		 return LuaArgCountError(L, "drawtextscaled", 6, 6, n);
 	 }
 	 
-	 int x = (int)luaL_checkinteger(L, 1);
-	 int y = (int)luaL_checkinteger(L, 2);
-	 const char* text = luaL_checkstring(L, 3);
-	 int color_in = (int)luaL_checkinteger(L, 4);
-	 float scaleX = (float)luaL_checknumber(L, 5);
-	 float scaleY = (float)luaL_checknumber(L, 6);
+	 int x = LuaCheckInt(L, 1, "drawtextscaled");
+	 int y = LuaCheckInt(L, 2, "drawtextscaled");
+	 const char* text = LuaCheckString(L, 3, "drawtextscaled");
+	 int color_in = LuaCheckInt(L, 4, "drawtextscaled");
+	 float scaleX = (float)LuaCheckNumber(L, 5, "drawtextscaled");
+	 float scaleY = (float)LuaCheckNumber(L, 6, "drawtextscaled");
 	 
 	 if (!currentXBuf || !text || !*text) return 0;
 	 
@@ -1068,11 +1069,11 @@ void DrawLuaConsole(uint8* buf) {
 	 if(n < 5)
 		 return luaL_error(L, "drawtextrotated(x, y, text, color, angle) requires 5 arguments");
 
-	 int x = (int)luaL_checkinteger(L, 1);
-	 int y = (int)luaL_checkinteger(L, 2);
-	 const char* text = luaL_checkstring(L, 3);
-	 int color_in = (int)luaL_checkinteger(L, 4);
-	 int angleDeg = (int)luaL_checkinteger(L, 5);
+	 int x = LuaCheckInt(L, 1, "drawtextrotated");
+	 int y = LuaCheckInt(L, 2, "drawtextrotated");
+	 const char* text = LuaCheckString(L, 3, "drawtextrotated");
+	 int color_in = LuaCheckInt(L, 4, "drawtextrotated");
+	 int angleDeg = LuaCheckInt(L, 5, "drawtextrotated");
 
 	 if(!currentXBuf || !text || !*text) return 0;
 
@@ -1097,7 +1098,7 @@ void DrawLuaConsole(uint8* buf) {
  // variable-width metrics as DrawTextTrans (Font6x7 + JoedCharWidth).
  static int lua_gettextwidth(lua_State* L)
  {
-	 const char* s = luaL_checkstring(L, 1);
+	 const char* s = LuaCheckString(L, 1, "gettextwidth");
 	 if (!s || !*s) { lua_pushinteger(L, 0); return 1; }
 
 	 int maxw = 0;
@@ -1146,7 +1147,7 @@ void DrawLuaConsole(uint8* buf) {
  // Trailing '\n' adds an empty line (so "a\n" -> 2 lines -> 16 px).
  static int lua_gettextheight(lua_State* L)
  {
-	 const char* s = luaL_checkstring(L, 1);
+	 const char* s = LuaCheckString(L, 1, "gettextheight");
 	 if (!s || !*s) { lua_pushinteger(L, 0); return 1; }
 
 	 int lines = 1;
@@ -1164,24 +1165,24 @@ void DrawLuaConsole(uint8* buf) {
  {
 	 int n = lua_gettop(L);
 	 if (n < 6) {
-		 return luaL_error(L, "drawtextbox(x, y, width, height, text, color [, bgColor, borderColor]) requires at least 6 arguments");
+		 return LuaArgCountError(L, "drawtextbox", 6, 8, n);
 	 }
-
-	 int x = (int)luaL_checkinteger(L, 1);
-	 int y = (int)luaL_checkinteger(L, 2);
-	 int width = (int)luaL_checkinteger(L, 3);
-	 int height = (int)luaL_checkinteger(L, 4);
-	 const char* text = luaL_checkstring(L, 5);
-	 int color = (int)luaL_checkinteger(L, 6);
+	 
+	 int x = LuaCheckInt(L, 1, "drawtextbox");
+	 int y = LuaCheckInt(L, 2, "drawtextbox");
+	 int width = LuaCheckInt(L, 3, "drawtextbox");
+	 int height = LuaCheckInt(L, 4, "drawtextbox");
+	 const char* text = LuaCheckString(L, 5, "drawtextbox");
+	 int color = LuaCheckInt(L, 6, "drawtextbox");
 	 
 	 // Optional parameters
 	 int bgColor = -1;
 	 int borderColor = -1;
 	 if (n >= 7 && !lua_isnil(L, 7)) {
-		 bgColor = (int)luaL_checkinteger(L, 7);
+		 bgColor = LuaCheckInt(L, 7, "drawtextbox");
 	 }
 	 if (n >= 8 && !lua_isnil(L, 8)) {
-		 borderColor = (int)luaL_checkinteger(L, 8);
+		 borderColor = LuaCheckInt(L, 8, "drawtextbox");
 	 }
 
 	 if (!currentXBuf || !text) return 0;
@@ -1314,12 +1315,12 @@ void DrawLuaConsole(uint8* buf) {
  int lua_drawpixel(lua_State *L) {
 	 int n = lua_gettop(L);
 	 if (n < 3) {
-		 return luaL_error(L, "drawpixel(x, y, color) requires 3 arguments");
+		 return LuaArgCountError(L, "drawpixel", 3, 3, n);
 	 }
 	 
-	 float x = (float)luaL_checknumber(L, 1);
-	 float y = (float)luaL_checknumber(L, 2);
-	 int color = (int)luaL_checkinteger(L, 3);
+	 float x = (float)LuaCheckNumber(L, 1, "drawpixel");
+	 float y = (float)LuaCheckNumber(L, 2, "drawpixel");
+	 int color = LuaCheckInt(L, 3, "drawpixel");
 	 
 	 if (!currentXBuf) return 0;
 	 
@@ -1353,14 +1354,14 @@ void DrawLuaConsole(uint8* buf) {
  int lua_drawline(lua_State *L) {
 	 int n = lua_gettop(L);
 	 if (n < 5) {
-		 return luaL_error(L, "drawline(x1, y1, x2, y2, color) requires 5 arguments");
+		 return LuaArgCountError(L, "drawline", 5, 5, n);
 	 }
 	 
-	 int x1 = (int)luaL_checkinteger(L, 1);
-	 int y1 = (int)luaL_checkinteger(L, 2);
-	 int x2 = (int)luaL_checkinteger(L, 3);
-	 int y2 = (int)luaL_checkinteger(L, 4);
-	 int color = (int)luaL_checkinteger(L, 5);
+	 int x1 = LuaCheckInt(L, 1, "drawline");
+	 int y1 = LuaCheckInt(L, 2, "drawline");
+	 int x2 = LuaCheckInt(L, 3, "drawline");
+	 int y2 = LuaCheckInt(L, 4, "drawline");
+	 int color = LuaCheckInt(L, 5, "drawline");
 	 
 	 if (!currentXBuf) return 0;
 	 
@@ -1439,15 +1440,15 @@ void DrawLuaConsole(uint8* buf) {
  int lua_drawthickline(lua_State *L) {
 	 int n = lua_gettop(L);
 	 if (n < 6) {
-		 return luaL_error(L, "drawthickline(x1, y1, x2, y2, thickness, color) requires 6 arguments");
+		 return LuaArgCountError(L, "drawthickline", 6, 6, n);
 	 }
 	 
-	 int x1 = (int)luaL_checkinteger(L, 1);
-	 int y1 = (int)luaL_checkinteger(L, 2);
-	 int x2 = (int)luaL_checkinteger(L, 3);
-	 int y2 = (int)luaL_checkinteger(L, 4);
-	 int thickness = (int)luaL_checkinteger(L, 5);
-	 int color = (int)luaL_checkinteger(L, 6);
+	 int x1 = LuaCheckInt(L, 1, "drawthickline");
+	 int y1 = LuaCheckInt(L, 2, "drawthickline");
+	 int x2 = LuaCheckInt(L, 3, "drawthickline");
+	 int y2 = LuaCheckInt(L, 4, "drawthickline");
+	 int thickness = LuaCheckInt(L, 5, "drawthickline");
+	 int color = LuaCheckInt(L, 6, "drawthickline");
 	 
 	 if (!currentXBuf) return 0;
 	 
@@ -1905,14 +1906,14 @@ void DrawLuaConsole(uint8* buf) {
  int lua_drawrect(lua_State *L) {
 	 int n = lua_gettop(L);
 	 if (n < 5) {
-		 return luaL_error(L, "drawrect(x, y, w, h, color) requires 5 arguments");
+		 return LuaArgCountError(L, "drawrect", 5, 5, n);
 	 }
 	 
-	 int x = (int)luaL_checkinteger(L, 1);
-	 int y = (int)luaL_checkinteger(L, 2);
-	 int w = (int)luaL_checkinteger(L, 3);
-	 int h = (int)luaL_checkinteger(L, 4);
-	 int color = (int)luaL_checkinteger(L, 5);
+	 int x = LuaCheckInt(L, 1, "drawrect");
+	 int y = LuaCheckInt(L, 2, "drawrect");
+	 int w = LuaCheckInt(L, 3, "drawrect");
+	 int h = LuaCheckInt(L, 4, "drawrect");
+	 int color = LuaCheckInt(L, 5, "drawrect");
 	 
 	 if (!currentXBuf) return 0;
 	 
@@ -1992,14 +1993,14 @@ void DrawLuaConsole(uint8* buf) {
  int lua_fillrect(lua_State *L) {
 	 int n = lua_gettop(L);
 	 if (n < 5) {
-		 return luaL_error(L, "fillrect(x, y, w, h, color) requires 5 arguments");
+		 return LuaArgCountError(L, "fillrect", 5, 5, n);
 	 }
 	 
-	 int x = (int)luaL_checkinteger(L, 1);
-	 int y = (int)luaL_checkinteger(L, 2);
-	 int w = (int)luaL_checkinteger(L, 3);
-	 int h = (int)luaL_checkinteger(L, 4);
-	 int color = (int)luaL_checkinteger(L, 5);
+	 int x = LuaCheckInt(L, 1, "fillrect");
+	 int y = LuaCheckInt(L, 2, "fillrect");
+	 int w = LuaCheckInt(L, 3, "fillrect");
+	 int h = LuaCheckInt(L, 4, "fillrect");
+	 int color = LuaCheckInt(L, 5, "fillrect");
 	 
 	 if (!currentXBuf) return 0;
 	 
@@ -2052,13 +2053,13 @@ void DrawLuaConsole(uint8* buf) {
  int lua_clearrect(lua_State *L) {
 	 int n = lua_gettop(L);
 	 if (n < 4) {
-		 return luaL_error(L, "clearrect(x, y, w, h) requires 4 arguments");
+		 return LuaArgCountError(L, "clearrect", 4, 4, n);
 	 }
 	 
-	 int x = (int)luaL_checkinteger(L, 1);
-	 int y = (int)luaL_checkinteger(L, 2);
-	 int w = (int)luaL_checkinteger(L, 3);
-	 int h = (int)luaL_checkinteger(L, 4);
+	 int x = LuaCheckInt(L, 1, "clearrect");
+	 int y = LuaCheckInt(L, 2, "clearrect");
+	 int w = LuaCheckInt(L, 3, "clearrect");
+	 int h = LuaCheckInt(L, 4, "clearrect");
 	 
 	 if (!currentXBuf) return 0;
 	 
@@ -2117,10 +2118,10 @@ int lua_clearscreen(lua_State *L) {
 int lua_fillscreen(lua_State *L) {
 	 int n = lua_gettop(L);
 	 if (n < 1) {
-		 return luaL_error(L, "fillscreen(color) requires 1 argument");
+		 return LuaArgCountError(L, "fillscreen", 1, 1, n);
 	 }
 	 
-	 int color = (int)luaL_checkinteger(L, 1);
+	 int color = LuaCheckInt(L, 1, "fillscreen");
 	 
 	 if (!currentXBuf) return 0;
 	 
@@ -2166,7 +2167,7 @@ int lua_screenshot(lua_State *L) {
 	
 	if (n >= 1 && !lua_isnil(L, 1)) {
 		// Filename provided - use it
-		const char *customFilename = luaL_checkstring(L, 1);
+		const char *customFilename = LuaCheckPath(L, 1, "screenshot");
 		if (!customFilename || strlen(customFilename) == 0) {
 			return luaL_error(L, "screenshot() failed: filename cannot be empty");
 		}
@@ -2296,11 +2297,11 @@ int lua_screenshotregion(lua_State *L) {
 		return luaL_error(L, "screenshotregion(x, y, w, h, path) requires 5 arguments");
 	}
 	
-	int x = (int)luaL_checkinteger(L, 1);
-	int y = (int)luaL_checkinteger(L, 2);
-	int w = (int)luaL_checkinteger(L, 3);
-	int h = (int)luaL_checkinteger(L, 4);
-	const char *path = luaL_checkstring(L, 5);
+	int x = LuaCheckInt(L, 1, "screenshotregion");
+	int y = LuaCheckInt(L, 2, "screenshotregion");
+	int w = LuaCheckPositive(L, 3, "screenshotregion", "width");
+	int h = LuaCheckPositive(L, 4, "screenshotregion", "height");
+	const char *path = LuaCheckPath(L, 5, "screenshotregion");
 	
 	if (!path || strlen(path) == 0) {
 		return luaL_error(L, "screenshotregion() failed: path cannot be empty");
@@ -2475,51 +2476,26 @@ int lua_screenshotregion(lua_State *L) {
 int lua_drawimage(lua_State *L) {
 	 int n = lua_gettop(L);
 	 if (n < 5) {
-		 return luaL_error(L, "drawimage(x, y, imageData, width, height) requires 5 arguments");
+		 return LuaArgCountError(L, "drawimage", 5, 5, n);
 	 }
 	 
-	 int x = (int)luaL_checkinteger(L, 1);
-	 int y = (int)luaL_checkinteger(L, 2);
+	 int x = LuaCheckInt(L, 1, "drawimage");
+	 int y = LuaCheckInt(L, 2, "drawimage");
 	 
 	 // Check if imageData is a table
-	 if (!lua_istable(L, 3)) {
-		 return luaL_error(L, "drawimage: imageData (3rd argument) must be a table");
-	 }
+	 LuaCheckTable(L, 3, "drawimage");
 	 
-	 int width = (int)luaL_checkinteger(L, 4);
-	 int height = (int)luaL_checkinteger(L, 5);
+	 int width = LuaCheckPositive(L, 4, "drawimage", "width");
+	 int height = LuaCheckPositive(L, 5, "drawimage", "height");
 	 
 	 if (!currentXBuf) return 0;
-	 
-	 // Validate dimensions
-	 if (width <= 0 || height <= 0) {
-		 return luaL_error(L, "drawimage: width and height must be positive");
-	 }
 	 
 	 // Calculate expected data size
 	 int expectedSize = width * height;
 	 
-	 // Read image data from table (Lua tables are 1-indexed)
+	 // Read image data from table using helper (automatically clamps NES colors)
 	 std::vector<uint8> imageData;
-	 imageData.reserve(expectedSize);
-	 
-	 int dataCount = 0;
-	 for (int i = 1; i <= expectedSize; ++i) {
-		 lua_rawgeti(L, 3, i);
-		 if (!lua_isnumber(L, -1)) {
-			 lua_pop(L, 1);
-			 break; // End of table
-		 }
-		 int colorValue = (int)luaL_checkinteger(L, -1);
-		 lua_pop(L, 1);
-		 
-		 // Clamp color value to valid range (0x00-0x3F)
-		 if (colorValue < 0) colorValue = 0;
-		 if (colorValue > 0x3F) colorValue = 0x3F;
-		 
-		 imageData.push_back((uint8)(colorValue & 0xFF));
-		 dataCount++;
-	 }
+	 int dataCount = LuaTableToNESColorVector(L, 3, imageData, "drawimage");
 	 
 	 if (dataCount < expectedSize) {
 		 return luaL_error(L, "drawimage: imageData table must contain at least %d color values", expectedSize);
@@ -2580,56 +2556,29 @@ int lua_drawimage(lua_State *L) {
 int lua_drawimageindexed(lua_State *L) {
 	 int n = lua_gettop(L);
 	 if (n < 6) {
-		 return luaL_error(L, "drawimageindexed(x, y, imageData, palette, width, height) requires 6 arguments");
+		 return LuaArgCountError(L, "drawimageindexed", 6, 6, n);
 	 }
 	 
-	 int x = (int)luaL_checkinteger(L, 1);
-	 int y = (int)luaL_checkinteger(L, 2);
+	 int x = LuaCheckInt(L, 1, "drawimageindexed");
+	 int y = LuaCheckInt(L, 2, "drawimageindexed");
 	 
 	 // Check if imageData is a table
-	 if (!lua_istable(L, 3)) {
-		 return luaL_error(L, "drawimageindexed: imageData (3rd argument) must be a table");
-	 }
+	 LuaCheckTable(L, 3, "drawimageindexed");
 	 
 	 // Check if palette is a table
-	 if (!lua_istable(L, 4)) {
-		 return luaL_error(L, "drawimageindexed: palette (4th argument) must be a table");
-	 }
+	 LuaCheckTable(L, 4, "drawimageindexed");
 	 
-	 int width = (int)luaL_checkinteger(L, 5);
-	 int height = (int)luaL_checkinteger(L, 6);
+	 int width = LuaCheckPositive(L, 5, "drawimageindexed", "width");
+	 int height = LuaCheckPositive(L, 6, "drawimageindexed", "height");
 	 
 	 if (!currentXBuf) return 0;
-	 
-	 // Validate dimensions
-	 if (width <= 0 || height <= 0) {
-		 return luaL_error(L, "drawimageindexed: width and height must be positive");
-	 }
 	 
 	 // Calculate expected data size
 	 int expectedSize = width * height;
 	 
-	 // Read palette table first (Lua tables are 1-indexed)
+	 // Read palette table using helper (automatically clamps NES colors)
 	 std::vector<uint8> palette;
-	 palette.reserve(256); // Max palette size
-	 
-	 int paletteCount = 0;
-	 for (int i = 1; i <= 256; ++i) {
-		 lua_rawgeti(L, 4, i);
-		 if (!lua_isnumber(L, -1)) {
-			 lua_pop(L, 1);
-			 break; // End of palette table
-		 }
-		 int colorValue = (int)luaL_checkinteger(L, -1);
-		 lua_pop(L, 1);
-		 
-		 // Clamp color value to valid range (0x00-0x3F)
-		 if (colorValue < 0) colorValue = 0;
-		 if (colorValue > 0x3F) colorValue = 0x3F;
-		 
-		 palette.push_back((uint8)(colorValue & 0xFF));
-		 paletteCount++;
-	 }
+	 int paletteCount = LuaTableToNESColorVector(L, 4, palette, "drawimageindexed");
 	 
 	 if (paletteCount <= 0) {
 		 return luaL_error(L, "drawimageindexed: palette table must contain at least one color value");
@@ -2637,33 +2586,22 @@ int lua_drawimageindexed(lua_State *L) {
 	 
 	 // Read image data from table (Lua tables are 1-indexed)
 	 // imageData contains indices into the palette table
-	 std::vector<uint8> imageData;
-	 imageData.reserve(expectedSize);
-	 
-	 int dataCount = 0;
-	 for (int i = 1; i <= expectedSize; ++i) {
-		 lua_rawgeti(L, 3, i);
-		 if (!lua_isnumber(L, -1)) {
-			 lua_pop(L, 1);
-			 break; // End of table
-		 }
-		 int paletteIndex = (int)luaL_checkinteger(L, -1);
-		 lua_pop(L, 1);
-		 
-		 // Convert from Lua 1-based indexing to C++ 0-based indexing
-		 // User provides 1, 2, 3... which should map to palette[0], palette[1], palette[2]...
-		 paletteIndex = paletteIndex - 1;
-		 
-		 // Clamp palette index to valid range (0 to paletteCount-1)
-		 if (paletteIndex < 0) paletteIndex = 0;
-		 if (paletteIndex >= paletteCount) paletteIndex = paletteCount - 1;
-		 
-		 imageData.push_back((uint8)(paletteIndex & 0xFF));
-		 dataCount++;
-	 }
+	 std::vector<int> imageDataIndices;
+	 int dataCount = LuaTableToIntVector(L, 3, imageDataIndices, "drawimageindexed");
 	 
 	 if (dataCount < expectedSize) {
 		 return luaL_error(L, "drawimageindexed: imageData table must contain at least %d palette indices", expectedSize);
+	 }
+	 
+	 // Convert indices to palette references (1-based Lua -> 0-based C++)
+	 std::vector<uint8> imageData;
+	 imageData.reserve(expectedSize);
+	 for (int i = 0; i < expectedSize && i < dataCount; ++i) {
+		 int paletteIndex = imageDataIndices[i] - 1; // Convert from 1-based to 0-based
+		 // Clamp palette index to valid range
+		 if (paletteIndex < 0) paletteIndex = 0;
+		 if (paletteIndex >= paletteCount) paletteIndex = paletteCount - 1;
+		 imageData.push_back((uint8)(paletteIndex & 0xFF));
 	 }
 	 
 	 // Clamp coordinates to safe bounds
@@ -3046,13 +2984,13 @@ int lua_drawtile(lua_State *L) {
 int lua_drawchrtile(lua_State *L) {
 	 int n = lua_gettop(L);
 	 if (n < 4) {
-		 return luaL_error(L, "drawchrtile(x, y, tileIndex, paletteIndex) requires 4 arguments");
+		 return LuaArgCountError(L, "drawchrtile", 4, 4, n);
 	 }
 	 
-	 int x = (int)luaL_checkinteger(L, 1);
-	 int y = (int)luaL_checkinteger(L, 2);
-	 int tileIndex = (int)luaL_checkinteger(L, 3);
-	 int paletteIndex = (int)luaL_checkinteger(L, 4);
+	 int x = LuaCheckInt(L, 1, "drawchrtile");
+	 int y = LuaCheckInt(L, 2, "drawchrtile");
+	 int tileIndex = LuaCheckInt(L, 3, "drawchrtile");
+	 int paletteIndex = LuaCheckInt(L, 4, "drawchrtile");
 	 
 	 if (!currentXBuf) return 0;
 	 
@@ -3234,15 +3172,10 @@ int lua_clearclipregion(lua_State *L) {
 int lua_setdrawcolor(lua_State *L) {
 	int n = lua_gettop(L);
 	if (n < 1) {
-		return luaL_error(L, "setdrawcolor(color) requires 1 argument");
+		return LuaArgCountError(L, "setdrawcolor", 1, 1, n);
 	}
 	
-	int color = (int)luaL_checkinteger(L, 1);
-	
-	// Validate color range (0x00-0x3F)
-	if (color < 0 || color > 0x3F) {
-		return luaL_error(L, "setdrawcolor: color must be in range 0x00-0x3F");
-	}
+	int color = LuaCheckNESColor(L, 1, "setdrawcolor", 1); // strict validation
 	
 	s_defaultDrawColor = color;
 	return 0;
@@ -3975,14 +3908,14 @@ static int get_radial_gradient_color(RadialGradient* gradient, float px, float p
 int lua_fillrectgradient(lua_State *L) {
 	int n = lua_gettop(L);
 	if (n < 5) {
-		return luaL_error(L, "fillrectgradient(x, y, w, h, gradient) requires 5 arguments");
+		return LuaArgCountError(L, "fillrectgradient", 5, 5, n);
 	}
 	
-	int x = (int)luaL_checkinteger(L, 1);
-	int y = (int)luaL_checkinteger(L, 2);
-	int w = (int)luaL_checkinteger(L, 3);
-	int h = (int)luaL_checkinteger(L, 4);
-	int gradientHandle = (int)luaL_checkinteger(L, 5);
+	int x = LuaCheckInt(L, 1, "fillrectgradient");
+	int y = LuaCheckInt(L, 2, "fillrectgradient");
+	int w = LuaCheckInt(L, 3, "fillrectgradient");
+	int h = LuaCheckInt(L, 4, "fillrectgradient");
+	int gradientHandle = LuaCheckInt(L, 5, "fillrectgradient");
 	
 	// Validate handle
 	if (gradientHandle <= 0) {
@@ -4472,13 +4405,13 @@ int lua_measuretextblock(lua_State *L) {
 int lua_drawcircle(lua_State *L) {
 	int n = lua_gettop(L);
 	if (n < 4) {
-		return luaL_error(L, "drawcircle(x, y, radius, color) requires 4 arguments");
+		return LuaArgCountError(L, "drawcircle", 4, 4, n);
 	}
 	
-	int cx = (int)luaL_checkinteger(L, 1);
-	int cy = (int)luaL_checkinteger(L, 2);
-	int radius = (int)luaL_checkinteger(L, 3);
-	int color = (int)luaL_checkinteger(L, 4);
+	int cx = LuaCheckInt(L, 1, "drawcircle");
+	int cy = LuaCheckInt(L, 2, "drawcircle");
+	int radius = LuaCheckInt(L, 3, "drawcircle");
+	int color = LuaCheckInt(L, 4, "drawcircle");
 	
 	if (!currentXBuf) return 0;
 	
@@ -4550,13 +4483,13 @@ int lua_drawcircle(lua_State *L) {
 int lua_fillcircle(lua_State *L) {
 	int n = lua_gettop(L);
 	if (n < 4) {
-		return luaL_error(L, "fillcircle(x, y, radius, color) requires 4 arguments");
+		return LuaArgCountError(L, "fillcircle", 4, 4, n);
 	}
 	
-	int cx = (int)luaL_checkinteger(L, 1);
-	int cy = (int)luaL_checkinteger(L, 2);
-	int radius = (int)luaL_checkinteger(L, 3);
-	int color = (int)luaL_checkinteger(L, 4);
+	int cx = LuaCheckInt(L, 1, "fillcircle");
+	int cy = LuaCheckInt(L, 2, "fillcircle");
+	int radius = LuaCheckInt(L, 3, "fillcircle");
+	int color = LuaCheckInt(L, 4, "fillcircle");
 	
 	if (!currentXBuf) return 0;
 	
@@ -4614,16 +4547,16 @@ int lua_fillcircle(lua_State *L) {
 int lua_drawtriangle(lua_State *L) {
 	int n = lua_gettop(L);
 	if (n < 7) {
-		return luaL_error(L, "drawtriangle(x1, y1, x2, y2, x3, y3, color) requires 7 arguments");
+		return LuaArgCountError(L, "drawtriangle", 7, 7, n);
 	}
 	
-	int x1 = (int)luaL_checkinteger(L, 1);
-	int y1 = (int)luaL_checkinteger(L, 2);
-	int x2 = (int)luaL_checkinteger(L, 3);
-	int y2 = (int)luaL_checkinteger(L, 4);
-	int x3 = (int)luaL_checkinteger(L, 5);
-	int y3 = (int)luaL_checkinteger(L, 6);
-	int color = (int)luaL_checkinteger(L, 7);
+	int x1 = LuaCheckInt(L, 1, "drawtriangle");
+	int y1 = LuaCheckInt(L, 2, "drawtriangle");
+	int x2 = LuaCheckInt(L, 3, "drawtriangle");
+	int y2 = LuaCheckInt(L, 4, "drawtriangle");
+	int x3 = LuaCheckInt(L, 5, "drawtriangle");
+	int y3 = LuaCheckInt(L, 6, "drawtriangle");
+	int color = LuaCheckInt(L, 7, "drawtriangle");
 	
 	if (!currentXBuf) return 0;
 	
@@ -4738,16 +4671,16 @@ int lua_drawtriangle(lua_State *L) {
 int lua_filltriangle(lua_State *L) {
 	int n = lua_gettop(L);
 	if (n < 7) {
-		return luaL_error(L, "filltriangle(x1, y1, x2, y2, x3, y3, color) requires 7 arguments");
+		return LuaArgCountError(L, "filltriangle", 7, 7, n);
 	}
 	
-	int x1 = (int)luaL_checkinteger(L, 1);
-	int y1 = (int)luaL_checkinteger(L, 2);
-	int x2 = (int)luaL_checkinteger(L, 3);
-	int y2 = (int)luaL_checkinteger(L, 4);
-	int x3 = (int)luaL_checkinteger(L, 5);
-	int y3 = (int)luaL_checkinteger(L, 6);
-	int color = (int)luaL_checkinteger(L, 7);
+	int x1 = LuaCheckInt(L, 1, "filltriangle");
+	int y1 = LuaCheckInt(L, 2, "filltriangle");
+	int x2 = LuaCheckInt(L, 3, "filltriangle");
+	int y2 = LuaCheckInt(L, 4, "filltriangle");
+	int x3 = LuaCheckInt(L, 5, "filltriangle");
+	int y3 = LuaCheckInt(L, 6, "filltriangle");
+	int color = LuaCheckInt(L, 7, "filltriangle");
 	
 	if (!currentXBuf) return 0;
 	
@@ -4879,14 +4812,14 @@ int lua_filltriangle(lua_State *L) {
 int lua_drawellipse(lua_State *L) {
 	int n = lua_gettop(L);
 	if (n < 5) {
-		return luaL_error(L, "drawellipse(x, y, rx, ry, color) requires 5 arguments");
+		return LuaArgCountError(L, "drawellipse", 5, 5, n);
 	}
 	
-	int cx = (int)luaL_checkinteger(L, 1);
-	int cy = (int)luaL_checkinteger(L, 2);
-	int rx = (int)luaL_checkinteger(L, 3);
-	int ry = (int)luaL_checkinteger(L, 4);
-	int color = (int)luaL_checkinteger(L, 5);
+	int cx = LuaCheckInt(L, 1, "drawellipse");
+	int cy = LuaCheckInt(L, 2, "drawellipse");
+	int rx = LuaCheckInt(L, 3, "drawellipse");
+	int ry = LuaCheckInt(L, 4, "drawellipse");
+	int color = LuaCheckInt(L, 5, "drawellipse");
 	
 	if (!currentXBuf) return 0;
 	
@@ -4999,14 +4932,14 @@ int lua_drawellipse(lua_State *L) {
 int lua_fillellipse(lua_State *L) {
 	int n = lua_gettop(L);
 	if (n < 5) {
-		return luaL_error(L, "fillellipse(x, y, rx, ry, color) requires 5 arguments");
+		return LuaArgCountError(L, "fillellipse", 5, 5, n);
 	}
 	
-	int cx = (int)luaL_checkinteger(L, 1);
-	int cy = (int)luaL_checkinteger(L, 2);
-	int rx = (int)luaL_checkinteger(L, 3);
-	int ry = (int)luaL_checkinteger(L, 4);
-	int color = (int)luaL_checkinteger(L, 5);
+	int cx = LuaCheckInt(L, 1, "fillellipse");
+	int cy = LuaCheckInt(L, 2, "fillellipse");
+	int rx = LuaCheckInt(L, 3, "fillellipse");
+	int ry = LuaCheckInt(L, 4, "fillellipse");
+	int color = LuaCheckInt(L, 5, "fillellipse");
 	
 	if (!currentXBuf) return 0;
 	
@@ -5070,15 +5003,15 @@ int lua_fillellipse(lua_State *L) {
 int lua_drawarc(lua_State *L) {
 	int n = lua_gettop(L);
 	if (n < 6) {
-		return luaL_error(L, "drawarc(x, y, radius, startAngle, endAngle, color) requires 6 arguments");
+		return LuaArgCountError(L, "drawarc", 6, 6, n);
 	}
 	
-	int cx = (int)luaL_checkinteger(L, 1);
-	int cy = (int)luaL_checkinteger(L, 2);
-	int radius = (int)luaL_checkinteger(L, 3);
-	int startAngle = (int)luaL_checkinteger(L, 4);
-	int endAngle = (int)luaL_checkinteger(L, 5);
-	int color = (int)luaL_checkinteger(L, 6);
+	int cx = LuaCheckInt(L, 1, "drawarc");
+	int cy = LuaCheckInt(L, 2, "drawarc");
+	int radius = LuaCheckInt(L, 3, "drawarc");
+	int startAngle = LuaCheckInt(L, 4, "drawarc");
+	int endAngle = LuaCheckInt(L, 5, "drawarc");
+	int color = LuaCheckInt(L, 6, "drawarc");
 	
 	if (!currentXBuf) return 0;
 	
@@ -5170,15 +5103,15 @@ int lua_drawarc(lua_State *L) {
 int lua_fillarc(lua_State *L) {
 	int n = lua_gettop(L);
 	if (n < 6) {
-		return luaL_error(L, "fillarc(x, y, radius, startAngle, endAngle, color) requires 6 arguments");
+		return LuaArgCountError(L, "fillarc", 6, 6, n);
 	}
 	
-	int cx = (int)luaL_checkinteger(L, 1);
-	int cy = (int)luaL_checkinteger(L, 2);
-	int radius = (int)luaL_checkinteger(L, 3);
-	int startAngle = (int)luaL_checkinteger(L, 4);
-	int endAngle = (int)luaL_checkinteger(L, 5);
-	int color = (int)luaL_checkinteger(L, 6);
+	int cx = LuaCheckInt(L, 1, "fillarc");
+	int cy = LuaCheckInt(L, 2, "fillarc");
+	int radius = LuaCheckInt(L, 3, "fillarc");
+	int startAngle = LuaCheckInt(L, 4, "fillarc");
+	int endAngle = LuaCheckInt(L, 5, "fillarc");
+	int color = LuaCheckInt(L, 6, "fillarc");
 	
 	if (!currentXBuf) return 0;
 	
@@ -5440,15 +5373,15 @@ int lua_drawroundrect(lua_State *L) {
 int lua_fillroundrect(lua_State *L) {
 	int n = lua_gettop(L);
 	if (n < 6) {
-		return luaL_error(L, "fillroundrect(x, y, w, h, radius, color) requires 6 arguments");
+		return LuaArgCountError(L, "fillroundrect", 6, 6, n);
 	}
 	
-	int x = (int)luaL_checkinteger(L, 1);
-	int y = (int)luaL_checkinteger(L, 2);
-	int w = (int)luaL_checkinteger(L, 3);
-	int h = (int)luaL_checkinteger(L, 4);
-	int radius = (int)luaL_checkinteger(L, 5);
-	int color = (int)luaL_checkinteger(L, 6);
+	int x = LuaCheckInt(L, 1, "fillroundrect");
+	int y = LuaCheckInt(L, 2, "fillroundrect");
+	int w = LuaCheckInt(L, 3, "fillroundrect");
+	int h = LuaCheckInt(L, 4, "fillroundrect");
+	int radius = LuaCheckInt(L, 5, "fillroundrect");
+	int color = LuaCheckInt(L, 6, "fillroundrect");
 	
 	if (!currentXBuf) return 0;
 	
