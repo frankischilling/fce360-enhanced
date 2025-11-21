@@ -32,9 +32,10 @@
  #include "x6502.h"
  #include "input.h"
  
- // Lua state - forward declare
- struct lua_State;
- extern struct lua_State* luaState;
+// Lua state - forward declare
+struct lua_State;
+extern struct lua_State* luaState;
+extern bool luaInitialized;
  
  // Callback types
  enum LUACALL {
@@ -191,6 +192,24 @@ int lua_getbuttonheldms(lua_State *L);
  int  FCEU_IsLuaConsoleVisible(void);
  void FCEU_ToggleLuaConsole(void);
  void FCEU_LuaLogAppend(const char* msg);
+void LuaConsolePushLine(const char* msg);
+ 
+// Console line gap accessors
+void FCEU_SetLuaConsoleLineGap(int px);
+int FCEU_GetLuaConsoleLineGap(void);
+
+// Console scroll accessors (for input handling in fceulua.cpp)
+int FCEU_GetLuaConsoleScrollOffset(void);
+void FCEU_SetLuaConsoleScrollOffset(int offset);
+int FCEU_GetLuaConsoleScrollOffsetH(void);
+void FCEU_SetLuaConsoleScrollOffsetH(int offset);
+int FCEU_GetLuaConsoleCount(void);
+bool* FCEU_GetLuaConsoleDpadUpLast(void);
+bool* FCEU_GetLuaConsoleDpadDownLast(void);
+bool* FCEU_GetLuaConsoleDpadLeftLast(void);
+bool* FCEU_GetLuaConsoleDpadRightLast(void);
+int* FCEU_GetLuaConsoleScrollHoldFrames(void);
+int* FCEU_GetLuaConsoleScrollHoldFramesH(void);
  
  #endif // USE_LUA
  

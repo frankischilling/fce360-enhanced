@@ -130,8 +130,40 @@ Scripts are automatically searched in these locations (in order):
 - **Hardware Input:** Can read hardware input even when using `setjoypad()`
 - **Frame Accuracy:** Use `beforeframe()` callback for frame-accurate input control
 
+## Codebase Structure
+
+The Lua API bindings are organized into modular C++ files for maintainability and clarity. Each API category is implemented in its own module:
+
+**Core Integration:**
+- `fceux/fceux/fceulua.cpp` – Main Lua integration, script loading, and lifecycle management
+- `fceux/fceux/lua_bindings.h` – Consolidated header including all module headers
+- `fceux/fceux/lua_helpers.h/.cpp` – Centralized helper utilities (argument validation, error reporting, data conversion)
+- `fceux/fceux/lua_shared_state.h` – Shared state structures and constants
+
+**API Modules:**
+- `lua_video.cpp` – Drawing functions (text, shapes, images, canvas)
+- `lua_memory.cpp` – Memory reading, writing, scanning
+- `lua_audio.cpp` – Audio analysis and processing
+- `lua_fileio.cpp` – File and directory operations
+- `lua_input.cpp` – Controller input and manipulation
+- `lua_movie.cpp` – Input recording and state management
+- `lua_profiler.cpp` – Performance monitoring and profiling
+- `lua_emulator.cpp` – Emulation state and timing
+- `lua_rom.cpp` – ROM information functions
+- `lua_palette.cpp` – Color and palette operations
+- `lua_runtime.cpp` – Runtime utilities
+- `lua_gamegenie.cpp` – Game Genie code encoding/decoding
+
+Each module uses:
+- **Table-driven registration** (`static const luaL_Reg k<Domain>Funcs[]`)
+- **Centralized helpers** from `lua_helpers.h` for validation and error reporting
+- **Shared state structures** from `lua_shared_state.h` where appropriate
+
+For detailed contributor guidelines, see [Contributing](Contributing).
+
 ## See Also
 
 - **[Setup](Setup)** - How to set up Lua scripting
 - **[Troubleshooting](Troubleshooting)** - Common issues and solutions
+- **[Contributing](Contributing)** - Codebase structure and development guidelines
 - **[Home](Home)** - Return to the main wiki page

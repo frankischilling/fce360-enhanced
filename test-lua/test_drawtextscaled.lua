@@ -2,7 +2,7 @@
 -- Demonstrates text drawing with custom X and Y scaling
 -- Scale range: 0.5 to 4.0
 
-function gui()
+function script()
   local fps = getfps()
   
   -- Title
