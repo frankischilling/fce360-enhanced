@@ -1167,7 +1167,7 @@ void DrawLuaConsole(uint8* buf) {
 	 if (n < 6) {
 		 return LuaArgCountError(L, "drawtextbox", 6, 8, n);
 	 }
-	 
+
 	 int x = LuaCheckInt(L, 1, "drawtextbox");
 	 int y = LuaCheckInt(L, 2, "drawtextbox");
 	 int width = LuaCheckInt(L, 3, "drawtextbox");
@@ -5546,92 +5546,98 @@ int lua_fillroundrect(lua_State *L) {
 // Module Registrar and Lifecycle Hooks
 // ============================================================================
 
+static const luaL_Reg kVideoFuncs[] = {
+	// Text drawing functions
+	{"drawtext", lua_drawtext},
+	{"drawtextwh", lua_drawtextwh},
+	{"drawtextscaled", lua_drawtextscaled},
+	{"drawtextrotated", lua_drawtextrotated},
+	{"gettextwidth", lua_gettextwidth},
+	{"gettextheight", lua_gettextheight},
+	{"drawtextbox", lua_drawtextbox},
+	{"setconsolespacing", lua_setconsolespacing},
+
+	// Basic drawing primitives
+	{"drawpixel", lua_drawpixel},
+	{"drawline", lua_drawline},
+	{"drawthickline", lua_drawthickline},
+	{"drawrect", lua_drawrect},
+	{"fillrect", lua_fillrect},
+	{"clearrect", lua_clearrect},
+	{"clearscreen", lua_clearscreen},
+	{"fillscreen", lua_fillscreen},
+
+	// Polygon drawing
+	{"drawpolygon", lua_drawpolygon},
+	{"drawpolyline", lua_drawpolyline},
+	{"fillpolygon", lua_fillpolygon},
+
+	// Circle and ellipse drawing
+	{"drawcircle", lua_drawcircle},
+	{"fillcircle", lua_fillcircle},
+	{"drawellipse", lua_drawellipse},
+	{"fillellipse", lua_fillellipse},
+	{"drawarc", lua_drawarc},
+	{"fillarc", lua_fillarc},
+
+	// Rounded rectangles
+	{"drawroundrect", lua_drawroundrect},
+	{"fillroundrect", lua_fillroundrect},
+
+	// Triangle drawing
+	{"drawtriangle", lua_drawtriangle},
+	{"filltriangle", lua_filltriangle},
+
+	// Image drawing
+	{"drawimage", lua_drawimage},
+	{"drawimageindexed", lua_drawimageindexed},
+	{"drawimageex", lua_drawimageex},
+	{"drawtile", lua_drawtile},
+	{"drawchrtile", lua_drawchrtile},
+
+	// Screenshot functions
+	{"screenshot", lua_screenshot},
+	{"screenshotregion", lua_screenshotregion},
+
+	// Drawing state management
+	{"setdrawmode", lua_setdrawmode},
+	{"setclipregion", lua_setclipregion},
+	{"clearclipregion", lua_clearclipregion},
+	{"setdrawcolor", lua_setdrawcolor},
+	{"pushdrawstate", lua_pushdrawstate},
+	{"popdrawstate", lua_popdrawstate},
+	{"settransform", lua_settransform},
+	{"resettransform", lua_resettransform},
+	{"beginbatch", lua_beginbatch},
+	{"endbatch", lua_endbatch},
+	{"setimagescale", lua_setimagescale},
+	{"getimagescale", lua_getimagescale},
+
+	// Canvas management
+	{"createcanvas", lua_createcanvas},
+	{"setrendertarget", lua_setrendertarget},
+	{"blit", lua_blit},
+
+	// Gradients
+	{"lineargradient", lua_lineargradient},
+	{"fillrectgradient", lua_fillrectgradient},
+	{"radialgradient", lua_radialgradient},
+
+	// Text styling
+	{"textstyle", lua_textstyle},
+	{"measuretextblock", lua_measuretextblock},
+	{NULL, NULL}
+};
+
 void Lua_RegisterVideo(lua_State* L) {
 	if (!L) {
 		return;
 	}
 
-	// Text drawing functions
-	lua_register(L, "drawtext", lua_drawtext);
-	lua_register(L, "drawtextwh", lua_drawtextwh);
-	lua_register(L, "drawtextscaled", lua_drawtextscaled);
-	lua_register(L, "drawtextrotated", lua_drawtextrotated);
-	lua_pushcfunction(L, lua_gettextwidth);
-	lua_setglobal(L, "gettextwidth");
-	lua_pushcfunction(L, lua_gettextheight);
-	lua_setglobal(L, "gettextheight");
-	lua_register(L, "drawtextbox", lua_drawtextbox);
-	lua_register(L, "setconsolespacing", lua_setconsolespacing);
-
-	// Basic drawing primitives
-	lua_register(L, "drawpixel", lua_drawpixel);
-	lua_register(L, "drawline", lua_drawline);
-	lua_register(L, "drawthickline", lua_drawthickline);
-	lua_register(L, "drawrect", lua_drawrect);
-	lua_register(L, "fillrect", lua_fillrect);
-	lua_register(L, "clearrect", lua_clearrect);
-	lua_register(L, "clearscreen", lua_clearscreen);
-	lua_register(L, "fillscreen", lua_fillscreen);
-
-	// Polygon drawing
-	lua_register(L, "drawpolygon", lua_drawpolygon);
-	lua_register(L, "drawpolyline", lua_drawpolyline);
-	lua_register(L, "fillpolygon", lua_fillpolygon);
-
-	// Circle and ellipse drawing
-	lua_register(L, "drawcircle", lua_drawcircle);
-	lua_register(L, "fillcircle", lua_fillcircle);
-	lua_register(L, "drawellipse", lua_drawellipse);
-	lua_register(L, "fillellipse", lua_fillellipse);
-	lua_register(L, "drawarc", lua_drawarc);
-	lua_register(L, "fillarc", lua_fillarc);
-
-	// Rounded rectangles
-	lua_register(L, "drawroundrect", lua_drawroundrect);
-	lua_register(L, "fillroundrect", lua_fillroundrect);
-
-	// Triangle drawing
-	lua_register(L, "drawtriangle", lua_drawtriangle);
-	lua_register(L, "filltriangle", lua_filltriangle);
-
-	// Image drawing
-	lua_register(L, "drawimage", lua_drawimage);
-	lua_register(L, "drawimageindexed", lua_drawimageindexed);
-	lua_register(L, "drawimageex", lua_drawimageex);
-	lua_register(L, "drawtile", lua_drawtile);
-	lua_register(L, "drawchrtile", lua_drawchrtile);
-
-	// Screenshot functions
-	lua_register(L, "screenshot", lua_screenshot);
-	lua_register(L, "screenshotregion", lua_screenshotregion);
-
-	// Drawing state management
-	lua_register(L, "setdrawmode", lua_setdrawmode);
-	lua_register(L, "setclipregion", lua_setclipregion);
-	lua_register(L, "clearclipregion", lua_clearclipregion);
-	lua_register(L, "setdrawcolor", lua_setdrawcolor);
-	lua_register(L, "pushdrawstate", lua_pushdrawstate);
-	lua_register(L, "popdrawstate", lua_popdrawstate);
-	lua_register(L, "settransform", lua_settransform);
-	lua_register(L, "resettransform", lua_resettransform);
-	lua_register(L, "beginbatch", lua_beginbatch);
-	lua_register(L, "endbatch", lua_endbatch);
-	lua_register(L, "setimagescale", lua_setimagescale);
-	lua_register(L, "getimagescale", lua_getimagescale);
-
-	// Canvas management
-	lua_register(L, "createcanvas", lua_createcanvas);
-	lua_register(L, "setrendertarget", lua_setrendertarget);
-	lua_register(L, "blit", lua_blit);
-
-	// Gradients
-	lua_register(L, "lineargradient", lua_lineargradient);
-	lua_register(L, "fillrectgradient", lua_fillrectgradient);
-	lua_register(L, "radialgradient", lua_radialgradient);
-
-	// Text styling
-	lua_register(L, "textstyle", lua_textstyle);
-	lua_register(L, "measuretextblock", lua_measuretextblock);
+	// Manually register each function (luaL_register with NULL has issues)
+	for (const luaL_Reg* reg = kVideoFuncs; reg->name != NULL; reg++) {
+		lua_register(L, reg->name, reg->func);
+	}
 }
 
 void Lua_VideoReset(void) {

@@ -299,23 +299,26 @@ bool Lua_IsSleeping(lua_State* L)
 
 // ==================== Registrar and Lifecycle ====================
 
+static const luaL_Reg kProfilerFuncs[] = {
+	{"gettimedelta", lua_gettimedelta},
+	{"getframetime_ms", lua_getframetime_ms},
+	{"getjitter_ms", lua_getjitter_ms},
+	{"beginprofile", lua_beginprofile},
+	{"endprofile", lua_endprofile},
+	{"sleepframes", lua_sleepframes},
+	{NULL, NULL}
+};
+
 void Lua_RegisterProfiler(lua_State* L)
 {
 	if (!L) {
 		return;
 	}
 
-	// Timing functions
-	lua_register(L, "gettimedelta", lua_gettimedelta);
-	lua_register(L, "getframetime_ms", lua_getframetime_ms);
-	lua_register(L, "getjitter_ms", lua_getjitter_ms);
-
-	// Profiling functions
-	lua_register(L, "beginprofile", lua_beginprofile);
-	lua_register(L, "endprofile", lua_endprofile);
-
-	// Cadence management functions
-	lua_register(L, "sleepframes", lua_sleepframes);
+	// Manually register each function (luaL_register with NULL has issues)
+	for (const luaL_Reg* reg = kProfilerFuncs; reg->name != NULL; reg++) {
+		lua_register(L, reg->name, reg->func);
+	}
 }
 
 void Lua_ProfilerReset(void)

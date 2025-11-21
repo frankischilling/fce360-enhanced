@@ -763,20 +763,28 @@ static int lua_writefile(lua_State* L)
 // Module Registrar and Lifecycle Hooks
 // ============================================================================
 
+static const luaL_Reg kFileIOFuncs[] = {
+	{"readfile", lua_readfile},
+	{"writefile", lua_writefile},
+	{"fileexists", lua_fileexists},
+	{"listfiles", lua_listfiles},
+	{"listdir", lua_listdir},
+	{"mkdir", lua_mkdir},
+	{"rmfile", lua_rmfile},
+	{"rmdir", lua_rmdir},
+	{NULL, NULL}
+};
+
 void Lua_RegisterFileIO(lua_State* L)
 {
 	if (!L) {
 		return;
 	}
 
-	lua_register(L, "readfile", lua_readfile);
-	lua_register(L, "writefile", lua_writefile);
-	lua_register(L, "fileexists", lua_fileexists);
-	lua_register(L, "listfiles", lua_listfiles);
-	lua_register(L, "listdir", lua_listdir);
-	lua_register(L, "mkdir", lua_mkdir);
-	lua_register(L, "rmfile", lua_rmfile);
-	lua_register(L, "rmdir", lua_rmdir);
+	// Manually register each function (luaL_register with NULL has issues)
+	for (const luaL_Reg* reg = kFileIOFuncs; reg->name != NULL; reg++) {
+		lua_register(L, reg->name, reg->func);
+	}
 }
 
 void Lua_FileIOReset(void)

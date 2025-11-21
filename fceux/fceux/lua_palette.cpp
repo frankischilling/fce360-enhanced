@@ -392,20 +392,28 @@ static int lua_blendcolors(lua_State* L)
 // Module Registrar and Lifecycle Hooks
 // ============================================================================
 
+static const luaL_Reg kPaletteFuncs[] = {
+	{"getcolorrgb", lua_getcolorrgb},
+	{"getpalettecolor", lua_getpalettecolor},
+	{"getpalette", lua_getpalette},
+	{"setpalettecolor", lua_setpalettecolor},
+	{"setpalette", lua_setpalette},
+	{"loadpalette", lua_loadpalette},
+	{"getnescolor", lua_getnescolor},
+	{"blendcolors", lua_blendcolors},
+	{NULL, NULL}
+};
+
 void Lua_RegisterPalette(lua_State* L)
 {
 	if (!L) {
 		return;
 	}
 
-	lua_register(L, "getcolorrgb", lua_getcolorrgb);
-	lua_register(L, "getpalettecolor", lua_getpalettecolor);
-	lua_register(L, "getpalette", lua_getpalette);
-	lua_register(L, "setpalettecolor", lua_setpalettecolor);
-	lua_register(L, "setpalette", lua_setpalette);
-	lua_register(L, "loadpalette", lua_loadpalette);
-	lua_register(L, "getnescolor", lua_getnescolor);
-	lua_register(L, "blendcolors", lua_blendcolors);
+	// Manually register each function (luaL_register with NULL has issues)
+	for (const luaL_Reg* reg = kPaletteFuncs; reg->name != NULL; reg++) {
+		lua_register(L, reg->name, reg->func);
+	}
 }
 
 void Lua_PaletteReset(void)

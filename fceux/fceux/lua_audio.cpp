@@ -1134,31 +1134,39 @@ static int lua_stereotomono(lua_State* L)
 // Module Registrar and Lifecycle Hooks
 // ============================================================================
 
+static const luaL_Reg kAudioFuncs[] = {
+	{"getaudioenabled", lua_getaudioenabled},
+	{"getaudiosample", lua_getaudiosample},
+	{"getaudiobuffer", lua_getaudiobuffer},
+	{"getaudiosampleleft", lua_getaudiosampleleft},
+	{"getaudiosampleright", lua_getaudiosampleright},
+	{"getaudiochannel", lua_getaudiochannel},
+	{"getaudiochannelsample", lua_getaudiochannelsample},
+	{"getaudiofft", lua_getaudiofft},
+	{"getaudiochannelfft", lua_getaudiochannelfft},
+	{"getaudiofiltered", lua_getaudiofiltered},
+	{"setaudiofilter", lua_setaudiofilter},
+	{"getaudiofilter", lua_getaudiofilter},
+	{"audiosampletofloat", lua_audiosampletofloat},
+	{"floattosample", lua_floattosample},
+	{"audiosampletouint8", lua_audiosampletouint8},
+	{"uint8tosample", lua_uint8tosample},
+	{"normalizeaudiosample", lua_normalizeaudiosample},
+	{"monotostereo", lua_monotostereo},
+	{"stereotomono", lua_stereotomono},
+	{NULL, NULL}
+};
+
 void Lua_RegisterAudio(lua_State* L)
 {
 	if (!L) {
 		return;
 	}
 
-	lua_register(L, "getaudioenabled", lua_getaudioenabled);
-	lua_register(L, "getaudiosample", lua_getaudiosample);
-	lua_register(L, "getaudiobuffer", lua_getaudiobuffer);
-	lua_register(L, "getaudiosampleleft", lua_getaudiosampleleft);
-	lua_register(L, "getaudiosampleright", lua_getaudiosampleright);
-	lua_register(L, "getaudiochannel", lua_getaudiochannel);
-	lua_register(L, "getaudiochannelsample", lua_getaudiochannelsample);
-	lua_register(L, "getaudiofft", lua_getaudiofft);
-	lua_register(L, "getaudiochannelfft", lua_getaudiochannelfft);
-	lua_register(L, "getaudiofiltered", lua_getaudiofiltered);
-	lua_register(L, "setaudiofilter", lua_setaudiofilter);
-	lua_register(L, "getaudiofilter", lua_getaudiofilter);
-	lua_register(L, "audiosampletofloat", lua_audiosampletofloat);
-	lua_register(L, "floattosample", lua_floattosample);
-	lua_register(L, "audiosampletouint8", lua_audiosampletouint8);
-	lua_register(L, "uint8tosample", lua_uint8tosample);
-	lua_register(L, "normalizeaudiosample", lua_normalizeaudiosample);
-	lua_register(L, "monotostereo", lua_monotostereo);
-	lua_register(L, "stereotomono", lua_stereotomono);
+	// Manually register each function (luaL_register with NULL has issues)
+	for (const luaL_Reg* reg = kAudioFuncs; reg->name != NULL; reg++) {
+		lua_register(L, reg->name, reg->func);
+	}
 }
 
 void Lua_AudioReset(void)

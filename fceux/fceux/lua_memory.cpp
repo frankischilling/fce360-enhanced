@@ -903,38 +903,46 @@ static void CheckWatchedAddresses(lua_State* L) {
 	lua_pop(L, 1);
 }
 
+static const luaL_Reg kMemoryFuncs[] = {
+	{"readbyte", lua_readbyte},
+	{"readword", lua_readword},
+	{"readbytes", lua_readbytes},
+	{"readram", lua_readram},
+	{"scanbyte", lua_scanbyte},
+	{"scanword", lua_scanword},
+	{"scanbytes", lua_scanbytes},
+	{"findpattern", lua_findpattern},
+	{"scanchanged", lua_scanchanged},
+	{"watchbyte", lua_watchbyte},
+	{"unwatchbyte", lua_unwatchbyte},
+	{"getmemorysnapshot", lua_getmemorysnapshot},
+	{"setbit", lua_setbit},
+	{"clearbit", lua_clearbit},
+	{"togglebit", lua_togglebit},
+	{"testbit", lua_testbit},
+	{"writebyte", lua_writebyte},
+	{"writeword", lua_writeword},
+	{"writebytes", lua_writebytes},
+	{"writeprg", lua_writeprg},
+	{"fillbytes", lua_fillbytes},
+	{"copybytes", lua_copybytes},
+	{"comparebytes", lua_comparebytes},
+	{"backupbytes", lua_backupbytes},
+	{"restorebytes", lua_restorebytes},
+	{"getmemorytype", lua_getmemorytype},
+	{"ismemorywritable", lua_ismemorywritable},
+	{NULL, NULL}
+};
+
 void Lua_RegisterMemory(lua_State* L) {
 	if (!L) {
 		return;
 	}
 
-	lua_register(L, "readbyte", lua_readbyte);
-	lua_register(L, "readword", lua_readword);
-	lua_register(L, "readbytes", lua_readbytes);
-	lua_register(L, "readram", lua_readram);
-	lua_register(L, "scanbyte", lua_scanbyte);
-	lua_register(L, "scanword", lua_scanword);
-	lua_register(L, "scanbytes", lua_scanbytes);
-	lua_register(L, "findpattern", lua_findpattern);
-	lua_register(L, "scanchanged", lua_scanchanged);
-	lua_register(L, "watchbyte", lua_watchbyte);
-	lua_register(L, "unwatchbyte", lua_unwatchbyte);
-	lua_register(L, "getmemorysnapshot", lua_getmemorysnapshot);
-	lua_register(L, "setbit", lua_setbit);
-	lua_register(L, "clearbit", lua_clearbit);
-	lua_register(L, "togglebit", lua_togglebit);
-	lua_register(L, "testbit", lua_testbit);
-	lua_register(L, "writebyte", lua_writebyte);
-	lua_register(L, "writeword", lua_writeword);
-	lua_register(L, "writebytes", lua_writebytes);
-	lua_register(L, "writeprg", lua_writeprg);
-	lua_register(L, "fillbytes", lua_fillbytes);
-	lua_register(L, "copybytes", lua_copybytes);
-	lua_register(L, "comparebytes", lua_comparebytes);
-	lua_register(L, "backupbytes", lua_backupbytes);
-	lua_register(L, "restorebytes", lua_restorebytes);
-	lua_register(L, "getmemorytype", lua_getmemorytype);
-	lua_register(L, "ismemorywritable", lua_ismemorywritable);
+	// Manually register each function (luaL_register with NULL has issues)
+	for (const luaL_Reg* reg = kMemoryFuncs; reg->name != NULL; reg++) {
+		lua_register(L, reg->name, reg->func);
+	}
 }
 
 void Lua_MemoryOnFrame(lua_State* L) {

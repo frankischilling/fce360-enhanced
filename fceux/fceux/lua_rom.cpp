@@ -621,23 +621,31 @@ static int lua_getmapperstring(lua_State* L)
 
 // ==================== Registrar Function ====================
 
+static const luaL_Reg kRomFuncs[] = {
+	{"getromname", lua_getromname},
+	{"getrompath", lua_getrompath},
+	{"getsavepath", lua_getsavepath},
+	{"getromhash", lua_getromhash},
+	{"getinesheader", lua_getinesheader},
+	{"getregion", lua_getregion},
+	{"getromsize", lua_getromsize},
+	{"getprgsize", lua_getprgsize},
+	{"getchrsize", lua_getchrsize},
+	{"hasbattery", lua_hasbattery},
+	{"getmapper", lua_getmapper},
+	{"getmapperstring", lua_getmapperstring},
+	{NULL, NULL}
+};
+
 void Lua_RegisterRom(lua_State* L) {
 	if (!L) {
 		return;
 	}
 
-	lua_register(L, "getromname", lua_getromname);
-	lua_register(L, "getrompath", lua_getrompath);
-	lua_register(L, "getsavepath", lua_getsavepath);
-	lua_register(L, "getromhash", lua_getromhash);
-	lua_register(L, "getinesheader", lua_getinesheader);
-	lua_register(L, "getregion", lua_getregion);
-	lua_register(L, "getromsize", lua_getromsize);
-	lua_register(L, "getprgsize", lua_getprgsize);
-	lua_register(L, "getchrsize", lua_getchrsize);
-	lua_register(L, "hasbattery", lua_hasbattery);
-	lua_register(L, "getmapper", lua_getmapper);
-	lua_register(L, "getmapperstring", lua_getmapperstring);
+	// Manually register each function (luaL_register with NULL has issues)
+	for (const luaL_Reg* reg = kRomFuncs; reg->name != NULL; reg++) {
+		lua_register(L, reg->name, reg->func);
+	}
 }
 
 #endif // USE_LUA

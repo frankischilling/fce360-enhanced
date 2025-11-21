@@ -1073,31 +1073,35 @@ static int lua_mapinput(lua_State* L)
 // Module Registrar and Lifecycle Hooks
 // ============================================================================
 
+static const luaL_Reg kInputFuncs[] = {
+	{"getjoypad", lua_getjoypad},
+	{"gethardwarejoypad", lua_gethardwarejoypad},
+	{"setjoypad", lua_setjoypad},
+	{"clearjoypad", lua_clearjoypad},
+	{"pressbutton", lua_pressbutton},
+	{"releasebutton", lua_releasebutton},
+	{"setrumble", lua_setrumble},
+	{"mapinput", lua_mapinput},
+	{"onbuttonpress", lua_onbuttonpress},
+	{"onbuttonrelease", lua_onbuttonrelease},
+	{"getbuttonheldms", lua_getbuttonheldms},
+	{"isbuttonpressed", lua_isbuttonpressed},
+	{"getbuttonname", lua_getbuttonname},
+	{"getbuttonmask", lua_getbuttonmask},
+	{"isxboxbuttonpressed", lua_isxboxbuttonpressed},
+	{NULL, NULL}
+};
+
 void Lua_RegisterInput(lua_State* L)
 {
 	if (!L) {
 		return;
 	}
 
-	lua_register(L, "getjoypad", lua_getjoypad);
-	lua_register(L, "gethardwarejoypad", lua_gethardwarejoypad);
-	lua_pushcfunction(L, lua_setjoypad);
-	lua_setglobal(L, "setjoypad");
-	lua_pushcfunction(L, lua_clearjoypad);
-	lua_setglobal(L, "clearjoypad");
-	lua_pushcfunction(L, lua_pressbutton);
-	lua_setglobal(L, "pressbutton");
-	lua_pushcfunction(L, lua_releasebutton);
-	lua_setglobal(L, "releasebutton");
-	lua_register(L, "setrumble", lua_setrumble);
-	lua_register(L, "mapinput", lua_mapinput);
-	lua_register(L, "onbuttonpress", lua_onbuttonpress);
-	lua_register(L, "onbuttonrelease", lua_onbuttonrelease);
-	lua_register(L, "getbuttonheldms", lua_getbuttonheldms);
-	lua_register(L, "isbuttonpressed", lua_isbuttonpressed);
-	lua_register(L, "getbuttonname", lua_getbuttonname);
-	lua_register(L, "getbuttonmask", lua_getbuttonmask);
-	lua_register(L, "isxboxbuttonpressed", lua_isxboxbuttonpressed);
+	// Manually register each function (luaL_register with NULL has issues)
+	for (const luaL_Reg* reg = kInputFuncs; reg->name != NULL; reg++) {
+		lua_register(L, reg->name, reg->func);
+	}
 }
 
 void Lua_InputCleanup(lua_State* L)

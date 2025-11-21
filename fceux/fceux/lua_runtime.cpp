@@ -122,17 +122,26 @@ void Lua_RuntimeSetScriptInterval(DWORD ms) {
 
 // ==================== Registrar Function ====================
 
+static const luaL_Reg kRuntimeFuncs[] = {
+	{"getluamem", lua_getluamem},
+	{"collectgarbage_now", lua_collectgarbage_now},
+	{"setscriptinterval", lua_setscriptinterval},
+	{"getscriptinterval", lua_getscriptinterval},
+	{"log", lua_log},
+	{NULL, NULL}
+};
+
 void Lua_RegisterRuntime(lua_State* L) {
 	if (!L) {
 		return;
 	}
 
-	lua_register(L, "getluamem", lua_getluamem);
-	lua_register(L, "collectgarbage_now", lua_collectgarbage_now);
-	lua_register(L, "setscriptinterval", lua_setscriptinterval);
-	lua_register(L, "getscriptinterval", lua_getscriptinterval);
-	lua_register(L, "log", lua_log);
-	// Override Lua's built-in print() function
+	// Manually register each function (luaL_register with NULL has issues)
+	for (const luaL_Reg* reg = kRuntimeFuncs; reg->name != NULL; reg++) {
+		lua_register(L, reg->name, reg->func);
+	}
+	
+	// Override Lua's built-in print() function (special case)
 	lua_pushcfunction(L, lua_print_redirect);
 	lua_setglobal(L, "print");
 }

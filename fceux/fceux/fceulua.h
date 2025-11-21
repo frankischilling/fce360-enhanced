@@ -193,7 +193,7 @@ int lua_getbuttonheldms(lua_State *L);
  void FCEU_ToggleLuaConsole(void);
  void FCEU_LuaLogAppend(const char* msg);
 void LuaConsolePushLine(const char* msg);
-
+ 
 // Console line gap accessors
 void FCEU_SetLuaConsoleLineGap(int px);
 int FCEU_GetLuaConsoleLineGap(void);

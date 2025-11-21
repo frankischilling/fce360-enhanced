@@ -270,25 +270,33 @@ void Lua_EmulatorReset(void)
 
 // ==================== Registrar Function ====================
 
+static const luaL_Reg kEmulatorFuncs[] = {
+	{"getframecount", lua_getframecount},
+	{"getframecycles", lua_getframecycles},
+	{"getppucycles", lua_getppucycles},
+	{"getapucycles", lua_getapucycles},
+	{"getelapsedtime", lua_getelapsedtime},
+	{"getelapsedframes", lua_getelapsedframes},
+	{"gettime", lua_gettime},
+	{"getfps", lua_getfps},
+	{"isframeadvancing", lua_isframeadvancing},
+	{"isrewinding", lua_isrewinding},
+	{"isfastforwarding", lua_isfastforwarding},
+	{"getscreenwidth", lua_getscreenwidth},
+	{"getscreenheight", lua_getscreenheight},
+	{"getscreensize", lua_getscreensize},
+	{NULL, NULL}
+};
+
 void Lua_RegisterEmulator(lua_State* L) {
 	if (!L) {
 		return;
 	}
 
-	lua_register(L, "getframecount", lua_getframecount);
-	lua_register(L, "getframecycles", lua_getframecycles);
-	lua_register(L, "getppucycles", lua_getppucycles);
-	lua_register(L, "getapucycles", lua_getapucycles);
-	lua_register(L, "getelapsedtime", lua_getelapsedtime);
-	lua_register(L, "getelapsedframes", lua_getelapsedframes);
-	lua_register(L, "gettime", lua_gettime);
-	lua_register(L, "getfps", lua_getfps);
-	lua_register(L, "isframeadvancing", lua_isframeadvancing);
-	lua_register(L, "isrewinding", lua_isrewinding);
-	lua_register(L, "isfastforwarding", lua_isfastforwarding);
-	lua_register(L, "getscreenwidth", lua_getscreenwidth);
-	lua_register(L, "getscreenheight", lua_getscreenheight);
-	lua_register(L, "getscreensize", lua_getscreensize);
+	// Manually register each function (luaL_register with NULL has issues)
+	for (const luaL_Reg* reg = kEmulatorFuncs; reg->name != NULL; reg++) {
+		lua_register(L, reg->name, reg->func);
+	}
 }
 
 #endif // USE_LUA

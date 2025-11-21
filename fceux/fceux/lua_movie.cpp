@@ -862,26 +862,34 @@ static int lua_loadstatefile(lua_State *L)
 	return 1;
 }
 
+static const luaL_Reg kMovieFuncs[] = {
+	{"startinputrecording", lua_startinputrecording},
+	{"stopinputrecording", lua_stopinputrecording},
+	{"playinputrecording", lua_playinputrecording},
+	{"saveinputrecording", lua_saveinputrecording},
+	{"loadinputrecording", lua_loadinputrecording},
+	{"setrecordingmarker", lua_setrecordingmarker},
+	{"jumptorecordingmarker", lua_jumptorecordingmarker},
+	{"setplaybackspeed", lua_setplaybackspeed},
+	{"trimrecording", lua_trimrecording},
+	{"savestate", lua_savestate},
+	{"loadstate", lua_loadstate},
+	{"hasstate", lua_hasstate},
+	{"savestatefile", lua_savestatefile},
+	{"loadstatefile", lua_loadstatefile},
+	{NULL, NULL}
+};
+
 void Lua_RegisterMovie(lua_State* L)
 {
 	if (!L) {
 		return;
 	}
 
-	lua_register(L, "startinputrecording", lua_startinputrecording);
-	lua_register(L, "stopinputrecording", lua_stopinputrecording);
-	lua_register(L, "playinputrecording", lua_playinputrecording);
-	lua_register(L, "saveinputrecording", lua_saveinputrecording);
-	lua_register(L, "loadinputrecording", lua_loadinputrecording);
-	lua_register(L, "setrecordingmarker", lua_setrecordingmarker);
-	lua_register(L, "jumptorecordingmarker", lua_jumptorecordingmarker);
-	lua_register(L, "setplaybackspeed", lua_setplaybackspeed);
-	lua_register(L, "trimrecording", lua_trimrecording);
-	lua_register(L, "savestate", lua_savestate);
-	lua_register(L, "loadstate", lua_loadstate);
-	lua_register(L, "hasstate", lua_hasstate);
-	lua_register(L, "savestatefile", lua_savestatefile);
-	lua_register(L, "loadstatefile", lua_loadstatefile);
+	// Manually register each function (luaL_register with NULL has issues)
+	for (const luaL_Reg* reg = kMovieFuncs; reg->name != NULL; reg++) {
+		lua_register(L, reg->name, reg->func);
+	}
 }
 
 #endif // USE_LUA
