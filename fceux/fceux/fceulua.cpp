@@ -58,7 +58,7 @@
 #include <map>
 #include <string>
 
-// kNTSCFrameRate moved to lua_emulator.cpp
+// kNTSCFrameRate moved to lua_profiler.cpp (now in LuaProfilerState namespace)
 
 // Extern PPU data for tile rendering
 extern uint8 PALRAM[0x20];

@@ -3,6 +3,7 @@
 #ifdef USE_LUA
 
 #include "lua_profiler.h"
+#include "lua_shared_state.h"
 #include "lua_helpers.h"
 #include "lua_video.h" // For LuaConsolePushLine
 #include "fceu.h" // For FCEU_printf
@@ -21,11 +22,14 @@ extern "C" {
 #include "../xbox/lua/src/lualib.h"
 }
 
-// Constants for frame timing
-static const double kNTSCFrameRate = 60.0988118623484;
-static const double kIdealFrameMs = 1000.0 / kNTSCFrameRate;
+// Use timing constants from shared header
+using namespace LuaProfilerState;
 
-// Profile start times map
+// Define timing constants (declared extern in shared header)
+const double LuaProfilerState::kNTSCFrameRate = 60.0988118623484;
+const double LuaProfilerState::kIdealFrameMs = 1000.0 / kNTSCFrameRate;
+
+// Profile start times map (module-local state)
 static std::map<std::string, DWORD> s_luaProfileStartTimes;
 
 // ==================== Timing Functions ====================

@@ -3,6 +3,7 @@
 #ifdef USE_LUA
 
 #include "lua_input.h"
+#include "lua_shared_state.h"
 #include "lua_helpers.h"
 #include "fceulua.h"
 #include "fceu.h"
@@ -57,51 +58,12 @@ static uint8 s_oneFramePress[4]   = {0,0,0,0};   // one-frame button presses (cl
 static uint8 s_oneFrameRelease[4] = {0,0,0,0};   // one-frame button releases (cleared after each frame)
 static uint8 s_hardwareJoypad[4] = {0,0,0,0};   // hardware input before override
 
-struct ButtonCallbackInfo {
-	WORD mask;
-	std::string canonicalName;
-	int luaRef;
-
-	ButtonCallbackInfo() : mask(0), canonicalName(), luaRef(-1) {}
-};
-
-enum {
-	BUTTON_INDEX_A = 0,
-	BUTTON_INDEX_B,
-	BUTTON_INDEX_X,
-	BUTTON_INDEX_Y,
-	BUTTON_INDEX_START,
-	BUTTON_INDEX_BACK,
-	BUTTON_INDEX_LEFT_SHOULDER,
-	BUTTON_INDEX_RIGHT_SHOULDER,
-	BUTTON_INDEX_LEFT_THUMB,
-	BUTTON_INDEX_RIGHT_THUMB,
-	BUTTON_INDEX_DPAD_UP,
-	BUTTON_INDEX_DPAD_DOWN,
-	BUTTON_INDEX_DPAD_LEFT,
-	BUTTON_INDEX_DPAD_RIGHT,
-	BUTTON_INDEX_COUNT,
-
-	ANALOG_INDEX_LS_UP = BUTTON_INDEX_COUNT,
-	ANALOG_INDEX_LS_DOWN,
-	ANALOG_INDEX_LS_LEFT,
-	ANALOG_INDEX_LS_RIGHT,
-	ANALOG_INDEX_RS_UP,
-	ANALOG_INDEX_RS_DOWN,
-	ANALOG_INDEX_RS_LEFT,
-	ANALOG_INDEX_RS_RIGHT,
-	TRIGGER_INDEX_LT,
-	TRIGGER_INDEX_RT,
-	ANALOG_INDEX_COUNT,
-
-	TOTAL_HOLD_INDEX_COUNT = ANALOG_INDEX_COUNT
-};
-
-static std::map<WORD, ButtonCallbackInfo> s_buttonPressCallbacks;
-static std::map<WORD, ButtonCallbackInfo> s_buttonReleaseCallbacks;
+// Use types from shared header (fully qualified to avoid namespace issues)
+static std::map<WORD, LuaInputState::ButtonCallbackInfo> s_buttonPressCallbacks;
+static std::map<WORD, LuaInputState::ButtonCallbackInfo> s_buttonReleaseCallbacks;
 static WORD s_prevXboxButtonState[4] = {0};
-static DWORD s_buttonHoldStart[4][TOTAL_HOLD_INDEX_COUNT] = {0};
-static bool s_buttonWasHeld[4][TOTAL_HOLD_INDEX_COUNT] = {false};
+static DWORD s_buttonHoldStart[4][LuaInputState::TOTAL_HOLD_INDEX_COUNT] = {0};
+static bool s_buttonWasHeld[4][LuaInputState::TOTAL_HOLD_INDEX_COUNT] = {false};
 static const uint8 s_nesButtonMask[8] = {
 	0x01, // A
 	0x02, // B
@@ -115,7 +77,7 @@ static const uint8 s_nesButtonMask[8] = {
 static DWORD s_nesButtonHoldStart[4][8] = {0};
 static bool s_nesButtonWasHeld[4][8] = {false};
 static std::map<std::string, WORD> s_buttonNameToMask;
-static const WORD s_buttonIndexToMask[BUTTON_INDEX_COUNT] = {
+static const WORD s_buttonIndexToMask[LuaInputState::BUTTON_INDEX_COUNT] = {
 	XINPUT_GAMEPAD_A,
 	XINPUT_GAMEPAD_B,
 	XINPUT_GAMEPAD_X,
@@ -133,22 +95,17 @@ static const WORD s_buttonIndexToMask[BUTTON_INDEX_COUNT] = {
 };
 static const float ANALOG_HOLD_THRESHOLD = 0.4f;
 
-// Rumble state tracking
-struct RumbleState {
-	DWORD startTime;      // When rumble started (GetTickCount())
-	DWORD duration;       // Duration in milliseconds
-	float intensity;      // Intensity (0.0-1.0)
-	bool active;          // Whether rumble is currently active
-};
-static RumbleState s_rumbleState[4] = {0};  // One per player (0-3)
+// Rumble state tracking (using shared struct definition)
+// Initialize with default constructors (RumbleState has a constructor, so can't use {0})
+static LuaInputState::RumbleState s_rumbleState[4];  // One per player (0-3)
 
-// Virtual input mapping - per-script input remapping
-static std::map<lua_State*, std::map<std::string, std::string> > s_virtualInputMappings;
+// Virtual input mapping - per-script input remapping (using shared type)
+static LuaInputState::VirtualInputMappings s_virtualInputMappings;
 
 // Helper functions
 static int GetButtonIndexFromMask(WORD mask)
 {
-	for (int i = 0; i < BUTTON_INDEX_COUNT; ++i) {
+	for (int i = 0; i < (int)LuaInputState::BUTTON_INDEX_COUNT; ++i) {
 		if (s_buttonIndexToMask[i] == mask) {
 			return i;
 		}
@@ -173,16 +130,16 @@ static void ToUpperButtonName(const char* src, char* dest, size_t destSize)
 
 static int GetAnalogDirectionIndex(const char* upperName)
 {
-	if (strcmp(upperName, "LS_UP") == 0 || strcmp(upperName, "LEFT_STICK_UP") == 0) return ANALOG_INDEX_LS_UP;
-	if (strcmp(upperName, "LS_DOWN") == 0 || strcmp(upperName, "LEFT_STICK_DOWN") == 0) return ANALOG_INDEX_LS_DOWN;
-	if (strcmp(upperName, "LS_LEFT") == 0 || strcmp(upperName, "LEFT_STICK_LEFT") == 0) return ANALOG_INDEX_LS_LEFT;
-	if (strcmp(upperName, "LS_RIGHT") == 0 || strcmp(upperName, "LEFT_STICK_RIGHT") == 0) return ANALOG_INDEX_LS_RIGHT;
-	if (strcmp(upperName, "RS_UP") == 0 || strcmp(upperName, "RIGHT_STICK_UP") == 0) return ANALOG_INDEX_RS_UP;
-	if (strcmp(upperName, "RS_DOWN") == 0 || strcmp(upperName, "RIGHT_STICK_DOWN") == 0) return ANALOG_INDEX_RS_DOWN;
-	if (strcmp(upperName, "RS_LEFT") == 0 || strcmp(upperName, "RIGHT_STICK_LEFT") == 0) return ANALOG_INDEX_RS_LEFT;
-	if (strcmp(upperName, "RS_RIGHT") == 0 || strcmp(upperName, "RIGHT_STICK_RIGHT") == 0) return ANALOG_INDEX_RS_RIGHT;
-	if (strcmp(upperName, "LT") == 0 || strcmp(upperName, "LEFT_TRIGGER") == 0) return TRIGGER_INDEX_LT;
-	if (strcmp(upperName, "RT") == 0 || strcmp(upperName, "RIGHT_TRIGGER") == 0) return TRIGGER_INDEX_RT;
+	if (strcmp(upperName, "LS_UP") == 0 || strcmp(upperName, "LEFT_STICK_UP") == 0) return LuaInputState::ANALOG_INDEX_LS_UP;
+	if (strcmp(upperName, "LS_DOWN") == 0 || strcmp(upperName, "LEFT_STICK_DOWN") == 0) return LuaInputState::ANALOG_INDEX_LS_DOWN;
+	if (strcmp(upperName, "LS_LEFT") == 0 || strcmp(upperName, "LEFT_STICK_LEFT") == 0) return LuaInputState::ANALOG_INDEX_LS_LEFT;
+	if (strcmp(upperName, "LS_RIGHT") == 0 || strcmp(upperName, "LEFT_STICK_RIGHT") == 0) return LuaInputState::ANALOG_INDEX_LS_RIGHT;
+	if (strcmp(upperName, "RS_UP") == 0 || strcmp(upperName, "RIGHT_STICK_UP") == 0) return LuaInputState::ANALOG_INDEX_RS_UP;
+	if (strcmp(upperName, "RS_DOWN") == 0 || strcmp(upperName, "RIGHT_STICK_DOWN") == 0) return LuaInputState::ANALOG_INDEX_RS_DOWN;
+	if (strcmp(upperName, "RS_LEFT") == 0 || strcmp(upperName, "RIGHT_STICK_LEFT") == 0) return LuaInputState::ANALOG_INDEX_RS_LEFT;
+	if (strcmp(upperName, "RS_RIGHT") == 0 || strcmp(upperName, "RIGHT_STICK_RIGHT") == 0) return LuaInputState::ANALOG_INDEX_RS_RIGHT;
+	if (strcmp(upperName, "LT") == 0 || strcmp(upperName, "LEFT_TRIGGER") == 0) return LuaInputState::TRIGGER_INDEX_LT;
+	if (strcmp(upperName, "RT") == 0 || strcmp(upperName, "RIGHT_TRIGGER") == 0) return LuaInputState::TRIGGER_INDEX_RT;
 	return -1;
 }
 
@@ -203,23 +160,23 @@ static bool IsAnalogDirectionActive(int player, int analogIndex)
 {
 	if (player < 0 || player >= 4) return false;
 	switch (analogIndex) {
-		case ANALOG_INDEX_LS_UP:    return Gamepads[player].fY1 >  ANALOG_HOLD_THRESHOLD;
-		case ANALOG_INDEX_LS_DOWN:  return Gamepads[player].fY1 < -ANALOG_HOLD_THRESHOLD;
-		case ANALOG_INDEX_LS_LEFT:  return Gamepads[player].fX1 < -ANALOG_HOLD_THRESHOLD;
-		case ANALOG_INDEX_LS_RIGHT: return Gamepads[player].fX1 >  ANALOG_HOLD_THRESHOLD;
-		case ANALOG_INDEX_RS_UP:    return Gamepads[player].fY2 >  ANALOG_HOLD_THRESHOLD;
-		case ANALOG_INDEX_RS_DOWN:  return Gamepads[player].fY2 < -ANALOG_HOLD_THRESHOLD;
-		case ANALOG_INDEX_RS_LEFT:  return Gamepads[player].fX2 < -ANALOG_HOLD_THRESHOLD;
-		case ANALOG_INDEX_RS_RIGHT: return Gamepads[player].fX2 >  ANALOG_HOLD_THRESHOLD;
-		case TRIGGER_INDEX_LT:      return Gamepads[player].bLeftTrigger  > XINPUT_GAMEPAD_TRIGGER_THRESHOLD;
-		case TRIGGER_INDEX_RT:      return Gamepads[player].bRightTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD;
+		case LuaInputState::ANALOG_INDEX_LS_UP:    return Gamepads[player].fY1 >  ANALOG_HOLD_THRESHOLD;
+		case LuaInputState::ANALOG_INDEX_LS_DOWN:  return Gamepads[player].fY1 < -ANALOG_HOLD_THRESHOLD;
+		case LuaInputState::ANALOG_INDEX_LS_LEFT:  return Gamepads[player].fX1 < -ANALOG_HOLD_THRESHOLD;
+		case LuaInputState::ANALOG_INDEX_LS_RIGHT: return Gamepads[player].fX1 >  ANALOG_HOLD_THRESHOLD;
+		case LuaInputState::ANALOG_INDEX_RS_UP:    return Gamepads[player].fY2 >  ANALOG_HOLD_THRESHOLD;
+		case LuaInputState::ANALOG_INDEX_RS_DOWN:  return Gamepads[player].fY2 < -ANALOG_HOLD_THRESHOLD;
+		case LuaInputState::ANALOG_INDEX_RS_LEFT:  return Gamepads[player].fX2 < -ANALOG_HOLD_THRESHOLD;
+		case LuaInputState::ANALOG_INDEX_RS_RIGHT: return Gamepads[player].fX2 >  ANALOG_HOLD_THRESHOLD;
+		case LuaInputState::TRIGGER_INDEX_LT:      return Gamepads[player].bLeftTrigger  > XINPUT_GAMEPAD_TRIGGER_THRESHOLD;
+		case LuaInputState::TRIGGER_INDEX_RT:      return Gamepads[player].bRightTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD;
 		default: return false;
 	}
 }
 
 static void ResetHoldStatesForPlayer(int player)
 {
-	for (int idx = 0; idx < TOTAL_HOLD_INDEX_COUNT; ++idx) {
+	for (int idx = 0; idx < LuaInputState::TOTAL_HOLD_INDEX_COUNT; ++idx) {
 		s_buttonWasHeld[player][idx] = false;
 		s_buttonHoldStart[player][idx] = 0;
 	}
@@ -231,7 +188,7 @@ static void ResetHoldStatesForPlayer(int player)
 
 static void UpdateHoldStatesForPlayer(int player, WORD currentButtons, DWORD now)
 {
-	for (int idx = 0; idx < BUTTON_INDEX_COUNT; ++idx) {
+	for (int idx = 0; idx < LuaInputState::BUTTON_INDEX_COUNT; ++idx) {
 		WORD mask = s_buttonIndexToMask[idx];
 		bool pressedNow = (currentButtons & mask) != 0;
 		if (pressedNow) {
@@ -245,7 +202,7 @@ static void UpdateHoldStatesForPlayer(int player, WORD currentButtons, DWORD now
 		}
 	}
 
-	for (int idx = BUTTON_INDEX_COUNT; idx < TOTAL_HOLD_INDEX_COUNT; ++idx) {
+	for (int idx = LuaInputState::BUTTON_INDEX_COUNT; idx < LuaInputState::TOTAL_HOLD_INDEX_COUNT; ++idx) {
 		bool active = IsAnalogDirectionActive(player, idx);
 		if (active) {
 			if (!s_buttonWasHeld[player][idx]) {
@@ -344,7 +301,7 @@ static bool MapXboxButtonName(const char* buttonName, WORD& buttonMask, const ch
 	return true;
 }
 
-static void TriggerButtonCallback(const ButtonCallbackInfo& info, int player)
+static void TriggerButtonCallback(const LuaInputState::ButtonCallbackInfo& info, int player)
 {
 	extern lua_State* luaState;
 	extern bool luaInitialized;
@@ -380,7 +337,7 @@ static const char* ResolveVirtualButton(lua_State* L, const char* virtualBtn)
 	}
 	
 	// Check if this Lua state has virtual mappings
-	std::map<lua_State*, std::map<std::string, std::string> >::iterator stateIt = s_virtualInputMappings.find(L);
+	LuaInputState::VirtualInputMappings::iterator stateIt = s_virtualInputMappings.find(L);
 	if (stateIt == s_virtualInputMappings.end()) {
 		return NULL;
 	}
@@ -472,7 +429,7 @@ static int lua_onbuttonpress(lua_State* L)
 	}
 
 	if (lua_isnil(L, 2)) {
-		std::map<WORD, ButtonCallbackInfo>::iterator it = s_buttonPressCallbacks.find(buttonMask);
+		std::map<WORD, LuaInputState::ButtonCallbackInfo>::iterator it = s_buttonPressCallbacks.find(buttonMask);
 		if (it != s_buttonPressCallbacks.end()) {
 			if (it->second.luaRef >= 0) {
 				luaL_unref(L, LUA_REGISTRYINDEX, it->second.luaRef);
@@ -486,7 +443,7 @@ static int lua_onbuttonpress(lua_State* L)
 		return luaL_error(L, "onbuttonpress: callback must be a function or nil");
 	}
 
-	ButtonCallbackInfo& info = s_buttonPressCallbacks[buttonMask];
+	LuaInputState::ButtonCallbackInfo& info = s_buttonPressCallbacks[buttonMask];
 	if (info.luaRef >= 0) {
 		luaL_unref(L, LUA_REGISTRYINDEX, info.luaRef);
 	}
@@ -521,7 +478,7 @@ static int lua_onbuttonrelease(lua_State* L)
 	}
 
 	if (lua_isnil(L, 2)) {
-		std::map<WORD, ButtonCallbackInfo>::iterator it = s_buttonReleaseCallbacks.find(buttonMask);
+		std::map<WORD, LuaInputState::ButtonCallbackInfo>::iterator it = s_buttonReleaseCallbacks.find(buttonMask);
 		if (it != s_buttonReleaseCallbacks.end()) {
 			if (it->second.luaRef >= 0) {
 				luaL_unref(L, LUA_REGISTRYINDEX, it->second.luaRef);
@@ -535,7 +492,7 @@ static int lua_onbuttonrelease(lua_State* L)
 		return luaL_error(L, "onbuttonrelease: callback must be a function or nil");
 	}
 
-	ButtonCallbackInfo& info = s_buttonReleaseCallbacks[buttonMask];
+	LuaInputState::ButtonCallbackInfo& info = s_buttonReleaseCallbacks[buttonMask];
 	if (info.luaRef >= 0) {
 		luaL_unref(L, LUA_REGISTRYINDEX, info.luaRef);
 	}
@@ -1108,13 +1065,13 @@ void Lua_InputCleanup(lua_State* L)
 {
 	if (L != NULL) {
 		// Clean up Lua refs for button callbacks
-		for (std::map<WORD, ButtonCallbackInfo>::iterator it = s_buttonPressCallbacks.begin();
+		for (std::map<WORD, LuaInputState::ButtonCallbackInfo>::iterator it = s_buttonPressCallbacks.begin();
 			 it != s_buttonPressCallbacks.end(); ++it) {
 			if (it->second.luaRef >= 0) {
 				luaL_unref(L, LUA_REGISTRYINDEX, it->second.luaRef);
 			}
 		}
-		for (std::map<WORD, ButtonCallbackInfo>::iterator it = s_buttonReleaseCallbacks.begin();
+		for (std::map<WORD, LuaInputState::ButtonCallbackInfo>::iterator it = s_buttonReleaseCallbacks.begin();
 			 it != s_buttonReleaseCallbacks.end(); ++it) {
 			if (it->second.luaRef >= 0) {
 				luaL_unref(L, LUA_REGISTRYINDEX, it->second.luaRef);
@@ -1200,7 +1157,7 @@ void Lua_InputOnFrame(lua_State* L)
 				UpdateHoldStatesForPlayer(p, currentButtons, now);
 
 				if (havePressCallbacks && pressedThisFrame) {
-					for (std::map<WORD, ButtonCallbackInfo>::const_iterator it = s_buttonPressCallbacks.begin();
+					for (std::map<WORD, LuaInputState::ButtonCallbackInfo>::const_iterator it = s_buttonPressCallbacks.begin();
 						 it != s_buttonPressCallbacks.end(); ++it) {
 						if ((pressedThisFrame & it->second.mask) != 0) {
 							TriggerButtonCallback(it->second, p);
@@ -1208,7 +1165,7 @@ void Lua_InputOnFrame(lua_State* L)
 					}
 				}
 				if (haveReleaseCallbacks && releasedThisFrame) {
-					for (std::map<WORD, ButtonCallbackInfo>::const_iterator it = s_buttonReleaseCallbacks.begin();
+					for (std::map<WORD, LuaInputState::ButtonCallbackInfo>::const_iterator it = s_buttonReleaseCallbacks.begin();
 						 it != s_buttonReleaseCallbacks.end(); ++it) {
 						if ((releasedThisFrame & it->second.mask) != 0) {
 							TriggerButtonCallback(it->second, p);

@@ -3,6 +3,7 @@
 #ifdef USE_LUA
 
 #include "lua_emulator.h"
+#include "lua_shared_state.h"
 #include "lua_helpers.h"
 #include "fceu.h"
 #include "x6502.h"
@@ -19,8 +20,8 @@ extern "C" {
 #include "../xbox/lua/src/lualib.h"
 }
 
-// Constants
-static const double kNTSCFrameRate = 60.0988118623484;
+// Use timing constants from shared header
+using namespace LuaProfilerState;
 
 // Frame counter and FPS tracking
 static int s_totalFrameCount = 0;
@@ -100,7 +101,7 @@ static int lua_getapucycles(lua_State* L)
 static int lua_getelapsedtime(lua_State* L)
 {
 	// Use our frame counter and divide by NTSC frame rate
-	double elapsedTime = (double)s_totalFrameCount / kNTSCFrameRate;
+	double elapsedTime = (double)s_totalFrameCount / LuaProfilerState::kNTSCFrameRate;
 	
 	lua_pushnumber(L, elapsedTime);
 	return 1;
