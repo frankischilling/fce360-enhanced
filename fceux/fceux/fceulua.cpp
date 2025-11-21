@@ -261,8 +261,6 @@ bool luaInitialized = false;  // Non-static so other modules can access it
  
 // FPS tracking moved to lua_emulator.cpp
  
- // Forward declaration
- static uint8* currentXBuf = NULL;
  // Store the actual frame buffer passed to FCEU_LuaGui (not the overlay)
  static uint8* s_frameXBuf = NULL;
  // Pre-initialize screenshot directory path to avoid lag on first screenshot
@@ -1011,7 +1009,8 @@ void FCEU_ReloadLuaCode(void) {
 				 Lua_VideoResetRenderTarget();
 				 
 				 // Point Lua draw calls at the back buffer, not the front buffer
-				 currentXBuf = s_overlay_back;
+				 // Use the proper function to set the render target so lua_video.cpp's currentXBuf is updated
+				 Lua_VideoSetRenderTarget(s_overlay_back);
 				 
 			 // Call script() function if it exists (also support legacy gui() for backward compatibility)
 			 lua_getglobal(luaState, "script");
@@ -1045,7 +1044,8 @@ void FCEU_ReloadLuaCode(void) {
 				 }
 			 }
 			 
-			 currentXBuf = NULL;
+			 // Reset render target after Lua execution
+			 Lua_VideoResetRenderTarget();
 			 } // End of sleep check block
 		 } else {
 			 // Lua not initialized
