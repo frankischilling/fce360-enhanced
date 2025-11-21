@@ -22,9 +22,10 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
- #include "fceux\git.h"
- #include "fceux\driver.h"
- #include "fceux\video.h"
+#include "fceux\git.h"
+#include "fceux\driver.h"
+#include "fceux\video.h"
+#include "fceux\cheat.h"
  #include <xtl.h>
  #include <xui.h>
  #include <xuiapp.h>
@@ -36,6 +37,7 @@
  #include <math.h>
  #include <algorithm>
  #include <cwctype>
+#include <cctype>
  
  // Forward declaration for Xbox keyboard UI if not in xui.h
  #ifndef XShowKeyboardUI
@@ -484,6 +486,15 @@
 	 HANDLE m_keyboardEvent;  // Event handle for keyboard
 	 WCHAR m_keyboardResult[256];  // Buffer to hold keyboard result
 	 
+	 // Game Genie keyboard state
+	 bool m_gameGenieLatch;  // Prevents multiple Game Genie keyboard opens
+	 XOVERLAPPED m_gameGenieOverlapped;  // Overlapped structure for Game Genie keyboard
+	 bool m_gameGeniePending;  // True when Game Genie keyboard is open and waiting
+	 HANDLE m_gameGenieEvent;  // Event handle for Game Genie keyboard
+	 WCHAR m_gameGenieResult[512];  // Buffer to hold Game Genie codes (larger for multiple codes)
+	 std::string m_pendingRomPath;  // ROM path to load after Game Genie codes are entered
+	 std::wstring m_pendingRomCleanName;  // Clean display name for recent games
+	 
 	 static const int MAX_RECENT_GAMES = 15;  // Maximum number of recent games to track
  
 	 // Static comparison function for sorting ROM list alphabetically
@@ -559,13 +570,19 @@
 				 cleanName = cleanName.substr(9); // Remove "[Recent] " prefix
 			 }
 			 
+			 // Check if Game Genie prompt is enabled
+			 if (emul.m_Settings.promptForGameGenie) {
+				 // Show Game Genie keyboard before loading ROM
+				 ShowGameGenieKeyboard(sRom, cleanName);
+			 } else {
 			 // Add to recent games before loading
 			 AddToRecentGames(sRom, cleanName);
 			 
-			 emul.LoadGame( sRom ,true);
+				 emul.LoadGame(sRom, true);
 			 // Note: Lua scripts are auto-loaded inside LoadGame after ROM is loaded/powered
  
 			 GoToNext();
+			 }
 		 }
 		 return S_OK;
 	 }
@@ -626,6 +643,15 @@
 		 m_keyboardEvent = NULL;
 		 memset(&m_keyboardOverlapped, 0, sizeof(XOVERLAPPED));
 		 m_keyboardResult[0] = L'\0';
+		 
+		 // Initialize Game Genie keyboard
+		 m_gameGenieLatch = false;
+		 m_gameGeniePending = false;
+		 m_gameGenieEvent = NULL;
+		 memset(&m_gameGenieOverlapped, 0, sizeof(XOVERLAPPED));
+		 m_gameGenieResult[0] = L'\0';
+		 m_pendingRomPath.clear();
+		 m_pendingRomCleanName.clear();
  
 		 // Ensure config is loaded before loading recent games and favorites
 		 extern Config fcecfg;
@@ -757,6 +783,45 @@
 				 
 				 CloseHandle(m_keyboardEvent);
 				 m_keyboardEvent = NULL;
+			 }
+		 }
+		 
+		 // Check for Game Genie keyboard completion if one is pending (non-blocking check)
+		 if (m_gameGeniePending && m_gameGenieEvent)
+		 {
+			 DWORD dwWaitResult = WaitForSingleObject(m_gameGenieEvent, 0);  // Non-blocking check
+			 if (dwWaitResult == WAIT_OBJECT_0)
+			 {
+				 // Game Genie keyboard input completed
+				 m_gameGeniePending = false;
+				 
+				 // Store the codes to process after ROM is loaded
+				 char narrowResult[512];
+				 WideCharToMultiByte(CP_UTF8, 0, m_gameGenieResult, -1, narrowResult, sizeof(narrowResult), NULL, NULL);
+				 std::string codesToProcess = narrowResult;
+				 
+				 // Enable Game Genie system
+				 extern void FCEUI_SetGameGenie(bool a);
+				 FCEUI_SetGameGenie(true);
+				 
+				 // Load the ROM first (so FileBase is set for cheat file path)
+				 if (!m_pendingRomPath.empty()) {
+					 AddToRecentGames(m_pendingRomPath, m_pendingRomCleanName);
+					 HRESULT loadResult = emul.LoadGame(m_pendingRomPath, true);
+					 if (SUCCEEDED(loadResult)) {
+						 // Process codes and add them as cheats (after ROM is loaded)
+						 // FCEUI_AddCheat() already calls RebuildSubCheats() which activates them
+						 if (!codesToProcess.empty()) {
+							 ProcessGameGenieCodes(codesToProcess);
+						 }
+						 GoToNext();
+					 }
+				 }
+				 
+				 CloseHandle(m_gameGenieEvent);
+				 m_gameGenieEvent = NULL;
+				 m_pendingRomPath.clear();
+				 m_pendingRomCleanName.clear();
 			 }
 		 }
 		 
@@ -1180,6 +1245,210 @@
 		 else
 		 {
 			 UpdateRomCounter();
+		 }
+	 }
+	 
+	 // Helper function to decode a single Game Genie code
+	 // Returns true on success, false on error
+	 bool DecodeGameGenieCode(const char* codeStr, uint32& address, uint8& value, int& compare)
+	 {
+		 int a = 0, v = 0, c = -1;
+		 if (!FCEUI_DecodeGG(codeStr, &a, &v, &c)) {
+			 return false;
+		 }
+		 address = (uint32)a;
+		 value = (uint8)v;
+		 compare = c;
+		 return true;
+	 }
+	 
+	 // Normalize and optionally store a single Game Genie code token.
+	 // Returns true if a valid 6 or 8 character code was added.
+	 bool NormalizeAndAddGameGenieToken(const std::string& token, std::vector<std::string>& codeList)
+	 {
+		 std::string t = token;
+		 t.erase(std::remove(t.begin(), t.end(), '-'), t.end());
+		 if (t.empty()) {
+			 return false;
+		 }
+		 for (size_t i = 0; i < t.size(); i++) {
+			 t[i] = toupper(static_cast<unsigned char>(t[i]));
+		 }
+		 if (t.size() == 6 || t.size() == 8) {
+			 codeList.push_back(t);
+			 return true;
+		 }
+		 return false;
+	 }
+	 
+	 // Parse Game Genie codes from input string and add them as cheats
+	 void ProcessGameGenieCodes(const std::string& input)
+	 {
+		 if (input.empty()) {
+			 return;  // Empty input means skip cheats
+		 }
+		 
+		 // Split by separators (space/comma/semicolon/newline) then validate each code.
+		 // We normalize each token separately so multiple codes don't get concatenated.
+		 std::vector<std::string> codeList;
+		 std::string current;
+		 
+		 for (size_t i = 0; i < input.size(); i++) {
+			 char ch = input[i];
+			 if (ch == ',' || ch == ';' || ch == '\n' || ch == '\r' || isspace(static_cast<unsigned char>(ch))) {
+				 NormalizeAndAddGameGenieToken(current, codeList);
+				 current.clear();
+			 } else {
+				 current.push_back(ch);
+			 }
+		 }
+		 NormalizeAndAddGameGenieToken(current, codeList);
+		 
+		 if (codeList.empty()) {
+			 return;  // Nothing usable was entered
+		 }
+		 
+		 // Decode and add each code
+		 int codeNum = 1;
+		 int codesAdded = 0;
+		 for (size_t i = 0; i < codeList.size(); i++) {
+			 uint32 address;
+			 uint8 value;
+			 int compare;
+			 
+			 if (DecodeGameGenieCode(codeList[i].c_str(), address, value, compare)) {
+				 char cheatName[64];
+				 snprintf(cheatName, sizeof(cheatName), "Game Genie Code %d", codeNum++);
+				 // Debug: Output decoded code info
+				 char debugMsg[256];
+				 if (compare >= 0) {
+					 snprintf(debugMsg, sizeof(debugMsg), "Game Genie: %s -> addr=0x%04X val=0x%02X compare=0x%02X\n", 
+						 codeList[i].c_str(), address, value, compare);
+				 } else {
+					 snprintf(debugMsg, sizeof(debugMsg), "Game Genie: %s -> addr=0x%04X val=0x%02X\n", 
+						 codeList[i].c_str(), address, value);
+				 }
+				 OutputDebugStringA(debugMsg);
+				 if (FCEUI_AddCheat(cheatName, address, value, compare, 1)) {  // type=1 for Game Genie/substitute
+					 codesAdded++;
+					 OutputDebugStringA("Game Genie: Cheat added successfully\n");
+				 } else {
+					 OutputDebugStringA("Game Genie: Failed to add cheat\n");
+				 }
+			 } else {
+				 char debugMsg[256];
+				 snprintf(debugMsg, sizeof(debugMsg), "Game Genie: Failed to decode code: %s\n", codeList[i].c_str());
+				 OutputDebugStringA(debugMsg);
+			 }
+		 }
+		 
+		 // FCEUI_AddCheat() already calls RebuildSubCheats() for each cheat,
+		 // which installs read handlers immediately. Cheats are active right away.
+		 // Ensure cheats are properly powered on after adding all codes.
+		 if (codesAdded > 0) {
+			 extern void FCEU_PowerCheats(void);
+			 FCEU_PowerCheats();  // Ensure cheats are properly activated
+		 }
+	 }
+	 
+	 void ShowGameGenieKeyboard(const std::string& romPath, const std::wstring& cleanName)
+	 {
+		 // Prevent multiple keyboard opens
+		 if (m_gameGenieLatch || m_gameGeniePending) return;
+		 m_gameGenieLatch = true;
+		 
+		 // Store ROM path and clean name to load after codes are entered
+		 m_pendingRomPath = romPath;
+		 m_pendingRomCleanName = cleanName;
+		 
+		 // Close any existing event handle
+		 if (m_gameGenieEvent)
+		 {
+			 CloseHandle(m_gameGenieEvent);
+			 m_gameGenieEvent = NULL;
+		 }
+		 
+		 // Create event for async operation
+		 m_gameGenieEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+		 if (!m_gameGenieEvent)
+		 {
+			 m_gameGenieLatch = false;
+			 m_pendingRomPath.clear();
+			 m_pendingRomCleanName.clear();
+			 return;
+		 }
+		 
+		 // Initialize overlapped structure
+		 memset(&m_gameGenieOverlapped, 0, sizeof(XOVERLAPPED));
+		 m_gameGenieOverlapped.hEvent = m_gameGenieEvent;
+		 
+		 // Initialize result buffer
+		 memset(m_gameGenieResult, 0, sizeof(m_gameGenieResult));
+		 
+		 DWORD dwResultLength = sizeof(m_gameGenieResult) / sizeof(WCHAR);
+		 
+		 // Show the Xbox 360 on-screen keyboard (non-blocking async call)
+		 DWORD dwResult = XShowKeyboardUI(
+			 0,                              // dwUserIndex (controller 1 = 0)
+			 0,                              // dwFlags (0 = default keyboard)
+			 L"",                             // pwszDefaultText - empty default
+			 L"Game Genie Codes",             // pwszTitleText
+			 L"Enter Game Genie codes (6 or 8 characters each). Separate multiple codes with spaces or commas. Submit empty to skip.",  // pwszDescriptionText
+			 m_gameGenieResult,               // pwszResultText - receives the entered text
+			 dwResultLength,                  // cchResultText - size of result buffer
+			 &m_gameGenieOverlapped           // pOverlapped - for async operation
+		 );
+		 
+		 if (dwResult == ERROR_IO_PENDING)
+		 {
+			 // Keyboard is now pending - will check for completion in UpdatePerFrame (non-blocking)
+			 m_gameGeniePending = true;
+			 m_gameGenieLatch = false;  // Allow keyboard to work again after it closes
+		 }
+		 else if (dwResult == ERROR_SUCCESS)
+		 {
+			 // Keyboard returned immediately (unlikely but handle it)
+			 // Store the codes to process after ROM is loaded
+			 char narrowResult[512];
+			 WideCharToMultiByte(CP_UTF8, 0, m_gameGenieResult, -1, narrowResult, sizeof(narrowResult), NULL, NULL);
+			 std::string codesToProcess = narrowResult;
+			 
+			 // Enable Game Genie system
+			 extern void FCEUI_SetGameGenie(bool a);
+			 FCEUI_SetGameGenie(true);
+			 
+			 // Load the ROM first (so FileBase is set for cheat file path)
+			 AddToRecentGames(m_pendingRomPath, m_pendingRomCleanName);
+			 HRESULT loadResult = emul.LoadGame(m_pendingRomPath, true);
+				 if (SUCCEEDED(loadResult)) {
+					 // Process codes and add them as cheats (after ROM is loaded)
+					 // FCEUI_AddCheat() already calls RebuildSubCheats() which activates them
+					 if (!codesToProcess.empty()) {
+						 ProcessGameGenieCodes(codesToProcess);
+					 }
+					 GoToNext();
+				 }
+			 
+			 CloseHandle(m_gameGenieEvent);
+			 m_gameGenieEvent = NULL;
+			 m_gameGenieLatch = false;
+			 m_pendingRomPath.clear();
+			 m_pendingRomCleanName.clear();
+		 }
+		 else
+		 {
+			 // Error occurred - just load the ROM without codes
+			 AddToRecentGames(m_pendingRomPath, m_pendingRomCleanName);
+			 HRESULT loadResult = emul.LoadGame(m_pendingRomPath, true);
+			 if (SUCCEEDED(loadResult)) {
+				 GoToNext();
+			 }
+			 
+			 CloseHandle(m_gameGenieEvent);
+			 m_gameGenieEvent = NULL;
+			 m_gameGenieLatch = false;
+			 m_pendingRomPath.clear();
+			 m_pendingRomCleanName.clear();
 		 }
 	 }
 	 
