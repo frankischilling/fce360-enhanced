@@ -22,7 +22,8 @@ See [Setup](Setup) for detailed instructions.
 ### API Reference
 
 #### Drawing Functions
-- **[Drawing Functions](Drawing-Functions)** - Text, shapes, images, and graphics primitives
+- **[Drawing Functions](Drawing-Functions)** - Text, shapes, images, and graphics primitives  
+  *Implementation: `fceux/fceux/lua_video.cpp`*
   - **Text rendering:** [`drawtext()`](Drawing-Functions#drawtext), [`textstyle()`](Drawing-Functions#textstyle), [`drawtextwh()`](Drawing-Functions#drawtextwh), [`drawtextscaled()`](Drawing-Functions#drawtextscaled), [`drawtextrotated()`](Drawing-Functions#drawtextrotated), [`gettextwidth()`](Drawing-Functions#gettextwidth), [`gettextheight()`](Drawing-Functions#gettextheight), [`measuretextblock()`](Drawing-Functions#measuretextblock), [`drawtextbox()`](Drawing-Functions#drawtextbox)
   - **Basic drawing:** [`drawpixel()`](Drawing-Functions#drawpixel), [`drawline()`](Drawing-Functions#drawline), [`drawthickline()`](Drawing-Functions#drawthickline)
   - **Rectangles:** [`drawrect()`](Drawing-Functions#drawrect), [`fillrect()`](Drawing-Functions#fillrect), [`clearrect()`](Drawing-Functions#clearrect)
@@ -34,7 +35,8 @@ See [Setup](Setup) for detailed instructions.
   - **Shapes:** [`drawcircle()`](Drawing-Functions#drawcircle), [`fillcircle()`](Drawing-Functions#fillcircle), [`drawellipse()`](Drawing-Functions#drawellipse), [`fillellipse()`](Drawing-Functions#fillellipse), [`drawarc()`](Drawing-Functions#drawarc), [`fillarc()`](Drawing-Functions#fillarc), [`drawroundrect()`](Drawing-Functions#drawroundrect), [`fillroundrect()`](Drawing-Functions#fillroundrect), [`drawtriangle()`](Drawing-Functions#drawtriangle), [`filltriangle()`](Drawing-Functions#filltriangle), [`drawpolygon()`](Drawing-Functions#drawpolygon), [`drawpolyline()`](Drawing-Functions#drawpolyline), [`fillpolygon()`](Drawing-Functions#fillpolygon)
 
 #### Memory Functions
-- **[Memory Reading Functions](Memory-Functions#memory-reading-functions)** - Read and scan memory
+- **[Memory Reading Functions](Memory-Functions#memory-reading-functions)** - Read and scan memory  
+  *Implementation: `fceux/fceux/lua_memory.cpp`*
   - **Reading:** [`readbyte()`](Memory-Functions#readbyte), [`readword()`](Memory-Functions#readword), [`readbytes()`](Memory-Functions#readbytes), [`readram()`](Memory-Functions#readram)
   - **Memory info:** [`getmemorytype()`](Memory-Functions#getmemorytype), [`ismemorywritable()`](Memory-Functions#ismemorywritable)
   - **Scanning:** [`scanbyte()`](Memory-Functions#scanbyte), [`scanword()`](Memory-Functions#scanword), [`scanbytes()`](Memory-Functions#scanbytes), [`findpattern()`](Memory-Functions#findpattern), [`scanchanged()`](Memory-Functions#scanchanged)
@@ -46,7 +48,8 @@ See [Setup](Setup) for detailed instructions.
   - **Bit operations:** [`setbit()`](Memory-Functions#setbit), [`clearbit()`](Memory-Functions#clearbit), [`togglebit()`](Memory-Functions#togglebit), [`testbit()`](Memory-Functions#testbit)
 
 #### Audio Functions
-- **[Audio Functions](Audio-Functions)** - Audio analysis and processing
+- **[Audio Functions](Audio-Functions)** - Audio analysis and processing  
+  *Implementation: `fceux/fceux/lua_audio.cpp`*
   - **Status:** [`getaudioenabled()`](Audio-Functions#getaudioenabled)
   - **Mixed audio:** [`getaudiosample()`](Audio-Functions#getaudiosample), [`getaudiobuffer()`](Audio-Functions#getaudiobuffer), [`getaudiosampleleft()`](Audio-Functions#getaudiosampleleft), [`getaudiosampleright()`](Audio-Functions#getaudiosampleright), [`getaudiofft()`](Audio-Functions#getaudiofft)
   - **Channel-specific:** [`getaudiochannel()`](Audio-Functions#getaudiochannel), [`getaudiochannelsample()`](Audio-Functions#getaudiochannelsample), [`getaudiochannelfft()`](Audio-Functions#getaudiochannelfft)
@@ -54,31 +57,36 @@ See [Setup](Setup) for detailed instructions.
   - **Format conversion:** [`audiosampletofloat()`](Audio-Functions#audiosampletofloat), [`floattosample()`](Audio-Functions#floattosample), [`audiosampletouint8()`](Audio-Functions#audiosampletouint8), [`uint8tosample()`](Audio-Functions#uint8tosample), [`normalizeaudiosample()`](Audio-Functions#normalizeaudiosample), [`monotostereo()`](Audio-Functions#monotostereo), [`stereotomono()`](Audio-Functions#stereotomono)
 
 #### File I/O Functions
-- **[File I/O Functions](File-IO-Functions)** - File and directory management
+- **[File I/O Functions](File-IO-Functions)** - File and directory management  
+  *Implementation: `fceux/fceux/lua_fileio.cpp`*
   - **Reading:** [`readfile()`](File-IO-Functions#readfile)
   - **Writing:** [`writefile()`](File-IO-Functions#writefile)
   - **File info:** [`fileexists()`](File-IO-Functions#fileexists), [`listfiles()`](File-IO-Functions#listfiles), [`listdir()`](File-IO-Functions#listdir)
   - **Directory management:** [`mkdir()`](File-IO-Functions#mkdir), [`rmdir()`](File-IO-Functions#rmdir), [`rmfile()`](File-IO-Functions#rmfile)
 
 #### Input Functions
-- **[Input Functions](Input-Functions)** - Controller input and manipulation
+- **[Input Functions](Input-Functions)** - Controller input and manipulation  
+  *Implementation: `fceux/fceux/lua_input.cpp`*
   - **Reading:** [`getjoypad()`](Input-Functions#getjoypad), [`isbuttonpressed()`](Input-Functions#isbuttonpressed), [`isxboxbuttonpressed()`](Input-Functions#isxboxbuttonpressed), [`gethardwarejoypad()`](Input-Functions#gethardwarejoypad), [`getbuttonheldms()`](Input-Functions#getbuttonheldms)
   - **Writing:** [`setjoypad()`](Input-Functions#setjoypad), [`clearjoypad()`](Input-Functions#clearjoypad), [`pressbutton()`](Input-Functions#pressbutton), [`releasebutton()`](Input-Functions#releasebutton)
   - **Remapping:** [`mapinput()`](Input-Functions#mapinput) - Per-script input remapping for custom control schemes
   - **Feedback:** [`setrumble()`](Input-Functions#setrumble) - Controller haptic feedback
   - **Callbacks:** [`onbuttonpress()`](Input-Functions#onbuttonpress), [`onbuttonrelease()`](Input-Functions#onbuttonrelease)
   - **Utilities:** [`getbuttonname()`](Input-Functions#getbuttonname), [`getbuttonmask()`](Input-Functions#getbuttonmask)
-- **[Input Recording Functions](Input-Recording-Functions)** - Capture and replay controller input
+- **[Input Recording Functions](Input-Recording-Functions)** - Capture and replay controller input  
+  *Implementation: `fceux/fceux/lua_movie.cpp`*
   - [`startinputrecording()`](Input-Recording-Functions#startinputrecording), [`stopinputrecording()`](Input-Recording-Functions#stopinputrecording), [`playinputrecording(data)`](Input-Recording-Functions#playinputrecordingdata), [`saveinputrecording(path)`](Input-Recording-Functions#saveinputrecordingpath), [`loadinputrecording(path)`](Input-Recording-Functions#loadinputrecordingpath), [`setrecordingmarker(name)`](Input-Recording-Functions#setrecordingmarkername), [`jumptorecordingmarker(name)`](Input-Recording-Functions#jumptorecordingmarkername), [`setplaybackspeed(mult)`](Input-Recording-Functions#setplaybackspeedmult), [`trimrecording(startFrame, endFrame)`](Input-Recording-Functions#trimrecordingstartframe-endframe)
   - Recording utilities integrate with [`gethardwarejoypad()`](Input-Functions#gethardwarejoypad) for toggles and [`setjoypad()`](Input-Functions#setjoypad) for scripted overrides
 
 #### State Management Functions
-- **[State Management Functions](State-Management-Functions)** - Save and load game states
+- **[State Management Functions](State-Management-Functions)** - Save and load game states  
+  *Implementation: `fceux/fceux/lua_movie.cpp`*
   - **Slot-based:** [`savestate()`](State-Management-Functions#savestate), [`loadstate()`](State-Management-Functions#loadstate), [`hasstate()`](State-Management-Functions#hasstate)
   - **File-based:** [`savestatefile()`](State-Management-Functions#savestatefile), [`loadstatefile()`](State-Management-Functions#loadstatefile)
 
 #### Monitoring Functions
-- **[Monitoring Functions](Monitoring-Functions)** - Performance, timing, frame/jitter metrics, Lua memory inspection, garbage collection, and profiling helpers.
+- **[Monitoring Functions](Monitoring-Functions)** - Performance, timing, frame/jitter metrics, Lua memory inspection, garbage collection, and profiling helpers.  
+  *Implementation: `fceux/fceux/lua_profiler.cpp`, `fceux/fceux/lua_emulator.cpp`*
   - **FPS:** [`getfps()`](Monitoring-Functions#getfps)
   - **Frame info:** [`getframecount()`](Monitoring-Functions#getframecount), [`getelapsedframes()`](Monitoring-Functions#getelapsedframes), [`getframecycles()`](Monitoring-Functions#getframecycles), [`getppucycles()`](Monitoring-Functions#getppucycles), [`getapucycles()`](Monitoring-Functions#getapucycles), [`getelapsedtime()`](Monitoring-Functions#getelapsedtime)
   - **Frame timing:** [`getframetime_ms()`](Monitoring-Functions#getframetime_ms), [`getjitter_ms()`](Monitoring-Functions#getjitter_ms)
@@ -88,7 +96,8 @@ See [Setup](Setup) for detailed instructions.
   - **Screen info:** [`getscreenwidth()`](Monitoring-Functions#getscreenwidth), [`getscreenheight()`](Monitoring-Functions#getscreenheight), [`getscreensize()`](Monitoring-Functions#getscreensize)
 
 #### ROM Information Functions
-- **[ROM Information Functions](ROM-Info-Functions)** - Game and cartridge information
+- **[ROM Information Functions](ROM-Info-Functions)** - Game and cartridge information  
+  *Implementation: `fceux/fceux/lua_rom.cpp`, `fceux/fceux/lua_gamegenie.cpp` (Game Genie functions)*
   - **ROM info:** [`getromname()`](ROM-Info-Functions#getromname), [`getrompath()`](ROM-Info-Functions#getrompath), [`getromhash(algorithm)`](ROM-Info-Functions#getromhashalgorithm), [`getinesheader()`](ROM-Info-Functions#getinesheader), [`getregion()`](ROM-Info-Functions#getregion), [`getromsize()`](ROM-Info-Functions#getromsize), [`getprgsize()`](ROM-Info-Functions#getprgsize), [`getchrsize()`](ROM-Info-Functions#getchrsize)
   - **Mapper:** [`getmapper()`](ROM-Info-Functions#getmapper), [`getmapperstring()`](ROM-Info-Functions#getmapperstring)
   - **Features:** [`hasbattery()`](ROM-Info-Functions#hasbattery)
@@ -97,12 +106,14 @@ See [Setup](Setup) for detailed instructions.
   - **Game Genie:** [`getgamegeniecode()`](ROM-Info-Functions#getgamegeniecode), [`decodegamegenie()`](ROM-Info-Functions#decodegamegenie)
 
 #### Color and Palette Functions
-- **[Color Functions](Color-Functions)** - Color manipulation and palette
+- **[Color Functions](Color-Functions)** - Color manipulation and palette  
+  *Implementation: `fceux/fceux/lua_palette.cpp`*
   - **Palette:** [`getpalettecolor()`](Color-Functions#getpalettecolor), [`getpalette()`](Color-Functions#getpalette), [`setpalettecolor()`](Color-Functions#setpalettecolor), [`setpalette()`](Color-Functions#setpalette), [`loadpalette()`](Color-Functions#loadpalette), [`getnescolor()`](Color-Functions#getnescolor)
   - **Color utilities:** [`getcolorrgb()`](Color-Functions#getcolorrgb), [`blendcolors()`](Color-Functions#blendcolors)
 
 #### Utility Functions
-- **[Utility Functions](Utility-Functions)** - Debugging and console output
+- **[Utility Functions](Utility-Functions)** - Debugging and console output  
+  *Implementation: `fceux/fceux/lua_runtime.cpp`, `fceux/fceux/lua_video.cpp` (console functions)*
   - **Console output:** [`print(...)`](Utility-Functions#print), [`log(...)`](Utility-Functions#log)
   - **Console settings:** [`setconsolespacing(pixels)`](Utility-Functions#setconsolespacingpixels)
 
@@ -138,8 +149,21 @@ function script()
 end
 ```
 
+## Codebase Structure
+
+The Lua API bindings are organized into modular C++ files for maintainability:
+
+**Core Integration:**
+- `fceux/fceux/fceulua.cpp` – Main Lua integration and script loading
+- `fceux/fceux/lua_bindings.h` – Consolidated header for all modules
+- `fceux/fceux/lua_helpers.h/.cpp` – Centralized helper utilities
+- `fceux/fceux/lua_shared_state.h` – Shared state structures
+
+**API Modules:** Each API category maps to a specific C++ file (see file references above). For contributor guidelines, see [Contributing](Contributing).
+
 ## Need Help?
 
 - Check the [Troubleshooting](Troubleshooting) page for common issues
 - Review [Complete Examples](Examples) for working code samples
 - See [Technical Details](Technical-Details) for implementation specifics
+- See [Contributing](Contributing) for codebase structure and development guidelines
