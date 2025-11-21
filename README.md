@@ -22,7 +22,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Also builds on Xbox 360 SDK 21256.3
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.8.8** — *Palette Management Functions: Added 3 new functions for bulk palette operations, palette retrieval, and loading custom palettes from files (setpalette, getpalette, loadpalette)*  *Game Genie Support Returns: Toggle an Xbox keyboard prompt before launch, enter one or more codes, and watch them decode, activate, and save automatically just like the original hardware magic.*
+* Current release: **v0.8.9** — *Lua Scripting Layer Refactor: 12 focused binding modules, centralized helpers, table-driven registration, shared state headers, and documentation refresh to make the API easier to extend and test.* v0.8.8 *Palette Management Functions: Added 3 new functions for bulk palette operations, palette retrieval, and loading custom palettes from files (setpalette, getpalette, loadpalette).*
 
 ---
 
@@ -30,6 +30,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 - [Features Showcase](#features-showcase)
 - [What's New](#whats-new)
+  - [v0.8.9 - Lua Scripting Layer Refactor](#whats-new-v089)
   - [v0.8.8 - Palette Management Functions](#whats-new-v088)
   - [v0.8.7 - Advanced Performance Monitoring and Profiling Functions](#whats-new-v087)
   - [v0.8.6 - Game Genie Support Returns](#whats-new-v086)
@@ -42,7 +43,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
   - [v0.7.9 - Complete Audio API Suite](#whats-new-v079)
   - [v0.7.8 - Audio API Functions and Screenshot Performance Fix](#whats-new-v078)
   - [v0.7.7 - State Management and Xbox 360 Input Lua API Functions](#whats-new-v077)
-  - [v0.7.6 - New Overlay Functions, Screenshot Improvements, and Text Rendering Updates](#whats-new-v076)
+  - [v0.7.6 - New Ove lay Functions, Screenshot Improvements, and Text Rendering Updates](#whats-new-v076)
   - [v0.7.5 - Timing, Screen Info, and Color Manipulation Lua API Functions](#whats-new-v075)
   - [v0.7.4 - Game State, Game Genie, and Timing Lua API Functions](#whats-new-v074)
   - [v0.7.3 - ROM Information Lua API Functions](#whats-new-v073)
@@ -107,7 +108,36 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 ## What's New
 
-*Current release: **v0.8.8** — Palette Management Functions: Added 3 new functions for bulk palette operations, palette retrieval, and loading custom palettes from files.*
+*Current release: **v0.8.9** — Lua Scripting Layer Refactor: the entire Lua binding stack is now modular, table-driven, and documented so contributors can add features without wading through 12K lines of monolithic code.*
+
+---
+
+## What's new (v0.8.9)
+
+* **Complete Lua Scripting Layer Refactor:** `fceulua.cpp` is now a lightweight orchestrator that wires Lua state lifecycle code and defers to focused modules. Every API category lives in its own pair of files (`lua_video.cpp/.h`, `lua_input.cpp/.h`, etc.), aligning code ownership with the wiki categories and drastically shrinking diffs.
+  * 12 registrar modules cover memory, movies, video/overlay, input, palettes, file I/O, audio, profiler/timing, ROM metadata, emulator timing, runtime utilities, and Game Genie helpers.
+  * Each module exports `void Lua_Register<Domain>(lua_State* L)` and is declared in `lua_bindings.h`, so adding a new domain is a one-line include and registrar call.
+
+* **Centralized Lua Helpers:** Shared argument validation, range checks, error formatting, color/path utilities, and table conversions now live in `lua_helpers.{h,cpp}`. Over 500 helper calls replaced ad-hoc `luaL_error` snippets, giving consistent error text and reducing copy/paste bugs.
+
+* **Shared State + Namespaces:** Persistent structs/enums (button callbacks, rumble state, virtual input mappings, profiler constants, future Game Genie globals) have been pulled into `lua_shared_state.h` inside `LuaInputState::` and `LuaProfilerState::` namespaces. Modules include the header instead of re-declaring globals, eliminating mismatched definitions.
+
+* **Table-Driven Registration:** Every binding module declares a `static const luaL_Reg k<Domain>Funcs[]` and registers the table in one call. This replaced 200+ individual `lua_register()` lines, making reviews trivial and function lists machine-readable.
+
+* **Stability & Testing:** 
+  * `lua_drawtextscaled` and `lua_drawtext` now perform strict overlay-bound validation (including internal padding) to prevent the `test_drawtextscaled.lua` crash on retail consoles.
+  * Additional Lua test scripts (palette, profiling, Game Genie, input recording) were updated to match the new API layout and ensure coverage of each module.
+
+* **Documentation & Contributor Guides:**
+  * README, wiki Home, Technical-Details, and the new `wiki/Contributing.md` explain the module layout, registrar pattern, and helper usage so contributors know where to extend the API.
+  * Added a “Lua Scripting Module Structure” section and migration notes for maintainers moving from v0.8.x to v0.8.9.
+
+* **Includes Previous Features:**
+  * All v0.8.8 palette management features.
+  * All v0.8.7 performance monitoring and profiling functions.
+  * All v0.8.6 Game Genie prompt integration and cheat activation fixes.
+  * All v0.8.5 battery save fixes and ROM information helpers.
+  * Everything from v0.8.4 through v0.6.0 and earlier remains intact.
 
 ---
 
