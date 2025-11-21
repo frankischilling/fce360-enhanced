@@ -22,7 +22,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Also builds on Xbox 360 SDK 21256.3
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.8.8** — *Palette Management Functions: Added 3 new functions for bulk palette operations, palette retrieval, and loading custom palettes from files (setpalette, getpalette, loadpalette)* � *Game Genie Support Returns: Toggle an Xbox keyboard prompt before launch, enter one or more codes, and watch them decode, activate, and save automatically just like the original hardware magic.*
+* Current release: **v0.8.8** — *Palette Management Functions: Added 3 new functions for bulk palette operations, palette retrieval, and loading custom palettes from files (setpalette, getpalette, loadpalette)*  *Game Genie Support Returns: Toggle an Xbox keyboard prompt before launch, enter one or more codes, and watch them decode, activate, and save automatically just like the original hardware magic.*
 
 ---
 
@@ -288,7 +288,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 * **Game Genie is officially back on Xbox 360**
   * Enable `[cheat]` -> `enable=1` in `game:\fceui.ini` to light up the new pre-launch keyboard prompt.
-  * Mash in your favorite NES-era codes before the ROM even boots�cancel or submit nothing if you just want a vanilla launch.
+  * Mash in your favorite NES-era codes before the ROM even boots, cancel or submit nothing if you just want a vanilla launch.
 
 * **Stack codes, hit start, and everything just works**
   * Feed the prompt multiple 6- or 8-character codes separated by spaces, commas, or hyphen chains like `YSAOPE-YEAOZA-YEAPYA`.
