@@ -176,21 +176,28 @@ Checks if a specific Xbox 360 controller button is currently pressed.
 - `boolean` - `true` if the button is currently pressed, `false` otherwise
 
 **Button Names:**
-The following button names are supported (case-insensitive):
-- `"A"` - A button
-- `"B"` - B button
-- `"X"` - X button
-- `"Y"` - Y button
-- `"START"` - Start button
-- `"BACK"` - Back button
-- `"LEFT_SHOULDER"` or `"LB"` - Left shoulder button
-- `"RIGHT_SHOULDER"` or `"RB"` - Right shoulder button
-- `"LEFT_THUMB"` or `"LS"` - Left thumbstick click
-- `"RIGHT_THUMB"` or `"RS"` - Right thumbstick click
-- `"DPAD_UP"` or `"UP"` - D-pad up
-- `"DPAD_DOWN"` or `"DOWN"` - D-pad down
-- `"DPAD_LEFT"` or `"LEFT"` - D-pad left
-- `"DPAD_RIGHT"` or `"RIGHT"` - D-pad right
+The following button names (and aliases) are supported. All names are case-insensitive.
+
+| Button                   | Primary Name        | Aliases      |
+|--------------------------|--------------------|--------------|
+| A                        | `"A"`              | —            |
+| B                        | `"B"`              | —            |
+| X                        | `"X"`              | —            |
+| Y                        | `"Y"`              | —            |
+| Start                    | `"START"`          | —            |
+| Back                     | `"BACK"`           | —            |
+| Left Trigger             | `"LEFT_TRIGGER"`   | `"LT"`       |
+| Right Trigger            | `"RIGHT_TRIGGER"`  | `"RT"`       |
+| Left Shoulder            | `"LEFT_SHOULDER"`  | `"LB"`       |
+| Right Shoulder           | `"RIGHT_SHOULDER"` | `"RB"`       |
+| Left Thumbstick Click    | `"LEFT_THUMB"`     | `"LS"`       |
+| Right Thumbstick Click   | `"RIGHT_THUMB"`    | `"RS"`       |
+| D-pad Up                 | `"DPAD_UP"`        | `"UP"`       |
+| D-pad Down               | `"DPAD_DOWN"`      | `"DOWN"`     |
+| D-pad Left               | `"DPAD_LEFT"`      | `"LEFT"`     |
+| D-pad Right              | `"DPAD_RIGHT"`     | `"RIGHT"`    |
+
+> **Left Trigger (LT) note:** The Xbox build binds LT to the rewind feature at the system level. During rewind the trigger input is intercepted before it reaches Lua, so `isxboxbuttonpressed()` never reports LT as pressed. Use `getbuttonheldms("LT")` for timing-only diagnostics, or temporarily disable/remap the rewind hotkey in the front-end if you need to sample LT state directly.
 
 **Notes:**
 - Returns the current button state at the time of the call
