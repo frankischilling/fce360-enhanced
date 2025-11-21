@@ -413,6 +413,38 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * `fceux/media/` – Static assets (XUI skin `ui.xzp`, font `xarialuni.ttf`, textures).
 * Core emulation lives under `fceux/fceux/` and is intentionally untouched.
 
+### Lua Scripting Module Structure
+
+The Lua API bindings are organized into modular C++ files for maintainability and clarity:
+
+**Core Integration:**
+* `fceux/fceux/fceulua.cpp` – Main Lua integration, script loading, and lifecycle management
+* `fceux/fceux/lua_bindings.h` – Consolidated header including all module headers
+* `fceux/fceux/lua_helpers.h/.cpp` – Centralized helper utilities (argument validation, error reporting, data conversion)
+* `fceux/fceux/lua_shared_state.h` – Shared state structures and constants (input state, profiler timing)
+
+**API Modules (organized by domain):**
+* `fceux/fceux/lua_video.cpp` – Drawing functions (text, shapes, images, canvas operations)
+* `fceux/fceux/lua_memory.cpp` – Memory reading, writing, scanning, and watchpoints
+* `fceux/fceux/lua_audio.cpp` – Audio analysis, filtering, and format conversion
+* `fceux/fceux/lua_fileio.cpp` – File and directory management
+* `fceux/fceux/lua_input.cpp` – Controller input, remapping, haptic feedback, callbacks
+* `fceux/fceux/lua_movie.cpp` – Input recording, playback, and state management (save/load states)
+* `fceux/fceux/lua_profiler.cpp` – Performance monitoring, profiling, and timing functions
+* `fceux/fceux/lua_emulator.cpp` – Emulation state (frame count, cycles, FPS, screen info)
+* `fceux/fceux/lua_rom.cpp` – ROM information (name, path, hash, header, mapper)
+* `fceux/fceux/lua_palette.cpp` – Color manipulation and palette operations
+* `fceux/fceux/lua_runtime.cpp` – Runtime utilities (script interval, console output)
+* `fceux/fceux/lua_gamegenie.cpp` – Game Genie code encoding/decoding
+
+Each module follows a consistent pattern:
+* Table-driven registration (`static const luaL_Reg k<Domain>Funcs[]`)
+* Centralized helper usage for validation and error reporting
+* Shared state structures where appropriate
+* Module-specific headers (`lua_<domain>.h`) for public APIs
+
+See [Contributing Guide](https://github.com/frankischilling/fce360-enhanced/wiki/Contributing) for details on adding new APIs.
+
 ---
 
 ## Build
@@ -535,6 +567,8 @@ end
 ---
 
 **Note:** The detailed function documentation has been moved to the [GitHub Wiki](https://github.com/frankischilling/fce360-enhanced/wiki) for better organization and easier maintenance. All functions, parameters, return values, notes, and examples are available there.
+
+**For Contributors:** The Lua API bindings are organized into modular C++ files. See the [Contributing Guide](https://github.com/frankischilling/fce360-enhanced/wiki/Contributing) for details on the codebase structure and guidelines for adding new APIs.
 
 ---
 ## Advanced tuning (optional)
