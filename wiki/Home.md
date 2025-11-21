@@ -101,7 +101,7 @@ See [Setup](Setup) for detailed instructions.
   - **ROM info:** [`getromname()`](ROM-Info-Functions#getromname), [`getrompath()`](ROM-Info-Functions#getrompath), [`getromhash(algorithm)`](ROM-Info-Functions#getromhashalgorithm), [`getinesheader()`](ROM-Info-Functions#getinesheader), [`getregion()`](ROM-Info-Functions#getregion), [`getromsize()`](ROM-Info-Functions#getromsize), [`getprgsize()`](ROM-Info-Functions#getprgsize), [`getchrsize()`](ROM-Info-Functions#getchrsize)
   - **Mapper:** [`getmapper()`](ROM-Info-Functions#getmapper), [`getmapperstring()`](ROM-Info-Functions#getmapperstring)
   - **Features:** [`hasbattery()`](ROM-Info-Functions#hasbattery)
-  - **Saves:** [`getsavepath()`](ROM-Info-Functions#getsavepath) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â returns `<rom>.sav` (or legacy `game.sav` if thatÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢s the only file), empty string if no save exists
+  - **Saves:** [`getsavepath()`](ROM-Info-Functions#getsavepath) — returns `<rom>.sav` (or legacy `game.sav` if that's the only file), empty string if no save exists
   - **Emulation state:** [`isframeadvancing()`](ROM-Info-Functions#isframeadvancing), [`isrewinding()`](ROM-Info-Functions#isrewinding), [`isfastforwarding()`](ROM-Info-Functions#isfastforwarding)
   - **Game Genie:** [`getgamegeniecode()`](ROM-Info-Functions#getgamegeniecode), [`decodegamegenie()`](ROM-Info-Functions#decodegamegenie)
 
