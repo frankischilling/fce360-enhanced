@@ -22,7 +22,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
 * Also builds on Xbox 360 SDK 21256.3
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.8.9** — *Lua Scripting Layer Refactor: 12 focused binding modules, centralized helpers, table-driven registration, shared state headers, and documentation refresh to make the API easier to extend and test.* v0.8.8 *Palette Management Functions: Added 3 new functions for bulk palette operations, palette retrieval, and loading custom palettes from files (setpalette, getpalette, loadpalette).*
+* Current release: **v0.8.9** - *Lua Scripting Layer Refactor: 12 focused binding modules, centralized helpers, table-driven registration, shared state headers, and documentation refresh to make the API easier to extend and test.* v0.8.8 *Palette Management Functions: Added 3 new functions for bulk palette operations, palette retrieval, and loading custom palettes from files (setpalette, getpalette, loadpalette).*
 
 ---
 
@@ -108,7 +108,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 ## What's New
 
-*Current release: **v0.8.9** — Lua Scripting Layer Refactor: the entire Lua binding stack is now modular, table-driven, and documented so contributors can add features without wading through 12K lines of monolithic code.*
+*Current release: **v0.8.9** - Lua Scripting Layer Refactor: the entire Lua binding stack is now modular, table-driven, and documented so contributors can add features without wading through 12K lines of monolithic code.*
 
 ---
 
@@ -130,7 +130,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 * **Documentation & Contributor Guides:**
   * README, wiki Home, Technical-Details, and the new `wiki/Contributing.md` explain the module layout, registrar pattern, and helper usage so contributors know where to extend the API.
-  * Added a “Lua Scripting Module Structure” section and migration notes for maintainers moving from v0.8.x to v0.8.9.
+  * Added a "Lua Scripting Module Structure" section and migration notes for maintainers moving from v0.8.x to v0.8.9.
 
 * **Includes Previous Features:**
   * All v0.8.8 palette management features.
@@ -209,7 +209,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
   * All v0.8.1 features: Enhanced Drawing API (2D transforms, canvas rendering, gradients, advanced text styling, partial screenshot capture)
   * All v0.8.0 features: Complete File I/O API Suite (readfile, writefile, listfiles, etc.)
   * All v0.7.9 features: Complete Audio API Suite
-  * All prior features from v0.7.8–v0.6.1
+  * All prior features from v0.7.8-v0.6.1
 
 ---
 
@@ -310,7 +310,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
   * All v0.8.1 features: Enhanced Drawing API (2D transforms, canvas rendering, gradients, advanced text styling, partial screenshot capture)
   * All v0.8.0 features: Complete File I/O API Suite (readfile, writefile, listfiles, etc.)
   * All v0.7.9 features: Complete Audio API Suite
-  * All prior features from v0.7.8–v0.6.1
+  * All prior features from v0.7.8-v0.6.1
 
 ---
 
@@ -431,16 +431,16 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
   * All v0.7.9 features: Complete Audio API Suite
   * All v0.7.8 features: Audio API Functions and Screenshot Performance Fix
   * All v0.7.7 features: State Management and Xbox 360 Input Lua API Functions
-  * All prior features from v0.7.6–v0.6.1
+  * All prior features from v0.7.6-v0.6.1
 
 ---
 
 ## Repository layout (excerpt)
 
-* `fceux/` – Visual Studio 2008 solution and Xbox 360 project.
-* `fceux/xbox/` – Xbox front-end (UI, input, filesystem glue).
-* `fceux/xbox/ui/mainui.cpp` – XUI scenes (ROM browser, **OSD**, emulation runner). **Scrolling & OSD glue live here.**
-* `fceux/media/` – Static assets (XUI skin `ui.xzp`, font `xarialuni.ttf`, textures).
+* `fceux/` - Visual Studio 2008 solution and Xbox 360 project.
+* `fceux/xbox/` - Xbox front-end (UI, input, filesystem glue).
+* `fceux/xbox/ui/mainui.cpp` - XUI scenes (ROM browser, **OSD**, emulation runner). **Scrolling & OSD glue live here.**
+* `fceux/media/` - Static assets (XUI skin `ui.xzp`, font `xarialuni.ttf`, textures).
 * Core emulation lives under `fceux/fceux/` and is intentionally untouched.
 
 ### Lua Scripting Module Structure
@@ -448,24 +448,24 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 The Lua API bindings are organized into modular C++ files for maintainability and clarity:
 
 **Core Integration:**
-* `fceux/fceux/fceulua.cpp` – Main Lua integration, script loading, and lifecycle management
-* `fceux/fceux/lua_bindings.h` – Consolidated header including all module headers
-* `fceux/fceux/lua_helpers.h/.cpp` – Centralized helper utilities (argument validation, error reporting, data conversion)
-* `fceux/fceux/lua_shared_state.h` – Shared state structures and constants (input state, profiler timing)
+* `fceux/fceux/fceulua.cpp` - Main Lua integration, script loading, and lifecycle management
+* `fceux/fceux/lua_bindings.h` - Consolidated header including all module headers
+* `fceux/fceux/lua_helpers.h/.cpp` - Centralized helper utilities (argument validation, error reporting, data conversion)
+* `fceux/fceux/lua_shared_state.h` - Shared state structures and constants (input state, profiler timing)
 
 **API Modules (organized by domain):**
-* `fceux/fceux/lua_video.cpp` – Drawing functions (text, shapes, images, canvas operations)
-* `fceux/fceux/lua_memory.cpp` – Memory reading, writing, scanning, and watchpoints
-* `fceux/fceux/lua_audio.cpp` – Audio analysis, filtering, and format conversion
-* `fceux/fceux/lua_fileio.cpp` – File and directory management
-* `fceux/fceux/lua_input.cpp` – Controller input, remapping, haptic feedback, callbacks
-* `fceux/fceux/lua_movie.cpp` – Input recording, playback, and state management (save/load states)
-* `fceux/fceux/lua_profiler.cpp` – Performance monitoring, profiling, and timing functions
-* `fceux/fceux/lua_emulator.cpp` – Emulation state (frame count, cycles, FPS, screen info)
-* `fceux/fceux/lua_rom.cpp` – ROM information (name, path, hash, header, mapper)
-* `fceux/fceux/lua_palette.cpp` – Color manipulation and palette operations
-* `fceux/fceux/lua_runtime.cpp` – Runtime utilities (script interval, console output)
-* `fceux/fceux/lua_gamegenie.cpp` – Game Genie code encoding/decoding
+* `fceux/fceux/lua_video.cpp` - Drawing functions (text, shapes, images, canvas operations)
+* `fceux/fceux/lua_memory.cpp` - Memory reading, writing, scanning, and watchpoints
+* `fceux/fceux/lua_audio.cpp` - Audio analysis, filtering, and format conversion
+* `fceux/fceux/lua_fileio.cpp` - File and directory management
+* `fceux/fceux/lua_input.cpp` - Controller input, remapping, haptic feedback, callbacks
+* `fceux/fceux/lua_movie.cpp` - Input recording, playback, and state management (save/load states)
+* `fceux/fceux/lua_profiler.cpp` - Performance monitoring, profiling, and timing functions
+* `fceux/fceux/lua_emulator.cpp` - Emulation state (frame count, cycles, FPS, screen info)
+* `fceux/fceux/lua_rom.cpp` - ROM information (name, path, hash, header, mapper)
+* `fceux/fceux/lua_palette.cpp` - Color manipulation and palette operations
+* `fceux/fceux/lua_runtime.cpp` - Runtime utilities (script interval, console output)
+* `fceux/fceux/lua_gamegenie.cpp` - Game Genie code encoding/decoding
 
 Each module follows a consistent pattern:
 * Table-driven registration (`static const luaL_Reg k<Domain>Funcs[]`)
@@ -488,7 +488,7 @@ Notes
 * Post-build may warn:
 
   * `xbecopy: error X1001: Could not connect to Xbox 360 ''`
-  * Expected if Neighborhood isn’t configured. The `.xex` still builds.
+  * Expected if Neighborhood isn't configured. The `.xex` still builds.
   * To silence, clear **Project Properties → Build Events → Post-Build**.
 * Typical era/toolchain warnings are harmless here (e.g., `/GR-` RTTI notes, `FASTCALL` macro noise).
 
@@ -522,8 +522,8 @@ Steps
 
 * **Recent Games:** Last 15 played ROMs appear at the top with `[Recent]` prefix and separator line. Automatically updated when games are loaded.
 * **Favorite Games:** User-selected favorite games appear below recent games with `[Favorite]` prefix and separator line. Persist across sessions.
-* **X:** **Toggle Favorite** — Add or remove the selected game from favorites (only in ROM browser, not during gameplay).
-* **Y:** **Search** — Open Xbox keyboard to search ROMs by name. Filters list in real-time with case-insensitive partial matching.
+* **X:** **Toggle Favorite** - Add or remove the selected game from favorites (only in ROM browser, not during gameplay).
+* **Y:** **Search** - Open Xbox keyboard to search ROMs by name. Filters list in real-time with case-insensitive partial matching.
 * **Right Stick (hold up/down):** *Time-based acceleration* of selection.
 * **LB / RB (hold):** Page up / page down at a steady cadence.
 * **D-pad / Left Stick:** Single-step precision (native XUI behavior).
@@ -532,9 +532,9 @@ Steps
 
 ### In-Game
 
-* **LT (Left Trigger):** **Rewind** — Hold to rewind gameplay. Speed ramps automatically: 1x → 2x → 4x → 8x based on hold duration. Stores up to ~5 seconds of gameplay history.
-* **RT (Right Trigger):** **Fast Forward** — Hold to speed up emulation at 2x speed. Release to return to normal speed.
-* **RIGHT_THUMB CLICK** **Screenshot** — Press simultaneously to capture a screenshot. Saved to `game:\snaps\` using ROM filename (e.g., `SuperMario-0.png`). *Note: Screenshot combo takes precedence over rewind.*
+* **LT (Left Trigger):** **Rewind** - Hold to rewind gameplay. Speed ramps automatically: 1x → 2x → 4x → 8x based on hold duration. Stores up to ~5 seconds of gameplay history.
+* **RT (Right Trigger):** **Fast Forward** - Hold to speed up emulation at 2x speed. Release to return to normal speed.
+* **RIGHT_THUMB CLICK** **Screenshot** - Press simultaneously to capture a screenshot. Saved to `game:\snaps\` using ROM filename (e.g., `SuperMario-0.png`). *Note: Screenshot combo takes precedence over rewind.*
 * **START + BACK:** Open **OSD** (auto-pause).
 * **OSD actions:** Save/Load State (with slots), Reset Game, GFX options (experimental). Exiting OSD resumes gameplay; "Load Game" returns to ROM browser.
 
@@ -605,7 +605,7 @@ end
 
 All tunables live in the ROM list scene (`LoadGame` in `fceux/xbox/ui/mainui.cpp`):
 
-* **Deadzone (RS):** `const float RS_DEADZONE = ~0.28–0.30f`
+* **Deadzone (RS):** `const float RS_DEADZONE = ~0.28-0.30f`
 * **Held paging cadence (LB/RB):** `const DWORD pageRepeatMs = ~100;`
 * **General dwell/response:**
 
@@ -614,7 +614,7 @@ All tunables live in the ROM list scene (`LoadGame` in `fceux/xbox/ui/mainui.cpp
   m_repeatIntervalMs = 70;   // baseline cadence (non-RS path)
   m_minDwellMs       = 50;   // minimum time between injected moves
   ```
-* **Acceleration tiers (RS hold time):** ramps from ~150–160 ms (1 step) down to ~35 ms (3 steps) after ~2.6s hold; deflection magnitude scales steps.
+* **Acceleration tiers (RS hold time):** ramps from ~150-160 ms (1 step) down to ~35 ms (3 steps) after ~2.6s hold; deflection magnitude scales steps.
 
 ---
 
@@ -637,9 +637,9 @@ FCEUX360-<version>-xex.zip
 
 ## Troubleshooting
 
-* **OSD doesn’t open:** Must be *in-game* (emulation scene active). Press **START + BACK** simultaneously. Ensure `ui.xzp` contains the OSD scenes and that your tab order puts OSD reachable from the emulation scene (default uses `GoToNext()`).
-* **GFX settings revert or don’t apply:** Known issue; sometimes UI state and renderer can desync on scene changes. Work is in progress to harden state propagation and persistence.
-* **“Holding longer doesn’t speed up”:** Acceleration is on **Right Stick**; D-pad/Left Stick remain single-step. Check the RS deadzone and stick calibration.
+* **OSD doesn't open:** Must be *in-game* (emulation scene active). Press **START + BACK** simultaneously. Ensure `ui.xzp` contains the OSD scenes and that your tab order puts OSD reachable from the emulation scene (default uses `GoToNext()`).
+* **GFX settings revert or don't apply:** Known issue; sometimes UI state and renderer can desync on scene changes. Work is in progress to harden state propagation and persistence.
+* **"Holding longer doesn't speed up":** Acceleration is on **Right Stick**; D-pad/Left Stick remain single-step. Check the RS deadzone and stick calibration.
 * **Black UI or missing text:** Verify `media\ui.xzp` and `media\xarialuni.ttf` are present.
 * **Empty ROM list:** Place `.nes`/`.zip` files under `roms\`.
 * **Screenshots not saving:** Ensure you're pressing LEFT_THUMB (stick click, not movement) + LT trigger simultaneously. Verify `game:\snaps\` directory exists and has write permissions.
