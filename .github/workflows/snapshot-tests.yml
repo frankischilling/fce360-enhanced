@@ -1,0 +1,21 @@
+name: Screenshot tests
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  snapshot-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Worker and PNG tests
+        run: |
+          mkdir -p dist/tests
+          g++ -std=c++11 -Wall -Wextra -pthread -fsanitize=address,undefined -Itests/shims -Ifceux/xbox tests/snapshot_test.cpp fceux/xbox/snapshot_worker.cpp -lz -o /tmp/snapshot-test
+          cd dist/tests
+          /tmp/snapshot-test
+          python ../../tests/check_png.py

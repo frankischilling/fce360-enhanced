@@ -1,12 +1,12 @@
-﻿# Technical Details
+# Technical Details
 
-## Lua Version
+## Lua version
 
 - **Lua Version:** Lua 5.1 (compatible with standard Lua 5.1 scripts)
 - All standard Lua 5.1 features are available
 - Compatible with existing Lua 5.1 libraries and scripts
 
-## Update Frequency
+## Update frequency
 
 - **`script()` / `gui()` callback:** Called at ~30Hz (every ~33ms) for performance
 - **Rendering:** Overlay is double-buffered and composited at 60Hz to prevent flicker
@@ -42,13 +42,13 @@ Control how often your `script()` callback runs. The overlay still composites at
 Sets the callback interval for `script()`.
 
 **Parameters:**
-- `ms` (integer): Interval in milliseconds. Clamped to 16â€“1000 ms.
+- `ms` (integer): Interval in milliseconds. Clamped to 16-1000 ms.
 
 **Returns:** Nothing
 
 **Notes:**
 - Default is 33 ms (~30 Hz).
-- Heavier scripts can set a slower interval (e.g., 100â€“250 ms). Lighter scripts can use 16 ms.
+- Heavier scripts can set a slower interval (e.g., 100-250 ms). Lighter scripts can use 16 ms.
 - The interval resets to 33 ms when Lua is (re)initialized.
 
 **Example:**
@@ -82,7 +82,7 @@ drawtext(4, 4, string.format("Interval: %d ms", ms), 0x39)
   - Use local variables for frequently accessed values
   - Cache expensive computations when possible
 
-## Script Loading Behavior
+## Script loading behavior
 
 - **Automatic Loading:** All `.lua` and `.LUA` files in the `lua\` directories are automatically loaded when a game starts
 - **Multiple Scripts:** You can place multiple scripts - they will all be loaded and their `script()` / `gui()` functions called
@@ -130,29 +130,29 @@ Scripts are automatically searched in these locations (in order):
 - **Hardware Input:** Can read hardware input even when using `setjoypad()`
 - **Frame Accuracy:** Use `beforeframe()` callback for frame-accurate input control
 
-## Codebase Structure
+## Codebase structure
 
 The Lua API bindings are organized into modular C++ files for maintainability and clarity. Each API category is implemented in its own module:
 
 **Core Integration:**
-- `fceux/fceux/fceulua.cpp` – Main Lua integration, script loading, and lifecycle management
-- `fceux/fceux/lua_bindings.h` – Consolidated header including all module headers
-- `fceux/fceux/lua_helpers.h/.cpp` – Centralized helper utilities (argument validation, error reporting, data conversion)
-- `fceux/fceux/lua_shared_state.h` – Shared state structures and constants
+- `fceux/fceux/fceulua.cpp` - Main Lua integration, script loading, and lifecycle management
+- `fceux/fceux/lua_bindings.h` - Consolidated header including all module headers
+- `fceux/fceux/lua_helpers.h/.cpp` - Centralized helper utilities (argument validation, error reporting, data conversion)
+- `fceux/fceux/lua_shared_state.h` - Shared state structures and constants
 
 **API Modules:**
-- `lua_video.cpp` – Drawing functions (text, shapes, images, canvas)
-- `lua_memory.cpp` – Memory reading, writing, scanning
-- `lua_audio.cpp` – Audio analysis and processing
-- `lua_fileio.cpp` – File and directory operations
-- `lua_input.cpp` – Controller input and manipulation
-- `lua_movie.cpp` – Input recording and state management
-- `lua_profiler.cpp` – Performance monitoring and profiling
-- `lua_emulator.cpp` – Emulation state and timing
-- `lua_rom.cpp` – ROM information functions
-- `lua_palette.cpp` – Color and palette operations
-- `lua_runtime.cpp` – Runtime utilities
-- `lua_gamegenie.cpp` – Game Genie code encoding/decoding
+- `lua_video.cpp` - Drawing functions (text, shapes, images, canvas)
+- `lua_memory.cpp` - Memory reading, writing, scanning
+- `lua_audio.cpp` - Audio analysis and processing
+- `lua_fileio.cpp` - File and directory operations
+- `lua_input.cpp` - Controller input and manipulation
+- `lua_movie.cpp` - Input recording and state management
+- `lua_profiler.cpp` - Performance monitoring and profiling
+- `lua_emulator.cpp` - Emulation state and timing
+- `lua_rom.cpp` - ROM information functions
+- `lua_palette.cpp` - Color and palette operations
+- `lua_runtime.cpp` - Runtime utilities
+- `lua_gamegenie.cpp` - Game Genie code encoding/decoding
 
 Each module uses:
 - **Table-driven registration** (`static const luaL_Reg k<Domain>Funcs[]`)
@@ -167,3 +167,9 @@ For detailed contributor guidelines, see [Contributing](Contributing).
 - **[Troubleshooting](Troubleshooting)** - Common issues and solutions
 - **[Contributing](Contributing)** - Codebase structure and development guidelines
 - **[Home](Home)** - Return to the main wiki page
+
+## Screenshot writing
+
+Controller screenshots use a bounded background writer from version 0.8.10.
+Lua screenshot functions remain synchronous. See [Screenshots](Screenshots)
+for timing, storage, and validation details.

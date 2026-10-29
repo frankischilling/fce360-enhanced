@@ -41,6 +41,9 @@
 
 #include "types.h"
 #include "video.h"
+#ifdef _XBOX
+#include "../xbox/snapshot_worker.h"
+#endif
 #include "fceu.h"
 #include "file.h"
 #include "utils/memory.h"
@@ -202,13 +205,34 @@ void FCEUI_SaveSnapshotAs(void)
 }
 
 
+#ifdef _XBOX
+static int SaveXboxFrame(bool asynchronous)
+{
+    int first = FSettings.FirstSLine;
+    int height = FSettings.LastSLine - first + 1;
+    if (!XBuf || first < 0 || height <= 0 || first + height > 256) return 0;
+    unsigned char palette[768];
+    for (int i = 0; i < 256; ++i)
+        FCEUD_GetPalette(i, palette + i * 3, palette + i * 3 + 1, palette + i * 3 + 2);
+    std::string name = FCEU_MakeFName(FCEUMKF_SNAP, 0, "png");
+    const unsigned char* pixels = XBuf + first * 256;
+    if (asynchronous)
+        return XboxSnapshotQueue(pixels, height, palette, name.c_str()) ? 1 : 0;
+    return XboxSnapshotSave(pixels, height, palette, name.c_str());
+}
+#endif
+
 static void ReallySnap(void)
 {
+#ifdef _XBOX
+    if (!SaveXboxFrame(true)) FCEUD_PrintError("Screenshot not queued: writer busy or unavailable.");
+#else
 	int x=SaveSnapshot();
 	if(!x)
 		FCEU_DispMessage("Error saving screen snapshot.",0);
 	else
 		FCEU_DispMessage("Screen snapshot %d saved.",0,x-1);
+#endif
 }
 
 void FCEU_PutImage(void)
@@ -581,6 +605,9 @@ int GetScreenPixelPalette(int x, int y, bool usebackup) {
 
 int SaveSnapshot(void)
 {
+#ifdef _XBOX
+    return SaveXboxFrame(false);
+#else
 	// Cache last screenshot number to avoid file search loop on subsequent screenshots
 	static unsigned int cachedLastu = 0;
 	static bool cacheValid = false;
@@ -707,6 +734,7 @@ PNGerr:
 	if(pp)
 		fclose(pp);
 	return(0);
+#endif
 }
 
 //overloaded SaveSnapshot for "Savesnapshot As" function

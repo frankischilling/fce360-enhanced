@@ -1,8 +1,8 @@
-﻿# Input Functions
+# Input functions
 
-The Input Functions provide comprehensive controller input management capabilities. These functions allow you to read controller state, check button presses, override hardware input for TAS (Tool-Assisted Speedrun) scripts, and work with both NES button mappings and Xbox 360 controller buttons directly.
+These functions read controller state, check button presses, and override hardware input for tool-assisted speedrun (TAS) scripts. They support NES button mappings and Xbox 360 controller buttons.
 
-## Input Reading Functions
+## Input Reading functions
 
 ### `getjoypad`
 
@@ -180,12 +180,12 @@ The following button names (and aliases) are supported. All names are case-insen
 
 | Button                   | Primary Name        | Aliases      |
 |--------------------------|--------------------|--------------|
-| A                        | `"A"`              | —            |
-| B                        | `"B"`              | —            |
-| X                        | `"X"`              | —            |
-| Y                        | `"Y"`              | —            |
-| Start                    | `"START"`          | —            |
-| Back                     | `"BACK"`           | —            |
+| A                        | `"A"`              | .             |
+| B                        | `"B"`              | .             |
+| X                        | `"X"`              | .             |
+| Y                        | `"Y"`              | .             |
+| Start                    | `"START"`          | .             |
+| Back                     | `"BACK"`           | .             |
 | Left Trigger             | `"LEFT_TRIGGER"`   | `"LT"`       |
 | Right Trigger            | `"RIGHT_TRIGGER"`  | `"RT"`       |
 | Left Shoulder            | `"LEFT_SHOULDER"`  | `"LB"`       |
@@ -361,7 +361,7 @@ Returns how long a specified Xbox 360 button, trigger, stick direction, or NES b
 - Duration resets to `0` as soon as the button/stick returns to neutral.
 - Uses hardware state before Lua overrides, so it reflects real controller input.
 - `LT` (Left Trigger) doubles as the rewind button in this build. If you need uninterrupted LT timing, you’ll have to modify the source to change the rewind mapping (or open a pull request if it’s a broader issue).
-- Works even when Lua is injecting input via `setjoypad()` or `pressbutton()`—only actual hardware holds are reported.
+- Works even when Lua is injecting input via `setjoypad()` or `pressbutton()`. only actual hardware holds are reported.
 - **NES buttons** (`NES_A`, `NES_B`, `NES_SELECT`, `NES_START`, `NES_UP`, `NES_DOWN`, `NES_LEFT`, `NES_RIGHT`) track the actual NES controller state, not the Xbox button mappings. This allows you to measure hold times for the NES buttons specifically, independent of which Xbox buttons are mapped to them.
 
 **Example: Quick Hold Display**
@@ -543,7 +543,7 @@ end
 onbuttonrelease("BACK", toggleMenuOnRelease)
 ```
 
-## Button Conversion Functions
+## Button Conversion functions
 
 ### `getbuttonname`
 
@@ -696,7 +696,7 @@ if startPressed and selectPressed then
 end
 ```
 
-## Hardware Input Functions
+## Hardware Input functions
 
 ### `gethardwarejoypad`
 
@@ -774,7 +774,7 @@ function gui()
 end
 ```
 
-## Input Override Functions
+## Input Override functions
 
 ### `setjoypad`
 
@@ -1477,7 +1477,7 @@ end
 
 The actual capture/playback API is documented separately for clarity.
 
-- **[Input Recording Functions](Input-Recording-Functions)** — `startinputrecording()`, `stopinputrecording()`, and `playinputrecording()` let you capture controller activity frame-by-frame and replay it later. Combine them with the helpers on this page (e.g., `gethardwarejoypad()` or `setjoypad()`) to build TAS tooling or reproducible test scenarios.
+- **[Input Recording Functions](Input-Recording-Functions)** .  `startinputrecording()`, `stopinputrecording()`, and `playinputrecording()` let you capture controller activity frame-by-frame and replay it later. Combine them with the helpers on this page (e.g., `gethardwarejoypad()` or `setjoypad()`) to build TAS tooling or reproducible test scenarios.
 
 ## See Also
 

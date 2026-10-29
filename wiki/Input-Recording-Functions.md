@@ -1,4 +1,4 @@
-﻿# Input Recording Functions
+# Input Recording functions
 
 The input recording helpers let Lua scripts capture controller activity frame-by-frame, store it, and play it back later. Recordings always include every player (0-3) and honour the final button state for each frame after any Lua overrides.
 

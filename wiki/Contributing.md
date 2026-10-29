@@ -1,23 +1,23 @@
 # Contributing to FCE360 Enhanced
 
-Thank you for your interest in contributing to FCE360 Enhanced! This guide will help you understand the codebase structure and how to add or modify Lua API functions.
+This guide describes the codebase and how to add or change Lua API functions.
 
-## Codebase Structure
+## Codebase structure
 
 The Lua API bindings are organized into modular C++ files, making it easier to locate, understand, and modify specific functionality.
 
 ### Core Files
 
 **Main Integration:**
-- `fceux/fceux/fceulua.cpp` – Main Lua integration, script loading, lifecycle management, and frame callbacks
-- `fceux/fceux/lua_bindings.h` – Consolidated header that includes all module headers
+- `fceux/fceux/fceulua.cpp` - Main Lua integration, script loading, lifecycle management, and frame callbacks
+- `fceux/fceux/lua_bindings.h` - Consolidated header that includes all module headers
 
 **Shared Infrastructure:**
-- `fceux/fceux/lua_helpers.h/.cpp` – Centralized helper utilities:
+- `fceux/fceux/lua_helpers.h/.cpp` - Centralized helper utilities:
   - Argument validation (`LuaCheckInt`, `LuaCheckString`, `LuaCheckRange`, etc.)
   - Error reporting (`LuaArgError`, `LuaBoundsError`, etc.)
   - Data conversion (NES color ↔ Lua number, `std::vector` ↔ Lua table, path normalization)
-- `fceux/fceux/lua_shared_state.h` – Shared state structures and constants:
+- `fceux/fceux/lua_shared_state.h` - Shared state structures and constants:
   - `LuaInputState` namespace: Button callbacks, rumble state, virtual input mappings
   - `LuaProfilerState` namespace: Timing constants (NTSC frame rate, ideal frame time)
 
@@ -161,7 +161,7 @@ void Lua_MyModuleSomeHelper(lua_State* L);  // If needed by other modules
 
 ## Best Practices
 
-### 1. Always Use Helper Functions
+### 1. Always Use Helper functions
 
 **✅ Good:**
 ```cpp
@@ -267,7 +267,7 @@ When submitting changes, ensure:
 
 ## See Also
 
-- [Home](Home) – Main API documentation index
-- [Technical Details](Technical-Details) – Implementation details and codebase structure
-- [Setup](Setup) – Development environment setup
+- [Home](Home) - Main API documentation index
+- [Technical Details](Technical-Details) - Implementation details and codebase structure
+- [Setup](Setup) - Development environment setup
 

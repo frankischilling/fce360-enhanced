@@ -22,7 +22,7 @@ Scripts are automatically searched in these locations (in order):
 - `game:\lua\` (game folder - may be read-only in packages)
 - `usb0:\lua\` (USB storage)
 
-## Script Loading Behavior
+## Script loading behavior
 
 - **Automatic Loading:** All `.lua` and `.LUA` files in the `lua\` directories are automatically loaded when a game starts.
 - **Multiple Scripts:** You can place multiple scripts - they will all be loaded and their `script()` functions called.

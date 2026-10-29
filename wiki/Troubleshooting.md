@@ -138,3 +138,10 @@ Common issues and solutions for Lua scripting in FCE360 Enhanced.
 - **[Technical Details](Technical-Details)** - Implementation specifics
 - **[Examples](Examples)** - Working code samples
 - **[Home](Home)** - Return to the main wiki page
+
+## Controller screenshot hitches or missing files
+
+Use version 0.8.10 or later for the background screenshot writer. Click the
+right stick and allow the current capture to finish before trying again.
+Check that `game:\snaps` is writable. Lua captures remain synchronous. See
+[Screenshots](Screenshots) for details.

@@ -1,8 +1,8 @@
-﻿# File I/O Functions
+# File I/O functions
 
-The File I/O Functions provide comprehensive file and directory management capabilities. These functions allow you to read and write files, check file existence, list directory contents, and manage directories. All functions support both relative and absolute paths, with automatic path normalization and search path resolution.
+These functions read and write files, check whether files exist, list directory contents, and manage directories. They accept relative and absolute paths, with automatic path normalization and search path resolution.
 
-## File Reading and Writing Functions
+## File Reading and Writing functions
 
 ### `readfile`
 
@@ -295,7 +295,7 @@ if success then
 end
 ```
 
-## File Information Functions
+## File Information functions
 
 ### `fileexists`
 
@@ -452,7 +452,7 @@ else
 end
 ```
 
-## Directory Listing Functions
+## Directory Listing functions
 
 ### `listfiles`
 
@@ -870,7 +870,7 @@ for i = 1, #dirs do
 end
 ```
 
-## Directory Management Functions
+## Directory Management functions
 
 ### `mkdir`
 

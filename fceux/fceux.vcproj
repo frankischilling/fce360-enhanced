@@ -2008,6 +2008,10 @@
 				>
 			</File>
 			<File
+				RelativePath=".\xbox\snapshot_worker.cpp"
+				>
+			</File>
+			<File
 				RelativePath=".\xbox\Cemulator.cpp"
 				>
 			</File>

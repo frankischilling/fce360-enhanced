@@ -1,28 +1,23 @@
 # fce360-enhanced (FCEUX-360 tweaks)
 
-FCE360-Enhanced is a fork of FCE360 (itself based on FCEUX) that focuses on front-end feel for Xbox 360. Beyond maintaining the original core emulation accuracy, this branch layers in fast list navigation, time-based scrolling, smoother menu cadence, richer pause-menu options, Lua scripting support, rewind, and an optional speed-up mode so the console version gains modern conveniences.
+FCE360 Enhanced is an Xbox 360 port of the FCEUX NES emulator. It adds ROM
+search, recent and favorite games, accelerated list scrolling, pause-menu
+options, Lua scripting, rewind, and fast forward to the original FCE360 port.
+Most front-end code is in `fceux/xbox`; the core also contains the Lua and
+screenshot integration used by this fork.
 
-Key additions include:
-- Time-based scrolling that accelerates while holding the stick or triggers, making giant ROM libraries manageable.
-- Refined menu/input processing so the ROM browser, pause menu, and tabs feel snappy even when lists are long.
-- Expanded pause-menu utilities (quick filters, slot controls, Lua toggles) tuned for controller workflows.
-- Full Lua scripting support with auto-load options, letting scripts read ROM metadata, draw overlays, and intercept input just like desktop FCEUX.
-- Integrated rewind system plus a turbo/speed-up toggle so you can quickly retry sections or fast-forward grindy bits.
-
-These UX upgrades sit entirely in the Xbox UI layer; the underlying emulation core stays unchanged from upstream FCEUX for compatibility and accuracy.
-Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsiveness. Core emulation code remains intact; improvements are limited to the Xbox UI layer (XUI scenes, input cadence, list scrolling).
-
-> **Note:** Code hasn't been touched since around 2016, so I'm giving it some love with UI improvements and modern features while preserving the original emulation core.
+The original port had not been updated since around 2016 before this fork's
+UI and feature work.
 
 > **Note:** This can also be built with newer versions of Visual Studio and the Xbox 360 SDK/XDK. If you want to update from Visual Studio 2008, try using Visual Studio 2010. Confirmed working on Xbox 360 SDK 21256.3.
 
 > **Warning:** You might run into build errors or incompatibilities when using newer toolchains or SDK/XDK versions. Building outside of the original environment (VS2008 + Nov 2008 XDK) may require extra fixes or changes.
 
 * Toolchain: Visual Studio 2008 SP1
-* SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008)
+* Original SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008). The 0.8.10 release is built with XDK 2.0.9328.0.
 * Also builds on Xbox 360 SDK 21256.3
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.8.9** - *Lua Scripting Layer Refactor: 12 focused binding modules, centralized helpers, table-driven registration, shared state headers, and documentation refresh to make the API easier to extend and test.* v0.8.8 *Palette Management Functions: Added 3 new functions for bulk palette operations, palette retrieval, and loading custom palettes from files (setpalette, getpalette, loadpalette).*
+* Current release: **v0.8.10**. Controller screenshots use a background writer. See [release notes](docs/release-0.8.10.md).
 
 ---
 
@@ -108,7 +103,16 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 
 ## What's New
 
-*Current release: **v0.8.9** - Lua Scripting Layer Refactor: the entire Lua binding stack is now modular, table-driven, and documented so contributors can add features without wading through 12K lines of monolithic code.*
+### v0.8.10 - Background controller screenshots
+
+Controller screenshot compression, filename search, and disk writes run on a
+worker started before gameplay. Frame and palette data are copied before
+submission. The queue holds one capture; another request while it is busy is
+ignored. Lua capture functions retain their synchronous behavior. See the
+[release notes](docs/release-0.8.10.md) and [screenshot guide](wiki/Screenshots.md).
+
+The 0.8.9 Lua refactor remains included: bindings are grouped by domain, with
+shared helpers and table-driven registration.
 
 ---
 
@@ -341,7 +345,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
     * Fixed FileBase extraction from archive paths and device paths
     * Ensured saves are written correctly on game close
 
-* **New ROM Information Functions:** Added **5 powerful ROM information functions** for ROM analysis, identification, and file management!
+* **New ROM Information Functions:** Added **5 ROM information functions** for ROM analysis, identification, and file management!
 
   * **ROM Hashing:**
     * `getromhash(algorithm)` - Gets ROM hash using specified algorithm
@@ -357,7 +361,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
   * **iNES Header Analysis:**
     * `getinesheader()` - Gets full iNES header dump as a Lua table
       * Parameters: none
-      * Returns: table with comprehensive ROM header information, or nil if no ROM is loaded
+      * Returns: table with ROM header information, or nil if no ROM is loaded
       * Table fields: id, rom_size, vrom_size, rom_type, rom_type2, mapper, mirroring, mirroring_string, has_battery, has_trainer, four_screen, vs_system, playchoice10, nes2_format, raw_header, reserve
       * Use case: ROM analysis, mapper detection, header validation, compatibility checking
       * Example: `local header = getinesheader(); print("Mapper: " .. header.mapper)`
@@ -441,7 +445,7 @@ Enhanced Xbox 360 port of the FCEUX NES emulator focused on front-end responsive
 * `fceux/xbox/` - Xbox front-end (UI, input, filesystem glue).
 * `fceux/xbox/ui/mainui.cpp` - XUI scenes (ROM browser, **OSD**, emulation runner). **Scrolling & OSD glue live here.**
 * `fceux/media/` - Static assets (XUI skin `ui.xzp`, font `xarialuni.ttf`, textures).
-* Core emulation lives under `fceux/fceux/` and is intentionally untouched.
+* Core emulation and the Lua/screenshot integration live under `fceux/fceux/`.
 
 ### Lua Scripting Module Structure
 
@@ -479,7 +483,21 @@ See [Contributing Guide](https://github.com/frankischilling/fce360-enhanced/wiki
 
 ## Build
 
-1. Open `fceux\fceux.sln` in Visual Studio 2008 SP1.
+For a full release package, use the included PowerShell script with the media
+folder extracted from the published 0.8.5 release (the font is not in source):
+
+```powershell
+.\tools\Build-Release.ps1 -ResourceMedia C:\path\to\media
+```
+
+The script creates a new directory under `dist`, rebuilds the XEX and UI
+archive, and copies the required resources. It does not include ROMs or BIOS
+files. `-OutputDirectory` selects a new destination.
+
+For an IDE build:
+
+
+1. Open `fceux.sln` in Visual Studio 2008 SP1.
 2. Select Configuration: `Release_LTCG` and Platform: `Xbox 360`.
 3. Build the `fceux` project.
 
@@ -490,7 +508,7 @@ Notes
   * `xbecopy: error X1001: Could not connect to Xbox 360 ''`
   * Expected if Neighborhood isn't configured. The `.xex` still builds.
   * To silence, clear **Project Properties → Build Events → Post-Build**.
-* Typical era/toolchain warnings are harmless here (e.g., `/GR-` RTTI notes, `FASTCALL` macro noise).
+* Review warnings in the build log. A successful build does not establish runtime behavior on hardware.
 
 ---
 
@@ -534,7 +552,7 @@ Steps
 
 * **LT (Left Trigger):** **Rewind** - Hold to rewind gameplay. Speed ramps automatically: 1x → 2x → 4x → 8x based on hold duration. Stores up to ~5 seconds of gameplay history.
 * **RT (Right Trigger):** **Fast Forward** - Hold to speed up emulation at 2x speed. Release to return to normal speed.
-* **RIGHT_THUMB CLICK** **Screenshot** - Press simultaneously to capture a screenshot. Saved to `game:\snaps\` using ROM filename (e.g., `SuperMario-0.png`). *Note: Screenshot combo takes precedence over rewind.*
+* **Right stick click:** Take a screenshot. Saved to `game:\snaps\` using ROM filename (e.g., `SuperMario - 0.png`). *Note: Clicking both thumbsticks opens the Lua console instead of taking a screenshot.*
 * **START + BACK:** Open **OSD** (auto-pause).
 * **OSD actions:** Save/Load State (with slots), Reset Game, GFX options (experimental). Exiting OSD resumes gameplay; "Load Game" returns to ROM browser.
 
@@ -546,7 +564,7 @@ FCE360 Enhanced includes full Lua 5.1 scripting support for custom overlays, aut
 
 > **📚 Complete API Documentation:** All Lua API functions, callbacks, examples, and technical details are now available in the **[GitHub Wiki](https://github.com/frankischilling/fce360-enhanced/wiki)**.
 
-### Quick Start
+### Quick start
 
 1. **Create the Lua directory** in your game folder (same location as `fceux.xex`)
 2. **Place your scripts** in the `lua\` folder as `.lua` files
@@ -642,6 +660,22 @@ FCEUX360-<version>-xex.zip
 * **"Holding longer doesn't speed up":** Acceleration is on **Right Stick**; D-pad/Left Stick remain single-step. Check the RS deadzone and stick calibration.
 * **Black UI or missing text:** Verify `media\ui.xzp` and `media\xarialuni.ttf` are present.
 * **Empty ROM list:** Place `.nes`/`.zip` files under `roms\`.
-* **Screenshots not saving:** Ensure you're pressing LEFT_THUMB (stick click, not movement) + LT trigger simultaneously. Verify `game:\snaps\` directory exists and has write permissions.
+* **Screenshots not saving:** Click the right stick. Check that `game:\snaps\` is writable. A request is ignored while the screenshot writer is busy; wait for the current capture to finish before trying again.
 * **Post-build copy error:** Expected without Neighborhood; deploy via FTP manually.
 * **Game Genie codes:** Add a `[cheat]` section to `game:\fceui.ini` and set `enable=1`. With the toggle on, launching a ROM opens the Xbox keyboard before the game starts so you can enter one or more 6- or 8-character Game Genie codes (hyphens optional, case-insensitive). Separate multiple codes with spaces, commas, or by finishing a code and typing another hyphen (e.g. `YSAOPE-YEAOZA-YEAPYA`). Every valid code is decoded, applied immediately, and saved into the per-ROM `.cht` file alongside your normal cheats. Submit an empty entry to skip cheats for that launch.
+
+
+## Screenshot timing and validation
+
+Controller screenshots copy the current frame and palette into a bounded job.
+A worker handles filename search, PNG compression, and writing to disk. It
+starts before gameplay and finishes a pending capture before the emulator
+closes. Requests made while it is busy are ignored. Lua screenshot functions
+keep their synchronous behavior, including waiting for a numbered controller
+capture if the two need the shared filename allocator at the same time.
+
+The warmup no longer creates or deletes numbered screenshots. PNG tests verify
+pixels, palettes, dimensions, and CRCs; worker tests cover blocked storage,
+frame ownership, naming, write failures, and shutdown. The commands are in
+`.github/workflows/snapshot-tests.yml`. These component tests use SDK substitutes
+and sanitizers. Hardware timing and gameplay still need console testing.

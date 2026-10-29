@@ -1,8 +1,8 @@
-﻿# Color Functions
+# Color functions
 
-The Color Functions provide comprehensive color manipulation capabilities for working with the NES 64-color palette. These functions allow you to read and convert palette colors, modify the NES palette RAM, and blend colors for visual effects.
+These functions read and convert colors in the NES 64-color palette, modify palette RAM, and blend colors for visual effects.
 
-## Color Information Functions
+## Color Information functions
 
 ### `getcolorrgb`
 
@@ -247,7 +247,7 @@ function gui()
 end
 ```
 
-## Palette RAM Functions
+## Palette RAM functions
 
 ### `getpalettecolor`
 
@@ -1068,7 +1068,7 @@ function gui()
 end
 ```
 
-## Color Blending Functions
+## Color Blending functions
 
 ### `blendcolors`
 

@@ -1,8 +1,8 @@
-﻿# Memory Functions
+# Memory functions
 
-Complete reference for all memory reading and writing functions available in the Lua API. These functions allow you to read from and write to NES memory, enabling HUD overlays, cheats, memory analysis, and game state manipulation.
+These functions read and write NES memory for HUD overlays, cheats, memory analysis, and changes to game state.
 
-## Memory Reading Functions
+## Memory Reading functions
 
 Functions for reading from NES memory. Use these to monitor game state, create HUD overlays, or analyze game data.
 
@@ -98,7 +98,7 @@ Reads a 16-bit value (word) from consecutive memory addresses in little-endian f
 - Reads two consecutive bytes and combines them in **little-endian format** (standard for NES/6502):
   - Low byte (bits 0-7) is read from `address`
   - High byte (bits 8-15) is read from `address + 1`
-  - Combined value = low + (high Ã— 256)
+  - Combined value = low + (high Ã.  256)
 - For example, if address `0x0050` contains `0x34` and `0x0051` contains `0x12`, `readword(0x0050)` returns `0x1234` (0x34 + 0x12 * 256).
 - Address validation: Values outside 0x0000-0xFFFF will return a Lua error.
 - **Address wrapping:** If `address + 1` exceeds 0xFFFF, only the low byte is read and the high byte is 0.
@@ -470,16 +470,16 @@ end
 Searches for a specific byte value within an address range and returns all matching addresses.
 
 **Parameters:**
-- `value` (integer): Target byte value to search for (0â€“255).
-- `startAddr` (integer): Start address (inclusive), 0x0000â€“0xFFFF.
-- `endAddr` (integer): End address (inclusive), 0x0000â€“0xFFFF. Order is flexible; if `startAddr > endAddr`, they are swapped.
+- `value` (integer): Target byte value to search for (0-255).
+- `startAddr` (integer): Start address (inclusive), 0x0000-0xFFFF.
+- `endAddr` (integer): End address (inclusive), 0x0000-0xFFFF. Order is flexible; if `startAddr > endAddr`, they are swapped.
 
 **Returns:**
 - (table): A 1-indexed Lua table of addresses where the byte equals `value`.
 
 **Notes:**
 - Searches using the emulator's memory mapping (`ARead`), so it works across RAM/PPU/APU/cartridge spaces depending on the range.
-- Value is validated (0â€“255). Addresses are clamped to the NES 16-bit address space.
+- Value is validated (0-255). Addresses are clamped to the NES 16-bit address space.
 - Stops at 0xFFFF; does not wrap.
 
 **Example:**
@@ -500,9 +500,9 @@ local flags = scanbyte(1, 0x0000, 0xFFFF)
 Searches for a specific 16-bit value (little-endian) within an address range and returns all matching addresses.
 
 **Parameters:**
-- `value` (integer): Target 16-bit value to search for (0â€“65535). Compared as little-endian: low byte at `addr`, high byte at `addr+1`.
-- `startAddr` (integer): Start address (inclusive), 0x0000â€“0xFFFF.
-- `endAddr` (integer): End address (inclusive), 0x0000â€“0xFFFF. Order is flexible; if `startAddr > endAddr`, they are swapped.
+- `value` (integer): Target 16-bit value to search for (0-65535). Compared as little-endian: low byte at `addr`, high byte at `addr+1`.
+- `startAddr` (integer): Start address (inclusive), 0x0000-0xFFFF.
+- `endAddr` (integer): End address (inclusive), 0x0000-0xFFFF. Order is flexible; if `startAddr > endAddr`, they are swapped.
 
 **Returns:**
 - (table): A 1-indexed Lua table of addresses where the 16-bit word starting at that address equals `value`.
@@ -535,15 +535,15 @@ Searches for a sequence of byte values within an address range and returns all s
 - `pattern`: Can be either:
   - (table): A Lua table containing byte values `{value1, value2, ...}` (1-indexed)
   - (varargs): Individual byte values as arguments `b1, b2, ..., startAddr, endAddr`
-- `startAddr` (integer): Start address (inclusive), 0x0000â€“0xFFFF.
-- `endAddr` (integer): End address (inclusive), 0x0000â€“0xFFFF. Order is flexible; if `startAddr > endAddr`, they are swapped.
+- `startAddr` (integer): Start address (inclusive), 0x0000-0xFFFF.
+- `endAddr` (integer): End address (inclusive), 0x0000-0xFFFF. Order is flexible; if `startAddr > endAddr`, they are swapped.
 
 **Returns:**
 - (table): A 1-indexed Lua table of addresses where the pattern starts (i.e., where all pattern bytes match consecutively).
 
 **Notes:**
 - Pattern length is limited to 256 bytes maximum.
-- All pattern values must be in range 0â€“255.
+- All pattern values must be in range 0-255.
 - When using table form: `scanbytes({0xDE, 0xAD}, 0x0000, 0xFFFF)`
 - When using varargs form: `scanbytes(0xDE, 0xAD, 0x0000, 0xFFFF)` (last two args are addresses)
 - Uses emulator memory mapping (`ARead`), so it works across RAM/PPU/APU/cartridge spaces.
@@ -577,9 +577,9 @@ local found = scanbytes(structPattern, 0x0000, 0xFFFF)
 Searches for a byte pattern with optional wildcard support within an address range and returns all starting addresses where the pattern matches.
 
 **Parameters:**
-- `pattern` (table): A Lua table containing byte values `{value1, value2, ...}` (1-indexed). All values must be in range 0â€“255.
-- `startAddr` (integer): Start address (inclusive), 0x0000â€“0xFFFF.
-- `endAddr` (integer): End address (inclusive), 0x0000â€“0xFFFF. Order is flexible; if `startAddr > endAddr`, they are swapped.
+- `pattern` (table): A Lua table containing byte values `{value1, value2, ...}` (1-indexed). All values must be in range 0-255.
+- `startAddr` (integer): Start address (inclusive), 0x0000-0xFFFF.
+- `endAddr` (integer): End address (inclusive), 0x0000-0xFFFF. Order is flexible; if `startAddr > endAddr`, they are swapped.
 - `mask` (table, optional): A Lua table of the same length as `pattern` where each value indicates whether that position should be matched (non-zero) or treated as a wildcard (0). If `nil` or omitted, all bytes must match exactly (equivalent to `scanbytes`).
 
 **Returns:**
@@ -587,7 +587,7 @@ Searches for a byte pattern with optional wildcard support within an address ran
 
 **Notes:**
 - Pattern length is limited to 256 bytes maximum.
-- All pattern values must be in range 0â€“255.
+- All pattern values must be in range 0-255.
 - Mask table length must match pattern table length if provided.
 - Mask values: `0` = wildcard (any byte matches), non-zero = must match pattern byte.
 - Uses emulator memory mapping (`ARead`), so it works across RAM/PPU/APU/cartridge spaces.
@@ -632,7 +632,7 @@ Compares two memory snapshots (created with `readbytes()` or `backupbytes()`) an
 **Parameters:**
 - `oldSnapshot` (table): A Lua table containing byte values from the first snapshot (1-indexed, same format as `readbytes()`).
 - `newSnapshot` (table): A Lua table containing byte values from the second snapshot (1-indexed, same format as `readbytes()`).
-- `startAddr` (integer): The starting address where the snapshots begin. Valid range is 0x0000â€“0xFFFF.
+- `startAddr` (integer): The starting address where the snapshots begin. Valid range is 0x0000-0xFFFF.
 
 **Returns:**
 - (table): An address-indexed Lua table where keys are addresses (as integers) and values are the new byte values at those addresses. Only addresses where values changed are included in the result.
@@ -640,7 +640,7 @@ Compares two memory snapshots (created with `readbytes()` or `backupbytes()`) an
 **Notes:**
 - Both snapshots must be the same length (same number of bytes).
 - Snapshots are 1-indexed tables where `snapshot[i]` corresponds to the byte at address `startAddr + (i - 1)`.
-- All snapshot values must be in range 0â€“255.
+- All snapshot values must be in range 0-255.
 - The result table only contains entries for addresses where values changed between snapshots.
 - Use `pairs()` to iterate through the result table (address-indexed, not array-indexed).
 - Useful for detecting what changed after a game action, analyzing memory modifications, or monitoring specific memory regions.
@@ -692,7 +692,7 @@ end
 Sets up a watchpoint for a memory address. When the watched address changes, the `onwatch()` callback function (if defined) will be called automatically.
 
 **Parameters:**
-- `address` (integer): Memory address to watch. Valid range is 0x0000â€“0xFFFF.
+- `address` (integer): Memory address to watch. Valid range is 0x0000-0xFFFF.
 
 **Returns:**
 - Nothing
@@ -709,8 +709,8 @@ Sets up a watchpoint for a memory address. When the watched address changes, the
 **Callback Function:**
 If you define an `onwatch(address, oldValue, newValue)` function in your script, it will be called automatically when any watched address changes:
 - `address`: The address that changed (integer)
-- `oldValue`: The previous byte value (0â€“255)
-- `newValue`: The new byte value (0â€“255)
+- `oldValue`: The previous byte value (0-255)
+- `newValue`: The new byte value (0-255)
 
 **Examples:**
 ```lua
@@ -785,7 +785,7 @@ end
 Removes a watchpoint from a memory address. The address will no longer be monitored for changes.
 
 **Parameters:**
-- `address` (integer): Memory address to stop watching. Valid range is 0x0000â€“0xFFFF.
+- `address` (integer): Memory address to stop watching. Valid range is 0x0000-0xFFFF.
 
 **Returns:**
 - Nothing
@@ -825,11 +825,11 @@ end
 Creates a complete snapshot of a memory region and returns it as an address-indexed table. Each address in the range is stored as a key with its byte value.
 
 **Parameters:**
-- `startAddr` (integer): Start address (inclusive), 0x0000â€“0xFFFF.
-- `endAddr` (integer): End address (inclusive), 0x0000â€“0xFFFF. Order is flexible; if `startAddr > endAddr`, they are swapped.
+- `startAddr` (integer): Start address (inclusive), 0x0000-0xFFFF.
+- `endAddr` (integer): End address (inclusive), 0x0000-0xFFFF. Order is flexible; if `startAddr > endAddr`, they are swapped.
 
 **Returns:**
-- (table): An address-indexed Lua table where keys are addresses (as integers) and values are byte values (0â€“255) at those addresses. Use `pairs()` to iterate through the result.
+- (table): An address-indexed Lua table where keys are addresses (as integers) and values are byte values (0-255) at those addresses. Use `pairs()` to iterate through the result.
 
 **Notes:**
 - The result table is address-indexed (not array-indexed), meaning you access values using `snapshot[address]` rather than `snapshot[index]`.
@@ -933,7 +933,7 @@ print(string.format("Score: %d-%d-%d", scoreHigh, scoreMid, scoreLow))
 - **`getmemorytype()`**: Identifying memory type at an address (validating addresses, understanding memory layout, debugging)
 - **`ismemorywritable()`**: Checking if an address is writable before write operations (validating addresses, preventing write errors, safety checks)
 
-## Memory Writing Functions
+## Memory Writing functions
 
 Functions for writing to NES memory. Use these to modify game state, create cheats, or manipulate game data.
 
@@ -942,11 +942,11 @@ Functions for writing to NES memory. Use these to modify game state, create chea
 ### `setbit`
 
 **Signature:** `setbit(address, bit)`
-Sets a specific bit (0â€“7) in the byte at `address`.
+Sets a specific bit (0-7) in the byte at `address`.
 
 **Parameters:**
-- `address` (integer): NES address, 0x0000â€“0xFFFF.
-- `bit` (integer): Bit index to set, 0â€“7.
+- `address` (integer): NES address, 0x0000-0xFFFF.
+- `bit` (integer): Bit index to set, 0-7.
 
 **Returns:** Nothing
 
@@ -966,11 +966,11 @@ setbit(0x0756, 2)
 ### `clearbit`
 
 **Signature:** `clearbit(address, bit)`
-Clears a specific bit (0â€“7) in the byte at `address`.
+Clears a specific bit (0-7) in the byte at `address`.
 
 **Parameters:**
-- `address` (integer): NES address, 0x0000â€“0xFFFF.
-- `bit` (integer): Bit index to clear, 0â€“7.
+- `address` (integer): NES address, 0x0000-0xFFFF.
+- `bit` (integer): Bit index to clear, 0-7.
 
 **Returns:** Nothing
 
@@ -990,11 +990,11 @@ clearbit(0x0756, 2)
 ### `togglebit`
 
 **Signature:** `togglebit(address, bit)`
-Toggles a specific bit (0â€“7) in the byte at `address`.
+Toggles a specific bit (0-7) in the byte at `address`.
 
 **Parameters:**
-- `address` (integer): NES address, 0x0000â€“0xFFFF.
-- `bit` (integer): Bit index to toggle, 0â€“7.
+- `address` (integer): NES address, 0x0000-0xFFFF.
+- `bit` (integer): Bit index to toggle, 0-7.
 
 **Returns:** Nothing
 
@@ -1014,11 +1014,11 @@ togglebit(0x0756, 2)
 ### `testbit`
 
 **Signature:** `testbit(address, bit)`
-Tests whether a specific bit (0â€“7) is set in the byte at `address`.
+Tests whether a specific bit (0-7) is set in the byte at `address`.
 
 **Parameters:**
-- `address` (integer): NES address, 0x0000â€“0xFFFF.
-- `bit` (integer): Bit index to test, 0â€“7.
+- `address` (integer): NES address, 0x0000-0xFFFF.
+- `bit` (integer): Bit index to test, 0-7.
 
 **Returns:**
 - (boolean): `true` if the bit is set, `false` if it is clear.

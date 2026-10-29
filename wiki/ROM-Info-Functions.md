@@ -1,8 +1,8 @@
-﻿# ROM Info Functions
+# ROM Info functions
 
-The ROM Info Functions provide comprehensive information about the loaded game ROM, including file details, ROM structure, mapper information, emulation state, and Game Genie code generation/decoding. These functions are essential for ROM analysis, game detection, and compatibility checking.
+These functions report details of the loaded ROM, its structure and mapper, and the current emulation state. They also encode and decode Game Genie codes for ROM analysis, game detection, and compatibility checks.
 
-## ROM File Information Functions
+## ROM File Information functions
 
 ### `getromname`
 
@@ -295,7 +295,7 @@ end
 
 **Signature:** `getinesheader()`
 
-Gets the full iNES header dump as a Lua table. Returns comprehensive information about the ROM header including mapper, mirroring, flags, and raw header data.
+Gets the full iNES header dump as a Lua table. Returns ROM header information including mapper, mirroring, flags, and raw header data.
 
 - **Parameters:** None
 - **Returns:**
@@ -504,9 +504,9 @@ Returns the current ROM region as a string. Useful for adjusting logic or overla
 
 - **Parameters:** none
 - **Returns:** `string`
-  - `"NTSC"` — NTSC timing/graphics (default for most USA/Japan ROMs)
-  - `"PAL"` — PAL timing (European ROMs or PAL-enforced configs)
-  - `"Dendy"` — Hybrid “Dendy” timing (PAL clock + NTSC PPU timing)
+  - `"NTSC"` .  NTSC timing/graphics (default for most USA/Japan ROMs)
+  - `"PAL"` .  PAL timing (European ROMs or PAL-enforced configs)
+  - `"Dendy"` .  Hybrid “Dendy” timing (PAL clock + NTSC PPU timing)
 - **Notes:**
   - Detected from the ROM header (NES 2.0 timing bits or iNES PAL flag). Falls back to user video settings when header data is missing.
   - Honors forced user overrides set via config (e.g., if the user selects PAL/Dendy manually).
@@ -579,7 +579,7 @@ end
 
 ---
 
-## ROM Size Functions
+## ROM Size functions
 
 ### `getromsize`
 
@@ -895,7 +895,7 @@ function gui()
 end
 ```
 
-## ROM Feature Functions
+## ROM Feature functions
 
 ### `hasbattery`
 
@@ -992,7 +992,7 @@ function gui()
 end
 ```
 
-## Emulation State Functions
+## Emulation State functions
 
 ### `isframeadvancing`
 
@@ -1270,7 +1270,7 @@ function gui()
 end
 ```
 
-## Mapper Information Functions
+## Mapper Information functions
 
 ### `getmapper`
 
@@ -1461,7 +1461,7 @@ function gui()
 end
 ```
 
-## Game Genie Code Functions
+## Game Genie Code functions
 
 ### `getgamegeniecode`
 

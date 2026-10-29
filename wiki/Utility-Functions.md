@@ -1,4 +1,4 @@
-# Utility Functions
+# Utility functions
 
 Utility functions for debugging, logging, and console output.
 

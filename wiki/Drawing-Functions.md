@@ -1,8 +1,8 @@
-# Drawing Functions
+# Drawing functions
 
-Complete reference for all drawing functions available in the Lua API. These functions allow you to draw text, shapes, images, and graphics primitives on the screen overlay.
+Reference for the Lua functions that draw text, shapes, images, and graphics primitives on the screen overlay.
 
-## Text Functions
+## Text functions
 
 ### `drawtext`
 
@@ -18,7 +18,7 @@ Draws **borderless** text on the screen overlay using FCEUX's built-in font rend
 **Returns:** Nothing
 
 **Notes:**
-- Text is drawn using an 8Ã—8 pixel font. Each character occupies 8 pixels horizontally.
+- Text is drawn using an 8Ã. 8 pixel font. Each character occupies 8 pixels horizontally.
 - **Borderless rendering:** This function draws only the glyph pixels with no background, outline, or shadow effects. For text with borders/outlines, use `drawtextwh()`.
 - Coordinates (0, 0) represent the top-left corner of the screen.
 - Text drawn outside the visible area (0-255, 0-239) will be clipped automatically.
@@ -102,10 +102,10 @@ Draws text on the screen overlay with width/height clipping, multi-line support,
 **Returns:** Nothing
 
 **Notes:**
-- Text is drawn using an 8Ã—8 pixel font. Each character occupies 8 pixels horizontally.
+- Text is drawn using an 8Ã. 8 pixel font. Each character occupies 8 pixels horizontally.
 - **Multi-line support:** Use newline characters (`\n`) in the text string to create multi-line displays. Text automatically wraps within `max_w` pixels.
 - **Border rendering:** When `border > 0`, the function draws a dimmed background (using palette indices 0xC1, 0xD1, 0xCF) around text for improved contrast and readability. Border style 2 provides the thickest outline for maximum visibility.
-- **Borderless mode (`border = 0`):** When border is 0, the function proactively clears the specified `max_w Ã— max_h` area before drawing to prevent ghosting from previous frames, then draws only the glyph pixels.
+- **Borderless mode (`border = 0`):** When border is 0, the function proactively clears the specified `max_w Ã.  max_h` area before drawing to prevent ghosting from previous frames, then draws only the glyph pixels.
 - Coordinates (0, 0) represent the top-left corner of the screen.
 - Text drawn outside the visible area (0-255, 0-239) will be clipped automatically.
 - The overlay is composited on top of the NES frame, so Lua-drawn text appears above game graphics.
@@ -149,7 +149,7 @@ Draws text on the screen overlay with custom X and Y scaling. This function allo
 **Returns:** Nothing
 
 **Notes:**
-- Text is drawn using an 8Ã—8 pixel font. Each character is scaled independently based on `scaleX` and `scaleY`.
+- Text is drawn using an 8Ã. 8 pixel font. Each character is scaled independently based on `scaleX` and `scaleY`.
 - **Scaling method:** Uses nearest-neighbor scaling, where each source pixel is expanded to a block of pixels. This provides crisp, pixelated scaling suitable for retro-style graphics.
 - **Scale range:** Both `scaleX` and `scaleY` are clamped to the range 0.5-4.0. Values below 0.5 are set to 0.5, values above 4.0 are set to 4.0.
 - **Anisotropic scaling:** You can use different values for `scaleX` and `scaleY` to create wide or tall text effects (e.g., `scaleX=2.0, scaleY=1.0` for wide text, or `scaleX=1.0, scaleY=2.0` for tall text).
@@ -197,21 +197,21 @@ Draws text on the screen overlay rotated by a specified angle in degrees. The te
 - `y` (integer): Y coordinate (0-239). NES vertical resolution is 240 pixels. This is the rotation origin point.
 - `text` (string): Text string to display. Supports newline characters (`\n`) for multi-line text.
 - `color` (integer): Palette color index. Valid range is 0x00-0x3F (automatically mapped to NES palette range).
-- `angle` (integer): Rotation angle in degrees. Valid range is 0-360. Values outside this range are automatically normalized (e.g., 370Â° becomes 10Â°, -10Â° becomes 350Â°).
+- `angle` (integer): Rotation angle in degrees. Valid range is 0-360. Values outside this range are automatically normalized (e.g., 370 degrees becomes 10 degrees, -10 degrees becomes 350 degrees).
 
 **Returns:** Nothing
 
 **Notes:**
 - **Rotation origin:** Text rotates around the (x, y) point, which is the top-left corner of the unrotated text.
 - **Angle convention:** 
-  - `0Â°` = Text points right (normal, unrotated)
-  - `90Â°` = Text points down (rotated 90Â° clockwise)
-  - `180Â°` = Text points left (upside down)
-  - `270Â°` = Text points up (rotated 270Â° clockwise)
-- **Angle wrapping:** Angles are automatically normalized to 0-360 range. Negative angles and angles > 360 are wrapped (e.g., -10Â° â†’ 350Â°, 370Â° â†’ 10Â°).
+  - `0 degrees` = Text points right (normal, unrotated)
+  - `90 degrees` = Text points down (rotated 90 degrees clockwise)
+  - `180 degrees` = Text points left (upside down)
+  - `270 degrees` = Text points up (rotated 270 degrees clockwise)
+- **Angle wrapping:** Angles are automatically normalized to 0-360 range. Negative angles and angles > 360 are wrapped (e.g., -10 degrees â†’ 350 degrees, 370 degrees â†’ 10 degrees).
 - **Multi-line support:** Use newline characters (`\n`) in the text string to create multi-line displays. Each line advances 8 pixels vertically in the unrotated coordinate space.
 - **Borderless rendering:** This function draws only the glyph pixels with no background, outline, or shadow effects (similar to `drawtext()`).
-- **Performance:** For unrotated text (angle = 0Â°), the function uses a fast path that calls `drawtext()` directly for better performance.
+- **Performance:** For unrotated text (angle = 0 degrees), the function uses a fast path that calls `drawtext()` directly for better performance.
 - **Clipping:** Rotated text pixels are individually clipped to the screen bounds (0-255, 0-239). Text that rotates outside the visible area will be clipped.
 - **Blending:** Rotated text respects the current drawing mode set by `setdrawmode()`.
 - Coordinates (0, 0) represent the top-left corner of the screen.
@@ -254,7 +254,7 @@ Returns the pixel width of the longest line in a text string, using the same var
 **Notes:**
 - **Variable-width font:** Uses the same font metrics (`Font6x7` + `JoedCharWidth`) as `drawtext()`, `drawtextwh()`, `drawtextscaled()`, and `drawtextrotated()`, so measurements match exactly how text is rendered.
 - **Multi-line handling:** For text with newlines, returns the width of the longest line, not the total width of all lines.
-- **Tab handling:** Tab characters (`\t`) are treated as 4 spaces. The width of a tab is calculated as 4 Ã— the width of a space character.
+- **Tab handling:** Tab characters (`\t`) are treated as 4 spaces. The width of a tab is calculated as 4 Ã.  the width of a space character.
 - **Empty strings:** Returns 0 for empty strings or strings containing only whitespace/newlines.
 - **Carriage returns:** Carriage return characters (`\r`) are ignored (handles Windows-style line endings `\r\n`).
 - **Non-printable characters:** Characters that don't map to valid font glyphs contribute 0 pixels to the width.
@@ -430,7 +430,7 @@ drawtextbox(10, 110, 100, 40, "Border Only", 0x20, nil, 0x20)
 drawtextbox(120, 10, 100, 60, "Line 1\nLine 2\nLine 3", 0x20, 0x10, 0x20)
 ```
 
-## Basic Drawing Functions
+## Basic Drawing functions
 
 ### `drawpixel`
 
@@ -535,7 +535,7 @@ drawthickline(108, 120, 148, 120, 3, 0x20)  -- Horizontal thick line
 drawthickline(128, 100, 128, 140, 3, 0x20)  -- Vertical thick line
 ```
 
-## Rectangle Functions
+## Rectangle functions
 
 ### `drawrect`
 
@@ -651,7 +651,7 @@ Clears the entire overlay screen, making it transparent (removes all overlay con
 **Returns:** Nothing
 
 **Notes:**
-- Clears the entire overlay buffer (256Ã—240 pixels) by setting all pixels to 0 (transparent).
+- Clears the entire overlay buffer (256Ã. 240 pixels) by setting all pixels to 0 (transparent).
 - Equivalent to calling `clearrect(0, 0, 256, 240)`, but more efficient.
 - Useful for full screen clears when you want to start fresh each frame.
 - Clearing sets pixels to transparent, which means they won't overwrite the NES frame during compositing.
@@ -678,7 +678,7 @@ Fills the entire overlay screen with a specified color.
 **Returns:** Nothing
 
 **Notes:**
-- Fills the entire overlay buffer (256Ã—240 pixels) with the specified color.
+- Fills the entire overlay buffer (256Ã. 240 pixels) with the specified color.
 - Equivalent to calling `fillrect(0, 0, 256, 240, color)`, but more efficient.
 - Respects the current drawing mode (normal, add, subtract, multiply, alpha) set by `setdrawmode()`.
 - Useful for screen overlays, fade effects, and full-screen color fills.
@@ -721,6 +721,7 @@ Takes a screenshot of the current frame, including all overlays and Lua-drawn co
 - Auto-generated filenames use the format: "ROM Name - N.png" where N is an incrementing number
 - Custom filenames are used as-is (with `.png` extension added if missing)
 - Screenshots are saved synchronously - the function returns after the file is written
+- Controller captures use a separate background path; see [Screenshots](Screenshots).
 - Useful for creating automated screenshot sequences, recording gameplay highlights, or capturing specific moments
 
 **Example: Basic Usage:**
@@ -862,7 +863,7 @@ function gui()
 end
 ```
 
-## Image Functions
+## Image functions
 
 ### `drawimage`
 
@@ -1083,7 +1084,7 @@ for i = 0, 15 do
 end
 ```
 
-## Drawing State Functions
+## Drawing State functions
 
 ### `setdrawmode`
 
@@ -1785,7 +1786,7 @@ local grad4 = radialgradient(128, 120, 100, stops)
 fillrectgradient(0, 0, 256, 240, grad4)
 ```
 
-## Shape Functions
+## Shape functions
 
 ### `drawcircle`
 
@@ -1949,9 +1950,9 @@ Draws a circular arc outline (portion of a circle) between two angles.
 - Coordinates (0, 0) represent the top-left corner of the screen.
 - The arc is drawn as an outline only (border), not filled.
 - Uses the midpoint circle algorithm with angle filtering to draw only the arc segment.
-- **Angle system:** 0Â° = right (east), 90Â° = down (south), 180Â° = left (west), 270Â° = up (north), 360Â° = right (same as 0Â°).
+- **Angle system:** 0 degrees = right (east), 90 degrees = down (south), 180 degrees = left (west), 270 degrees = up (north), 360 degrees = right (same as 0 degrees).
 - Angles are normalized to 0-360 range automatically.
-- Supports wrap-around arcs (e.g., arc from 350Â° to 10Â° crosses the 0Â°/360Â° boundary).
+- Supports wrap-around arcs (e.g., arc from 350 degrees to 10 degrees crosses the 0 degrees/360 degrees boundary).
 - When `startAngle == endAngle`, draws a full circle (same result as `drawcircle()`).
 - Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
 - The overlay is composited on top of the NES frame, so Lua-drawn arcs appear above game graphics.
@@ -1988,9 +1989,9 @@ Draws a filled circular arc (pie slice) between two angles.
 - Coordinates (0, 0) represent the top-left corner of the screen.
 - The arc is drawn as a filled shape (pie slice), filling all pixels within the angle range and radius.
 - Uses distance calculation and angle filtering to determine which pixels to fill.
-- **Angle system:** 0Â° = right (east), 90Â° = down (south), 180Â° = left (west), 270Â° = up (north), 360Â° = right (same as 0Â°).
+- **Angle system:** 0 degrees = right (east), 90 degrees = down (south), 180 degrees = left (west), 270 degrees = up (north), 360 degrees = right (same as 0 degrees).
 - Angles are normalized to 0-360 range automatically.
-- Supports wrap-around arcs (e.g., arc from 350Â° to 10Â° crosses the 0Â°/360Â° boundary).
+- Supports wrap-around arcs (e.g., arc from 350 degrees to 10 degrees crosses the 0 degrees/360 degrees boundary).
 - When `startAngle == endAngle`, fills a full circle (same result as `fillcircle()`).
 - Pixels drawn outside the visible area (0-255, 0-239) are ignored (silently clipped).
 - The overlay is composited on top of the NES frame, so Lua-drawn arcs appear above game graphics.

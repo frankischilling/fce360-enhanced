@@ -1,10 +1,10 @@
-﻿# Audio Functions
+# Audio functions
 
-The FCE360 Enhanced audio API lets Lua scripts observe the mixed output that players hear, inspect individual APU channels, run spectral analysis, and even apply real-time filters to the audible signal. This page reorganises the functions by task and explains how they fit together so you can pick the right tool for metering, visualisation, or audio-driven gameplay logic.
+The audio API lets Lua scripts inspect mixed output and individual APU channels, run spectral analysis, and apply filters to the audible signal. Functions are grouped by task for metering, visualisation, and audio-driven gameplay logic.
 
 ---
 
-## Mixed Output Functions
+## Mixed Output functions
 
 ### `getaudioenabled`
 
@@ -909,7 +909,7 @@ Applies real-time frequency filtering to audio samples and returns the filtered 
 - `integer` - Filtered sample value (32-bit signed, typically within 16-bit range)
 
 **Notes:**
-- Analysis only—this function does not change what you hear.
+- Analysis only. this function does not change what you hear.
 - Each `filterId` keeps independent state so you can run multiple filters in parallel.
 - Based on RBJ Audio EQ Cookbook formulas.
 - Useful for comparing original vs. filtered samples or drawing filtered waveforms.

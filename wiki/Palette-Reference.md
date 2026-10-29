@@ -1,13 +1,13 @@
 # NES Palette Reference for Lua Overlays
 
-Complete reference for the NES 64-color palette used in Lua drawing functions.
+Reference for the NES 64-color palette used by Lua drawing functions.
 
-## General Notes
+## General notes
 
-- **Valid range:** `0x00–0x3F` (64 colors total)
-- **Internally mapped to:** `0x80–0xBF` for overlay rendering
+- **Valid range:** `0x00-0x3F` (64 colors total)
+- **Internally mapped to:** `0x80-0xBF` for overlay rendering
 - **Coordinates and drawing functions:** 256×240 pixels resolution
-- **Transparent/black values:** Some palette indices (notably `0x0D, 0x0E, 0x0F, 0x1E, 0x1F, 0x2F`) are near-black or transparent and will render invisibly—avoid these for text or outlines
+- **Transparent/black values:** Some palette indices (notably `0x0D, 0x0E, 0x0F, 0x1E, 0x1F, 0x2F`) are near-black or transparent and will render invisibly. avoid these for text or outlines
 - **Palette variation:** Colors vary slightly depending on the current NTSC tint/hue settings, but their relative brightness and hue ordering are fixed
 
 ## Recommended Defaults
@@ -22,7 +22,7 @@ Complete reference for the NES 64-color palette used in Lua drawing functions.
 
 ## Complete Palette Table
 
-### Row 0 — Dark (0x00–0x0F)
+### Row 0 .  Dark (0x00-0x0F)
 - `0x00` - dark gray
 - `0x01` - midnight navy
 - `0x02` - deep blue
@@ -40,7 +40,7 @@ Complete reference for the NES 64-color palette used in Lua drawing functions.
 - `0x0E` - black (transparent)
 - `0x0F` - black (transparent)
 
-### Row 1 — Medium-Dark (0x10–0x1F)
+### Row 1 .  Medium-Dark (0x10-0x1F)
 - `0x10` - light gray
 - `0x11` - light blue
 - `0x12` - blue
@@ -58,7 +58,7 @@ Complete reference for the NES 64-color palette used in Lua drawing functions.
 - `0x1E` - black (transparent)
 - `0x1F` - black (transparent)
 
-### Row 2 — Medium-Bright (0x20–0x2F)
+### Row 2 .  Medium-Bright (0x20-0x2F)
 - `0x20` - bright white
 - `0x21` - light blue
 - `0x22` - baby blue 
@@ -76,7 +76,7 @@ Complete reference for the NES 64-color palette used in Lua drawing functions.
 - `0x2E` - black (transparent)
 - `0x2F` - black (transparent)
 
-### Row 3 — Bright (0x30–0x3F)
+### Row 3 .  Bright (0x30-0x3F)
 - `0x30` - very light gray
 - `0x31` - very light blue
 - `0x32` - light gray blue

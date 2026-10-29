@@ -1,8 +1,8 @@
-﻿# State Management Functions
+# State Management functions
 
-The State Management Functions allow you to save and load game states programmatically. Save states capture the complete game state including RAM, registers, and PPU state, allowing you to create checkpoint systems, automated save/load functionality, and script-controlled state management.
+These functions save and load game states, including RAM, registers, and PPU state. Use them for checkpoints and script-controlled or automated save and load operations.
 
-## Functions
+## functions
 
 ### `savestate`
 

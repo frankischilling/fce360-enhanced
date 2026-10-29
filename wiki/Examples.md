@@ -1,6 +1,6 @@
-# Complete Examples
+# Complete examples
 
-This page contains complete, working example scripts that demonstrate various Lua API features.
+These complete scripts demonstrate the Lua API.
 
 ## FPS Display
 

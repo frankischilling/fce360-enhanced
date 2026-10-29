@@ -1,6 +1,6 @@
-﻿# Callbacks
+# Callbacks
 
-Callbacks are functions that your script defines, which the emulator will call automatically at specific times.
+Callbacks are functions in your script that the emulator calls automatically at specific times.
 
 ## Required Callback
 

@@ -1,8 +1,8 @@
-# Monitoring Functions
+# Monitoring functions
 
-The Monitoring Functions provide access to performance metrics, timing information, screen dimensions, and audio monitoring capabilities. These functions are essential for creating performance overlays, timing systems, audio visualizations, and debugging tools.
+These functions expose performance metrics, timing, screen dimensions, and audio monitoring for overlays, timing systems, audio visualizations, and debugging.
 
-## Performance and Timing Functions
+## Performance and Timing functions
 
 ### `getfps`
 
@@ -479,7 +479,7 @@ function gui()
 end
 ```
 
-## Profiling Functions
+## Profiling functions
 
 ### `beginprofile(tag)`
 
@@ -531,7 +531,7 @@ endprofile("loader")  -- logs elapsed milliseconds
 
 ---
 
-## Screen Dimension Functions
+## Screen Dimension functions
 
 ### `getframetime_ms()`
 
@@ -584,9 +584,9 @@ Returns a table describing the current Lua allocator usage. Helpful for watching
 
 **Returns:**
 - `table` with the fields:
-  - `kilobytes` (number) â€“ Approximate KB reported by Lua (same as `collectgarbage("count")`).
-  - `bytes` (number) â€“ Floating-point byte count (`kilobytes * 1024`).
-  - `rounded_bytes` (integer) â€“ Byte count rounded to an integer.
+  - `kilobytes` (number) - Approximate KB reported by Lua (same as `collectgarbage("count")`).
+  - `bytes` (number) - Floating-point byte count (`kilobytes * 1024`).
+  - `rounded_bytes` (integer) - Byte count rounded to an integer.
 
 **Notes:**
 - Uses `lua_gc(L, LUA_GCCOUNT/B)` internally, so it does not trigger garbage collection.
@@ -726,11 +726,11 @@ function gui()
 end
 ```
 
-## Audio Monitoring Functions
+## Audio Monitoring functions
 
 Audio sampling, per-channel analysis, FFTs, and filtering are now documented on the dedicated [Audio Functions](Audio-Functions) page. This section of the monitoring guide focuses on timing and performance metrics, so please refer to the audio page for `getaudioenabled()`, `getaudiosample()`, channel helpers, and related examples.
 
-## Audio Conversion Functions
+## Audio Conversion functions
 
 Sample conversion helpers (`audiosampletofloat()`, `normalizeaudiosample()`, and others) have also moved to the [Audio Functions](Audio-Functions) page to keep the monitoring documentation concise.
 
