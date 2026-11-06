@@ -38,6 +38,7 @@
  #include <algorithm>
  #include <cwctype>
 #include <cctype>
+#include "..\gameplay_shortcuts.h"
  
  // Forward declaration for Xbox keyboard UI if not in xui.h
  #ifndef XShowKeyboardUI
@@ -141,7 +142,8 @@
  /*
 	 Display (nothing) when emulation is running
  */
-	 bool m_comboLatch;  // prevents re-trigger while still held
+	 bool m_active;
+	 GameplayShortcuts m_shortcuts;
 	 
  public:
 	 XUI_IMPLEMENT_CLASS( XuiRunner, L"XuiRunner", XUI_CLASS_SCENE );
@@ -155,46 +157,32 @@
 	 // Called once per frame from RenderXui()
 	 void UpdatePerFrame()
 	 {
-		 // Only act while we're actually "in game"
-		 if (!emul.RenderEmulation) return;
- 
-		 Input::GetInput(NULL);
-		 GAMEPAD* pad = Input::GetMergedInput(0, NULL);
-		 if (!pad) return;
- 
-		 // Existing OSD combo: START + BACK
-		 const bool both =
-			 (pad->wButtons & XINPUT_GAMEPAD_START) &&
-			 (pad->wButtons & XINPUT_GAMEPAD_BACK); // "select" on 360
- 
-		 if (both && !m_comboLatch) {
-			 m_comboLatch = true;
-			 // In your tab order, XuiRunner -> OSD is "next"
-			 GoToNext();                 // opens the OSD tab
-			 // OSD::OnEnterTab() pauses emulation already
-		 }
-		 if (!both) {
-			 m_comboLatch = false;       // reset latch when released
-		 }
- 
-		 // New: Lua Console toggle - both stick clicks (LS+RS)
-		 const bool sticks =
-			 (pad->wButtons & XINPUT_GAMEPAD_LEFT_THUMB) &&
-			 (pad->wButtons & XINPUT_GAMEPAD_RIGHT_THUMB);
-		 static bool sticksLatch = false;
-		 if (sticks && !sticksLatch) {
-			 sticksLatch = true;
-			 #ifdef USE_LUA
-			 extern void FCEU_ToggleLuaConsole(void);
-			 FCEU_ToggleLuaConsole();
-			 #endif
-		 }
-		 if (!sticks) {
-			 sticksLatch = false;
-		 }
+		// Poll each physical controller separately so a chord cannot span pads.
+		Input::GetInput(NULL);
+		unsigned short buttons[4];
+		for (int i = 0; i < 4; ++i)
+		    buttons[i] = Input::m_Gamepads[i].bConnected ? Input::m_Gamepads[i].wButtons : 0;
+		const GameplayShortcuts::Action action = m_shortcuts.Update(buttons, m_active);
+		if (action == GameplayShortcuts::OpenMenu) {
+		    // Tab3 is the embedded OSD in LoadGame.xui (zero-based index 2).
+		    Goto(2);
+		    return;
+		}
+#ifdef USE_LUA
+		if (action == GameplayShortcuts::ToggleConsole) {
+		    extern void FCEU_ToggleLuaConsole(void);
+		    extern void FCEU_LuaSetDisabled(int disabled);
+		    FCEU_LuaSetDisabled(0);
+		    FCEU_ToggleLuaConsole();
+		}
+#endif
+		if (action == GameplayShortcuts::Screenshot)
+		    FCEUI_SaveSnapshot();
 	 }
-	 
+
+
 	 HRESULT OnEnterTab( BOOL &bHandled){
+		 m_active = true;
 		 emul.RenderEmulation = true;//run emulation
 		 
  #ifdef USE_LUA
@@ -207,6 +195,7 @@
 	 }
  
 	 HRESULT OnLeaveTab( BOOL &bHandled){
+		 m_active = false;
 		 emul.RenderEmulation = false;//stop emulation
 		 return S_OK;
 	 }
@@ -218,7 +207,7 @@
 	 HRESULT OnInit( XUIMessageInit* pInitData, BOOL& bHandled )
 	 {
 		 EnableTab(false);
-		 m_comboLatch = false;  // initialize latch
+		 m_active = false;
 		 g_EmuSceneInstance = this;              // expose instance
 		 
 		 return S_OK;

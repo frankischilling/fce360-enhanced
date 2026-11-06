@@ -2,6 +2,21 @@
 
 Common issues and solutions for Lua scripting in FCE360 Enhanced.
 
+## START + BACK takes a screenshot instead of opening the menu
+
+Install version 0.8.11 and copy both `fceux.xex` and its `media` folder. While
+playing, hold START and BACK on the same controller. Either button can be
+pressed first. Release the combo before opening the menu again.
+
+START + BACK takes priority over the screenshot and Lua console shortcuts.
+Right-stick click takes a screenshot; both stick clicks open the Lua console.
+The menu shortcut selects the OSD tab embedded in `LoadGame.xur`, so checking
+for a separate `OSD.xur` alone does not verify the active menu layout.
+
+[Issue #9](https://github.com/frankischilling/fce360-enhanced/issues/9) remains
+open for console feedback. If the problem continues, report your controller,
+console setup, and whether you replaced both the XEX and media folder.
+
 ## Script not loading
 
 **Symptoms:** Script doesn't run, no output, no errors visible

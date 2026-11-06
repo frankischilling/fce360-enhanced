@@ -14,10 +14,10 @@ UI and feature work.
 > **Warning:** You might run into build errors or incompatibilities when using newer toolchains or SDK/XDK versions. Building outside of the original environment (VS2008 + Nov 2008 XDK) may require extra fixes or changes.
 
 * Toolchain: Visual Studio 2008 SP1
-* Original SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008). The 0.8.10 release is built with XDK 2.0.9328.0.
+* Original SDK: Xbox 360 XDK 2.0.7645.1 (Nov 2008). The 0.8.11 release is built with XDK 2.0.9328.0.
 * Also builds on Xbox 360 SDK 21256.3
 * Target: Xbox 360 (RGH/JTAG), retail-runnable `.xex`
-* Current release: **v0.8.10**. Controller screenshots use a background writer. See [release notes](docs/release-0.8.10.md).
+* Current release: **v0.8.11**. START + BACK opens the in-game menu, with priority over other shortcuts. See [release notes](docs/release-0.8.11.md).
 
 ---
 
@@ -553,7 +553,7 @@ Steps
 * **LT (Left Trigger):** **Rewind** - Hold to rewind gameplay. Speed ramps automatically: 1x → 2x → 4x → 8x based on hold duration. Stores up to ~5 seconds of gameplay history.
 * **RT (Right Trigger):** **Fast Forward** - Hold to speed up emulation at 2x speed. Release to return to normal speed.
 * **Right stick click:** Take a screenshot. Saved to `game:\snaps\` using ROM filename (e.g., `SuperMario - 0.png`). *Note: Clicking both thumbsticks opens the Lua console instead of taking a screenshot.*
-* **START + BACK:** Open **OSD** (auto-pause).
+* **START + BACK:** Open **OSD** (auto-pause). Hold both buttons on the same controller; either button can be pressed first. Release the combo before opening it again. The menu takes priority over screenshot and Lua console shortcuts.
 * **OSD actions:** Save/Load State (with slots), Reset Game, GFX options (experimental). Exiting OSD resumes gameplay; "Load Game" returns to ROM browser.
 
 ---
@@ -655,7 +655,7 @@ FCEUX360-<version>-xex.zip
 
 ## Troubleshooting
 
-* **OSD doesn't open:** Must be *in-game* (emulation scene active). Press **START + BACK** simultaneously. Ensure `ui.xzp` contains the OSD scenes and that your tab order puts OSD reachable from the emulation scene (default uses `GoToNext()`).
+* **OSD doesn't open:** Must be *in-game* (emulation scene active). Press **START + BACK** simultaneously. Install the XEX and `media` folder from the same release. Version 0.8.11 selects the embedded OSD tab directly and handles menu, console, and screenshot shortcuts in one place.
 * **GFX settings revert or don't apply:** Known issue; sometimes UI state and renderer can desync on scene changes. Work is in progress to harden state propagation and persistence.
 * **"Holding longer doesn't speed up":** Acceleration is on **Right Stick**; D-pad/Left Stick remain single-step. Check the RS deadzone and stick calibration.
 * **Black UI or missing text:** Verify `media\ui.xzp` and `media\xarialuni.ttf` are present.

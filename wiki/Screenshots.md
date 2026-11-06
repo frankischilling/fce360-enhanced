@@ -27,3 +27,10 @@ Component tests cover blocked writes, frame ownership, busy handling, numbering,
 I/O failures, synchronous captures, and shutdown. PNG checks verify pixels,
 palettes, dimensions, and CRCs. Xbox 360 timing and gameplay still need hardware
 testing; the source change alone does not establish a measured FPS result.
+
+## Menu shortcut
+
+START + BACK opens the in-game menu. From version 0.8.11, this combo has
+priority over screenshots and the Lua console. Hold both buttons on the same
+controller and release them before opening the menu again. Right-stick click
+remains the screenshot shortcut.

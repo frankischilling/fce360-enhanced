@@ -1,4 +1,4 @@
-name: Screenshot tests
+name: Front-end tests
 on:
   push:
   pull_request:
@@ -19,3 +19,9 @@ jobs:
           cd dist/tests
           /tmp/snapshot-test
           python ../../tests/check_png.py
+      - name: Gameplay shortcut tests
+        run: |
+          g++ -std=c++98 -Wall -Wextra -Werror -fsanitize=address,undefined -Ifceux/xbox tests/gameplay_shortcuts_test.cpp -o /tmp/gameplay-shortcuts-test
+          /tmp/gameplay-shortcuts-test
+      - name: Gameplay scene navigation tests
+        run: python tests/check_gameplay_scene.py
