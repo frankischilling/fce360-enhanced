@@ -226,7 +226,6 @@ Cemulator::Cemulator(void) {
 		m_audioPool[i] = NULL;
 	}
 	ftime = 0.0f;
-	m_screenshotLatch = false;
 	InitRewindBuffer();
 }
 
@@ -1518,44 +1517,6 @@ HRESULT Cemulator::Run() {
 			if (RenderEmulation) {
 				// Input
 				UpdateInput();
-
-				// Check for console combo and screenshot buttons
-				bool leftStickPressed = (Gamepads[0].wButtons & XINPUT_GAMEPAD_LEFT_THUMB) != 0;
-				bool rightStickPressed = (Gamepads[0].wButtons & XINPUT_GAMEPAD_RIGHT_THUMB) != 0;
-				bool consoleCombo = leftStickPressed && rightStickPressed;
-
-#ifdef USE_LUA
-				// Lua Console toggle (LS + RS combo - both thumbsticks clicked)
-				static WORD prevButtons = 0;
-				WORD b = Gamepads[0].wButtons;
-				bool prevConsoleCombo = (prevButtons & XINPUT_GAMEPAD_LEFT_THUMB) && (prevButtons & XINPUT_GAMEPAD_RIGHT_THUMB);
-				
-				// Rising edge: toggle console
-				if (consoleCombo && !prevConsoleCombo) {
-					extern void FCEU_ToggleLuaConsole(void);
-					extern void FCEU_LuaSetDisabled(int disabled);
-					// Ensure Lua is enabled when toggling console
-					FCEU_LuaSetDisabled(0);
-					FCEU_ToggleLuaConsole();
-					printf("Lua console toggled via LS+RS\n");
-				}
-				prevButtons = b;
-#endif
-
-				// Screenshot (RIGHT_THUMB button only - right stick click)
-				// But ignore if both sticks are pressed (console combo)
-				// Only take screenshot if right stick is pressed AND console combo is NOT active
-				bool screenshotPressed = rightStickPressed && !consoleCombo;
-				
-				if(screenshotPressed && !m_screenshotLatch)
-				{
-					m_screenshotLatch = true;
-					FCEUI_SaveSnapshot();
-				}
-				else if(!screenshotPressed)
-				{
-					m_screenshotLatch = false;
-				}
 
 				// Rewind (LT) with tap=single-step semantics + delayed
 				// key-repeat

@@ -131,7 +131,6 @@ class Cemulator {
 	int GetHeight() { return 240; };
 
 	bool end;
-	bool m_screenshotLatch; // prevents multiple screenshots per button press
 
 	// Rewind system
 	static const int REWIND_BUFFER_SIZE =
